@@ -1,6 +1,10 @@
 # MangoMe
 
 <p align="center">
+  <img src="docs/assets/mangome-banner.png" alt="MangoMe — persistent multi-agent operational memory" width="100%">
+</p>
+
+<p align="center">
   <strong>Project truth survives the agent.</strong><br>
   Canonical operational memory for long-lived multi-agent work.
 </p>
@@ -8,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.4-green">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.5-green">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
