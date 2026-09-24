@@ -7,7 +7,7 @@ import os
 from .importer import BigBangScanner, serialize_discovery, serialize_git_discovery
 from .maintenance import MangoMaintainer
 from .interlingua import UAICompiler, render_uai_result
-from .runtime import get_service
+from .runtime import get_service, health_snapshot
 
 
 def _print(value) -> None:
@@ -76,6 +76,10 @@ def main() -> None:
     uai_render.add_argument("--context-hash", default=None)
 
     args = parser.parse_args()
+    if args.cmd == "health":
+        _print(health_snapshot())
+        return
+
     svc = get_service()
     if args.cmd == "scan":
         scanner = BigBangScanner(svc)
@@ -89,8 +93,6 @@ def main() -> None:
         result = svc.status(args.family_id)
     elif args.cmd == "project":
         result = svc.project_overview(args.project_ref)
-    elif args.cmd == "health":
-        result = svc.health()
     elif args.cmd == "refresh":
         result = MangoMaintainer(svc).refresh_all_family_views()
     elif args.cmd == "diagnose":

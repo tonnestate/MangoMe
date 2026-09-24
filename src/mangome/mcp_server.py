@@ -15,7 +15,7 @@ from .importer import (
 )
 from .maintenance import MangoMaintainer
 from .interlingua import UAICompiler, decode_uai_result as decode_result_packet, render_uai_result as render_result_packet
-from .runtime import get_service
+from .runtime import get_service, health_snapshot
 
 mcp = MCPServer(
     "MangoMe",
@@ -26,14 +26,14 @@ mcp = MCPServer(
         "Collision warnings are advisory and must never block work. UAI/1 is compact transport only: "
         "decode worker results and route them through normal MangoMe mutation/assurance tools."
     ),
-    version="0.1.3",
+    version="0.1.4",
 )
 
 
 @mcp.tool()
 def health() -> dict[str, Any]:
-    """Return MangoMe version, schema version, and backing-store readiness."""
-    return get_service().health()
+    """Return readiness even when backing-store initialization fails."""
+    return health_snapshot()
 
 
 @mcp.tool()

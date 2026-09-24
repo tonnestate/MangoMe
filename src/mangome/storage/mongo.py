@@ -21,10 +21,18 @@ class MongoStore(Store):
         self.db = self.client[database]
 
     def insert(self, collection: str, doc: dict[str, Any]) -> dict[str, Any]:
-        doc = dict(doc)
-        doc.setdefault("revision", 0)
-        self.db[collection].insert_one(doc)
-        return dict(doc)
+        # PyMongo mutates the mapping passed to insert_one() by adding an `_id`
+        # ObjectId when no `_id` is present. Returning that mutated mapping from an
+        # MCP tool makes otherwise successful creates fail during structured-output
+        # serialization. Keep the canonical MangoMe document and the MongoDB write
+        # document separate so BSON-only transport details never leak into the
+        # domain/MCP surface.
+        canonical_doc = dict(doc)
+        canonical_doc.pop("_id", None)
+        canonical_doc.setdefault("revision", 0)
+        storage_doc = dict(canonical_doc)
+        self.db[collection].insert_one(storage_doc)
+        return upgrade_document(collection, canonical_doc)[0]
 
     def get(self, collection: str, entity_id: str) -> dict[str, Any] | None:
         doc = self.db[collection].find_one({"entity_id": entity_id}, {"_id": 0})

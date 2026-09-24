@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 — 2026-09-24
+
+- Fixed MongoDB create operations that persisted successfully but failed as MCP tool responses because PyMongo injected a BSON `ObjectId` into the returned Python mapping. MongoDB storage documents and MangoMe wire/domain documents are now separated.
+- Added regression coverage for BSON `_id` leakage and real MongoDB MCP create serialization.
+- Made `health` a safe observability boundary: MCP and CLI health now return sanitized `ok: false` diagnostics when backing-store bootstrap/authentication fails instead of crashing with a generic tool error.
+- Health diagnostics never include connection strings, passwords, tokens, or raw exception messages.
+
 ## 0.1.3 — 2026-09-24
 
 - Repositioned MangoMe explicitly as canonical operational memory: document store + work graph + state machine + contract history + evidence/provenance ledger + execution economics + context compiler.

@@ -59,3 +59,38 @@ def test_mongo_persists_verified_state_end_to_end():
     finally:
         store.client.drop_database(database)
         store.client.close()
+
+
+@pytest.mark.skipif(not URI, reason="MANGOME_TEST_MONGO_URI not configured")
+def test_mongo_mcp_create_project_returns_serializable_result(monkeypatch):
+    import asyncio
+
+    from mcp.client.client import Client
+    from mangome.mcp_server import mcp
+    from mangome.runtime import reset_service_for_tests
+
+    database = f"mangome_mcp_wire_{uuid.uuid4().hex}"
+    monkeypatch.setenv("MANGOME_BACKEND", "mongo")
+    monkeypatch.setenv("MANGOME_MONGODB_URI", URI)
+    monkeypatch.setenv("MANGOME_DATABASE", database)
+    reset_service_for_tests()
+
+    async def run():
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "create_project",
+                {"project_key": "MCP-WIRE", "title": "MCP wire regression"},
+            )
+            assert result.is_error is False
+            assert result.structured_content is not None
+            payload = result.structured_content.get("result", result.structured_content)
+            assert payload["project_key"] == "MCP-WIRE"
+            assert "_id" not in payload
+
+    try:
+        asyncio.run(run())
+    finally:
+        cleanup = MongoStore(URI, database)
+        cleanup.client.drop_database(database)
+        cleanup.client.close()
+        reset_service_for_tests()
