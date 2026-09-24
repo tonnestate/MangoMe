@@ -1,22 +1,42 @@
-# MangoMe v0.1.0 test report
+# MangoMe v0.1.1 patch test report
 
 Date: 2026-09-24
 
-## Passed
+## Local overlay test
 
-- 8 domain/unit tests passed.
-- Plan-before-mutate enforcement.
-- DONE_CLAIMED remains UNVERIFIED until all gates pass.
-- Advisory collision warnings do not lock work.
-- Last-started slice is derived from persistent timestamps.
-- Duplicate declared contract IDs preserve both contributions and create a collision warning.
-- Big-Bang scan is non-destructive and does not auto-create canonical contracts.
-- Context compiler selects current active slice.
-- Execution receipts calculate durable outcome cost and context-token savings.
-- Python bytecode compilation succeeded for all MangoMe modules.
-- In-memory bootstrap lifecycle executed successfully.
-- Package build/install was validated locally with `--no-deps --no-build-isolation` against the container's installed build tooling.
+The v0.1.1 patch was applied over the exact local v0.1.0 baseline and tested as an overlay.
 
-## Environment limitation
+Result:
 
-The sandbox cannot download packages from PyPI, therefore a live runtime import/integration test of external `mcp>=2` and `pymongo>=4.10` dependencies could not be executed here. The MCP server targets the current official MCP Python SDK v2 API (`from mcp.server import MCPServer`, decorated tools, `MCPServer.run`).
+```text
+13 passed, 1 skipped
+```
+
+Passed coverage includes the original v0.1 tests plus new checks for:
+
+- evidence-backed gate PASS;
+- rejection of PASS without persisted evidence;
+- separation of executor and verifier;
+- approval-backed gate WAIVE;
+- explicit VERIFIED → ACCEPTED owner/human acceptance;
+- plan closing removing stale plans from active context;
+- original plan-before-mutate, collision-warning, slice-state, Big-Bang and economics behavior.
+
+Python bytecode compilation succeeded for `src`, `tests`, and `server.py`.
+
+## Local environment limitations
+
+The local sandbox does not have the external `mcp` package installed, so a live MCP import could not be executed locally.
+
+The MongoDB integration test is present but is skipped locally unless `MANGOME_TEST_MONGO_URI` is configured.
+
+## CI added by this patch
+
+`.github/workflows/ci.yml` installs the declared dependencies and runs on Python 3.10, 3.11 and 3.12 with a MongoDB 7 service container. CI executes:
+
+- all pytest tests including the real MongoDB persistence test;
+- MCP import smoke test;
+- Agent Skill mirror consistency check;
+- Python source compilation.
+
+The GitHub Actions result after upload is therefore the authoritative integration result for external MCP/PyMongo dependencies.

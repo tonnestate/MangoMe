@@ -1,6 +1,6 @@
 # MangoMe
 
-> **EXPERIMENTAL — v0.1.0**  
+> **EXPERIMENTAL — v0.1.1**  
 > MangoMe is an early multi-agent work-state MCP. The current release implements the core state machine, contract families, append-only contract contributions, specifications, plans, slices, claims, evidence, status projections, advisory collision detection, Big-Bang discovery, context compilation, and model/cost execution receipts. It is not yet a production authorization system or autonomous verifier.
 
 **A persistent work graph and document-state machine for Claude, Codex, Luna and other agents.**
@@ -116,6 +116,19 @@ REJECTED
 
 This makes `DONE_CLAIMED / UNVERIFIED` a normal, stable state.
 
+### v0.1.1 integrity layer
+
+v0.1.1 keeps `DONE_CLAIMED` stable while tightening the assurance path:
+
+- `PASS` gates require persisted evidence for the same slice;
+- `WAIVED` gates require an approved `WAIVE_GATE` decision;
+- the last executing actor cannot verify its own `DONE_CLAIMED`;
+- `VERIFIED` and owner/human `ACCEPTED` are separate states;
+- acceptance requires an approved `ACCEPT_SLICE` decision;
+- plan closing, artifact registration, graph linking and approval lifecycle are exposed through MCP.
+
+The approval records are an explicit state protocol, **not cryptographic authentication**. Caller identity still comes from the MCP host/runtime.
+
 ### Plan-before-mutate
 
 All agents may read all MangoMe state. Productive slice execution requires a persisted plan associated with an intake request and a specification.
@@ -174,7 +187,7 @@ MangoMe calculates `durable_cost = execution + verification + repair + human` an
 
 ## MCP tools
 
-The v0.1 server exposes these tool groups:
+The v0.1.1 server exposes these tool groups:
 
 ```text
 Intake / specs
@@ -187,17 +200,26 @@ Identity / registry
   create_family
   register_contract
   import_contract_bundle
+  attach_artifact
+  link_entities
 
 Planning / execution
   submit_plan
   start_slice
   update_slice_progress
   claim_done
+  close_plan
 
 Evidence / assurance
   submit_evidence
   set_gate
+  set_gate_controlled
   verify_slice
+  request_override
+  approve_override
+  reject_override
+  list_approvals
+  accept_slice
 
 Read / context
   status
@@ -325,4 +347,4 @@ Cross-provider reconciliation is intentionally a next-stage adapter, not part of
 
 ## Status
 
-v0.1.0 is the first executable baseline. The most important next integration work is IntakeGov → MangoMe intake, CogC → compiled execution context, OmniRoute → model/cost receipts, and deployment against the shared system-wide MongoDB instance.
+v0.1.1 is the first integrity-hardened executable baseline. The most important next integration work is IntakeGov → MangoMe intake, CogC → compiled execution context, OmniRoute → model/cost receipts, and deployment against the shared system-wide MongoDB instance.
