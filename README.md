@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.5-green">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.6-green">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -645,9 +645,9 @@ It does **not** convert ambiguity into truth automatically.
 
 ---
 
-# Deterministic filesystem inventory and evidence freshness
+# Deterministic filesystem inventory and reproducible Evidence bindings
 
-MangoMe 0.1.5 adds a cheap deterministic filesystem inventory intended as a substrate for targeted legacy revalidation and future proof reuse. It does **not** reconstruct historical slices, infer implementation from file presence, or trust old AI audits.
+MangoMe 0.1.5 introduced a cheap deterministic filesystem inventory for targeted legacy revalidation. v0.1.6 builds on that substrate with **RB/1 reproducible Evidence bindings**. The goal is still conservative: bind already-admissible Evidence to concrete execution context without pretending that a hash or an old audit proves semantic correctness.
 
 ```text
 filesystem_scan
@@ -656,28 +656,55 @@ SOURCE / TEST / CONTRACT / WORKFLOW / CONFIG / REPORT inventory
     ↓
 filesystem_references(<declared-id>)
     ↓
-small candidate set for targeted verification
+small candidate set
+    ↓
+build_reproduction_binding
+    ↓
+Evidence.payload.reproduction (RB/1)
+    ↓
+evidence_freshness
 ```
 
-Every indexed file receives a stable path identity, SHA-256 where bounded, size/mtime, lexical declared-ID references and nearest Git root/HEAD.
+The filesystem inventory still records stable path identity, SHA-256 where bounded, size/mtime, lexical declared-ID references and nearest Git root/HEAD. Repeated scans reuse persisted inventory state and avoid rewriting unchanged records, but the current scanner still walks explicitly supplied roots on each scan; it is not yet a Git-delta scanner, filesystem watcher, or host-wide auto-discovery daemon.
 
-Repeated scans reuse persisted inventory state and avoid rewriting unchanged records. The current scanner still walks the configured filesystem scope on each scan; it is not yet a Git-delta scanner, filesystem watcher, or host-wide auto-discovery daemon.
+## RB/1
 
-Existing Evidence can optionally carry hash-bound filesystem bindings in `payload.filesystem_bindings` (`path` + `sha256`). `evidence_freshness` checks those bindings live and returns `REUSABLE`, `STALE`, `UNKNOWN`, `UNBOUND` or `INADMISSIBLE`.
+`build_reproduction_binding` does **not** run a test or shell command. It records the command and caller-supplied exit code, hashes the declared relevant input files, captures the current/provided Git commit, optionally binds an output Artifact, and creates a deterministic `fingerprint`.
 
-Here, `REUSABLE` has a deliberately narrow meaning:
+Representative shape:
 
-> **The evidence was already admissible, attested and PASS-valued, and its bound filesystem hashes still match.**
+```json
+{
+  "version": "RB/1",
+  "command": "pytest -q tests/test_policy.py",
+  "cwd": "/opt/app",
+  "exit_code": 0,
+  "git_commit": "<commit>",
+  "input_bindings": [
+    {"path": "/opt/app/src/policy.py", "sha256": "<sha256>", "role": "SOURCE"},
+    {"path": "/opt/app/tests/test_policy.py", "sha256": "<sha256>", "role": "TEST"}
+  ],
+  "output_artifact_id": null,
+  "stdout_sha256": null,
+  "stderr_sha256": null,
+  "environment_names": ["CI", "PYTHONPATH"],
+  "fingerprint": "<sha256>"
+}
+```
 
-It does **not** mean that MangoMe has re-proven the requirement, inferred semantic equivalence between two requirements, or established that Evidence from one Slice automatically satisfies another Slice.
+Environment **values are never part of RB/1**. The helper accepts names only and rejects names that look like password/token/secret/key credentials. Dependency or configuration state should be represented by explicit hashed input files such as lockfiles or config files, not by copying secrets into Evidence.
 
-An old audit saying “PASS” remains a claim/report. Freshness does not create `VERIFIED` or `ACCEPTED`, and it does not invent historical Slice provenance.
+`evidence_freshness` remains deliberately narrow. For RB/1 Evidence it checks the stored fingerprint, the bound input hashes, optional output Artifact state, and the Git context where available. It can surface reason codes such as `SOURCE_CHANGED`, `TEST_CHANGED`, `OUTPUT_MISSING`, `COMMIT_CHANGED`, or `FINGERPRINT_MISMATCH`.
 
-v0.1.5 also does not require a complete reproduction capsule containing test command, runner version, dependency/environment fingerprint and exit code. Such details may be stored in Evidence payloads or artifacts, but full reproduction-capsule enforcement is future hardening work.
+A different Git HEAD with unchanged bound inputs returns conservative `UNKNOWN`, not automatic `STALE` or `REUSABLE`: a commit change alone does not prove that a relevant dependency changed, but it also means exact execution context has not been re-established.
 
-The conservative rule is:
+`REUSABLE` still has a deliberately narrow meaning:
 
-> **Reuse previously attested evidence only while its concrete bindings remain current; never reuse an AI conclusion merely because it says PASS.**
+> **The Evidence was already admissible, attested and PASS-valued, its RB/1 fingerprint is intact, and all declared live-checkable bindings remain current.**
+
+It does **not** mean that MangoMe re-ran the command, re-proved the requirement, inferred semantic equivalence between requirements, or established that Evidence from one Slice automatically satisfies another Slice. A current revalidation still requires executing the relevant check and recording new Evidence when the binding is stale or insufficient.
+
+Legacy `payload.filesystem_bindings` from v0.1.5 remain supported. Old AI/audit prose remains non-reusable `CLAIM` material unless it independently satisfies the normal Evidence and attestation rules. Freshness never creates `VERIFIED` or `ACCEPTED`, and MangoMe does not fabricate historical Slice provenance.
 
 See [`docs/filesystem-proof-reuse.md`](docs/filesystem-proof-reuse.md).
 
@@ -685,7 +712,7 @@ See [`docs/filesystem-proof-reuse.md`](docs/filesystem-proof-reuse.md).
 
 # MCP tools
 
-The v0.1.5 MCP surface includes:
+The v0.1.6 MCP surface includes:
 
 ```text
 Intake / specification
@@ -745,6 +772,7 @@ Discovery / maintenance
   reconcile_bigbang
   filesystem_scan
   filesystem_references
+  build_reproduction_binding
   evidence_freshness
   refresh_views
   maintenance_diagnose
@@ -955,7 +983,7 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.5 adds deterministic filesystem inventory and hash-bound evidence-freshness checks on top of the v0.1.4 MCP/MongoDB operability hotfix. v0.1.4 fixed BSON `_id` leakage in successful MongoDB create operations and made health reporting survive backing-store bootstrap failures without exposing secrets.
+v0.1.6 adds RB/1 reproducible Evidence bindings on top of the v0.1.5 filesystem inventory. It can bind attested PASS Evidence to a declared command, caller-supplied exit code, Git commit, relevant input hashes, optional output Artifact and a deterministic reproduction fingerprint. MangoMe still does not execute the command itself during binding or freshness checks.
 
 The current architecture is:
 
@@ -970,28 +998,26 @@ CogC / worker-specific context shaping
     ↓
 Agent execution
     ↓
-UAI/1R / structured result
+Evidence + optional RB/1 binding
     ↓
-MangoMe evidence + state + verification
+Verification
+    ↓
+Authorized acceptance
 ```
 
 Important current limits:
 
 - UAI/1's published `80.91%` figure is a **character reduction in one representative demo**, not a universal provider-token saving.
-- `evidence_freshness=REUSABLE` means existing attested PASS evidence still matches its bound filesystem hashes. It does not create new Verification or Acceptance.
-- MangoMe does not yet infer semantic equivalence between Evidence/requirements across Slices.
-- Filesystem scans currently require explicit roots and still walk the configured scope on each scan.
+- RB/1 records reproduction metadata and hashes declared inputs; it does **not** execute or sandbox the declared command. The caller/verifier remains responsible for the truth of the recorded run.
+- `evidence_freshness=REUSABLE` does not create new Verification or Acceptance and does not prove requirement coverage.
+- A changed Git HEAD with unchanged bound inputs is conservatively `UNKNOWN`; MangoMe does not yet have a complete dependency graph proving that the declared input set is exhaustive.
+- MangoMe does not infer semantic equivalence between Evidence/requirements across Slices.
+- Filesystem scans require explicit roots and still walk the configured scope on each scan.
 - The public implementation does not reconstruct missing historical Slices or certify old AI audits as truth.
 - Execution-cost and token economics are only as complete as the Execution Receipts supplied by the surrounding runtime.
-- The latest packaged test report records all runnable tests passing, with three optional integration/surface tests skipped because the required runtime dependency/environment was unavailable in that packaging sandbox. That is not equivalent to full production validation.
+- The v0.1.6 packaging test run records **45 passed, 3 skipped**. The skipped checks require optional MCP/MongoDB runtime dependencies or configuration, so this is not equivalent to full production validation.
 
-The next useful work is therefore hardening and empirical evaluation rather than stronger marketing claims:
-
-- strengthen reproducible Evidence bindings where the use case requires commands, environments and execution outputs in addition to file hashes;
-- build targeted legacy revalidation on top of the shared filesystem/reference inventory without fabricating history;
-- improve runtime integration so governed work actually passes through MangoMe;
-- measure RAW vs compiled vs UAI provider-token/cost per verified outcome with real model telemetry;
-- run longer multi-agent durability evaluations against real project families.
+The next useful work is targeted legacy revalidation and runtime integration: use the shared inventory to find likely implementation/test evidence, issue present-day revalidation only where needed, and ensure governed execution paths actually pass through MangoMe. Provider-token/cost evaluation can then measure cost per verified outcome against a stronger Evidence model.
 
 ---
 

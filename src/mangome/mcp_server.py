@@ -27,7 +27,7 @@ mcp = MCPServer(
         "Collision warnings are advisory and must never block work. UAI/1 is compact transport only: "
         "decode worker results and route them through normal MangoMe mutation/assurance tools."
     ),
-    version="0.1.5",
+    version="0.1.6",
 )
 
 
@@ -322,8 +322,36 @@ def filesystem_references(declared_id: str, present_only: bool = True, limit: in
 
 
 @mcp.tool()
+def build_reproduction_binding(
+    command: str,
+    cwd: str,
+    exit_code: int,
+    input_paths: list[str],
+    output_artifact_id: str | None = None,
+    environment_names: list[str] | None = None,
+    stdout_sha256: str | None = None,
+    stderr_sha256: str | None = None,
+    git_commit: str | None = None,
+    max_hash_bytes: int = 67108864,
+) -> dict[str, Any]:
+    """Build an RB/1 reproduction binding from current files/Git metadata without executing the command or reading environment values."""
+    return FilesystemScanner(get_service()).build_reproduction_binding(
+        command=command,
+        cwd=cwd,
+        exit_code=exit_code,
+        input_paths=input_paths,
+        output_artifact_id=output_artifact_id,
+        environment_names=environment_names,
+        stdout_sha256=stdout_sha256,
+        stderr_sha256=stderr_sha256,
+        git_commit=git_commit,
+        max_hash_bytes=max_hash_bytes,
+    )
+
+
+@mcp.tool()
 def evidence_freshness(evidence_id: str, live_check: bool = True) -> dict[str, Any]:
-    """Check whether attested PASS evidence with filesystem hash bindings is still reusable. Never changes verification or acceptance state."""
+    """Check whether attested PASS evidence remains current under legacy hash bindings or RB/1 reproduction bindings. Never reruns commands or changes assurance state."""
     return FilesystemScanner(get_service()).evidence_freshness(evidence_id, live_check=live_check)
 
 

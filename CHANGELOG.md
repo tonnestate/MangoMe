@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.6 — 2026-09-24
+
+- Added RB/1 structured reproduction bindings inside existing `Evidence.payload`; no new Proof entity or parallel assurance lifecycle.
+- Added `build_reproduction_binding`, which records a declared command, caller-supplied exit code, current/provided Git commit, hashed relevant input files, optional output Artifact, stdout/stderr hashes and environment-variable names without executing the command.
+- Added deterministic RB/1 fingerprinting with canonicalized input ordering and explicit fingerprint-integrity checks.
+- Environment values are never stored by RB/1; names that look like passwords, tokens, secrets, API keys, private keys or credentials are rejected.
+- Extended `evidence_freshness` with RB/1 checks and explicit reason codes such as `SOURCE_CHANGED`, `TEST_CHANGED`, `OUTPUT_MISSING`, `COMMIT_CHANGED`, `FINGERPRINT_MISMATCH` and `EXIT_CODE_NONZERO`.
+- A changed Git HEAD with unchanged declared input hashes is conservatively `UNKNOWN`, not silently reusable or automatically stale.
+- Preserved v0.1.5 `filesystem_bindings` compatibility.
+- RB/1 freshness never reruns commands, infers requirement coverage, transfers proof across slices, creates `VERIFIED`/`ACCEPTED`, or fabricates historical slices.
+- Clarified README claims around UAI character reduction, authorized acceptance, filesystem-scan scope, proof freshness and test/runtime limits.
+- Test result for this packaging run: 45 passed, 3 skipped (optional MCP/MongoDB runtime checks unavailable/unconfigured in the sandbox).
+
 ## 0.1.5 — 2026-09-24
 
 - Added a bounded deterministic filesystem inventory for source, tests, contracts, workflows, configuration, documentation and reports.

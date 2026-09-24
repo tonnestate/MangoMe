@@ -1,17 +1,17 @@
-# Filesystem inventory and proof freshness
+# Filesystem inventory, RB/1 and Evidence freshness
 
-MangoMe 0.1.5 adds a deterministic filesystem inventory intended to reduce repeated AI audits without turning historical prose into truth.
+MangoMe 0.1.5 added deterministic filesystem inventory. MangoMe 0.1.6 adds **RB/1**, a structured reproduction binding stored inside the existing `Evidence.payload`. RB/1 is not a new Proof entity or a second assurance lifecycle.
 
-The core rule is:
+The core rule remains:
 
-> Reuse reproducible proof, not previous AI conclusions.
+> Reuse current, reproducibly bound Evidence — not previous AI conclusions.
 
-## What the scanner records
+## 1. Filesystem inventory
 
-`filesystem_scan` walks explicitly supplied roots and persists only observable filesystem facts:
+`filesystem_scan` walks explicitly supplied roots and persists observable filesystem facts:
 
 - absolute and relative path;
-- file role (`SOURCE`, `TEST`, `CONTRACT`, `AUDIT_OR_REPORT`, `WORKFLOW`, `CONFIG`, `DOCUMENTATION`, `OTHER`);
+- role (`SOURCE`, `TEST`, `CONTRACT`, `AUDIT_OR_REPORT`, `WORKFLOW`, `CONFIG`, `DOCUMENTATION`, `OTHER`);
 - SHA-256 when the file is within the configured hash bound;
 - size and nanosecond mtime;
 - lexically detected declared contract/work IDs;
@@ -20,62 +20,127 @@ The core rule is:
 
 Sensitive/key files and common secret/cache/build directories are excluded. Useful hidden work directories such as `.github`, `.gitlab`, and `.devcontainer` are not discarded merely because they are hidden.
 
-The scanner does not create contracts, slices, verification, or acceptance.
+The scanner does not create Contracts, Slices, Verification, Acceptance, or implementation truth.
 
-## Incremental behavior
+Repeated scans reuse persisted inventory state and do not rewrite unchanged records. They still walk the configured roots. v0.1.6 is not a filesystem watcher or Git-delta scanner.
 
-Each path has a stable filesystem-entry identity. Unchanged entries are not rewritten. A complete rescan marks previously indexed files that disappeared as not present. Each root also receives a deterministic tree hash and scan summary.
+## 2. Reference lookup
 
-This allows later work to query a shared inventory instead of rescanning the repository separately for every contract.
-
-## Reference lookup
-
-`filesystem_references(declared_id)` returns current indexed files that lexically mention a declared ID. This is navigation only. A filename or code comment referencing a contract is not proof that the contract was implemented.
-
-Typical use:
+`filesystem_references(declared_id)` finds indexed files that lexically mention a declared ID. This is navigation only. A filename, source comment, test name, or report that references a Contract is not proof of implementation.
 
 ```text
 legacy contract id
-    -> filesystem reference lookup
+    -> filesystem_references
     -> likely source/tests/config/workflows
-    -> targeted verification
+    -> targeted current verification
 ```
 
-## Proof freshness
+## 3. RB/1 reproduction binding
 
-Existing MangoMe Evidence can bind itself to concrete filesystem facts through the existing `payload` field:
+`build_reproduction_binding` creates an `RB/1` structure from current observable facts. It **does not execute the command**. The caller supplies the command and exit code from a run performed outside this helper.
 
-```json
-{
-  "filesystem_bindings": [
-    {
-      "path": "/opt/app/src/policy.py",
-      "sha256": "<sha256>"
-    },
-    {
-      "path": "/opt/app/tests/test_policy.py",
-      "sha256": "<sha256>"
-    }
-  ]
-}
+Required binding fields are:
+
+```text
+version = RB/1
+command
+cwd
+exit_code
+input_bindings[] = path + sha256 + role
+fingerprint
 ```
 
-`evidence_freshness(evidence_id)` then checks whether the proof is still reusable.
+Additional provenance may include:
 
-It returns:
+```text
+git_commit
+output_artifact_id
+stdout_sha256
+stderr_sha256
+environment_names[]
+```
 
-- `REUSABLE`: attested PASS evidence and all bound hashes still match;
-- `STALE`: a bound file changed or disappeared;
-- `UNKNOWN`: a binding cannot currently be checked;
-- `UNBOUND`: no reproducible filesystem binding exists;
-- `INADMISSIBLE`: for example a `CLAIM`, unattested evidence, or non-PASS result.
+Environment values are never accepted by RB/1. The helper records names only and rejects names that look like passwords, tokens, secrets, API keys, private keys or credentials. If dependency/configuration state matters, bind the corresponding lockfile/configuration file as an input.
 
-By default freshness performs a live SHA-256 check of the bound files, so reuse does not depend on trusting an old scan timestamp.
+The deterministic fingerprint covers the semantic RB/1 fields but excludes volatile capture time and the fingerprint field itself. Input bindings and environment names are canonicalized before hashing so ordering does not change the fingerprint.
 
-## What this deliberately does not do
+Typical usage:
 
-A historical AI audit remains a claim/report. It is not promoted because it says “implemented”, “verified”, or “all tests passed”.
+```text
+1. execute the test/check in the real runtime
+2. retain its command + exit code + relevant outputs
+3. build_reproduction_binding(...)
+4. submit_evidence(payload={"reproduction": <RB/1>}, ...)
+5. verifier/owner attests the Evidence
+6. normal gate / verify_slice path
+```
 
-Freshness also does not create `VERIFIED` or `ACCEPTED`. It only answers whether an already attested reproducible proof remains unchanged. The normal MangoMe verification and acceptance rules still apply.
+Attestation remains important: RB/1 makes a claim inspectable and freshness-checkable; it does not independently prove that the caller really executed the command it reports.
 
-MangoMe 0.1.5 therefore establishes the cheap deterministic substrate for proof reuse while avoiding fabricated historical slice provenance or automatic cross-slice semantic equivalence.
+## 4. Evidence freshness
+
+`evidence_freshness(evidence_id)` first requires the existing normal MangoMe conditions for reusable Evidence:
+
+- admissible Evidence class;
+- verifier/owner attestation;
+- PASS verdict.
+
+For RB/1 Evidence it then checks:
+
+- binding version;
+- reproduction fingerprint integrity;
+- `exit_code == 0` for PASS Evidence;
+- current hashes/presence of all declared input files;
+- current Git HEAD when an expected commit exists;
+- optional output Artifact presence and filesystem checksum where available.
+
+Possible top-level states remain:
+
+- `REUSABLE` — all declared live-checkable bindings remain current;
+- `STALE` — a bound input/output changed or disappeared;
+- `UNKNOWN` — exact current context cannot be established;
+- `UNBOUND` — no usable hashed input binding exists;
+- `INADMISSIBLE` — Evidence/binding does not satisfy reuse rules.
+
+Reason codes provide more detail, including:
+
+```text
+SOURCE_CHANGED
+SOURCE_MISSING
+TEST_CHANGED
+TEST_MISSING
+INPUT_CHANGED
+INPUT_MISSING
+INPUT_UNCHECKABLE
+OUTPUT_CHANGED
+OUTPUT_MISSING
+OUTPUT_UNREADABLE
+COMMIT_CHANGED
+GIT_UNAVAILABLE
+FINGERPRINT_MISSING
+FINGERPRINT_MISMATCH
+EXIT_CODE_NONZERO
+```
+
+A Git commit mismatch is conservative `UNKNOWN` when declared input hashes still match. A different repository HEAD does not itself prove a relevant dependency changed, but MangoMe also cannot claim exact-context reproducibility without a complete dependency closure.
+
+## 5. Legacy compatibility
+
+v0.1.5 `payload.filesystem_bindings` continue to work. They remain weaker than RB/1 because they do not carry command, exit-code, Git-context or reproduction-fingerprint metadata.
+
+Historical AI audit prose remains a `CLAIM`/report and is never promoted merely because it says “implemented”, “verified” or “all tests passed”.
+
+## 6. What RB/1 deliberately does not do
+
+RB/1 does not:
+
+- run or sandbox tests;
+- store environment-variable values or secrets;
+- infer that the declared input set is complete;
+- infer Requirement ↔ Evidence semantic coverage;
+- infer cross-Slice proof equivalence;
+- create `VERIFIED` or `ACCEPTED`;
+- reconstruct missing historical Slices;
+- make an old audit trustworthy.
+
+If current assurance is required and Evidence is stale, unknown or insufficiently bound, create/run a **present-day revalidation Slice**. That proves the current implementation state; it does not fabricate historical provenance.

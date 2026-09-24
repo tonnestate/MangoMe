@@ -102,3 +102,206 @@ def test_audit_claim_is_never_reusable_proof(tmp_path: Path):
     )
     result = FilesystemScanner(svc).evidence_freshness(evidence["entity_id"])
     assert result["state"] == "INADMISSIBLE"
+
+
+def test_build_reproduction_binding_hashes_inputs_and_does_not_store_environment_values(tmp_path: Path):
+    source = tmp_path / "src.py"
+    test_file = tmp_path / "test_src.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    test_file.write_text("def test_value(): assert True\n", encoding="utf-8")
+    svc = MangoMeService(InMemoryStore())
+    scanner = FilesystemScanner(svc)
+    scanner.scan([str(tmp_path)])
+
+    first = scanner.build_reproduction_binding(
+        command="pytest -q test_src.py",
+        cwd=str(tmp_path),
+        exit_code=0,
+        input_paths=[str(test_file), str(source)],
+        environment_names=["PYTHONPATH", "CI"],
+        git_commit="deadbeef",
+    )["reproduction"]
+    second = scanner.build_reproduction_binding(
+        command="pytest -q test_src.py",
+        cwd=str(tmp_path),
+        exit_code=0,
+        input_paths=[str(source), str(test_file)],
+        environment_names=["CI", "PYTHONPATH", "CI"],
+        git_commit="deadbeef",
+    )["reproduction"]
+
+    assert first["version"] == "RB/1"
+    assert first["fingerprint"] == second["fingerprint"]
+    assert first["environment_names"] == ["CI", "PYTHONPATH"]
+    assert "environment_values" not in first
+    assert {item["role"] for item in first["input_bindings"]} == {"SOURCE", "TEST"}
+
+
+def test_build_reproduction_binding_rejects_sensitive_environment_names(tmp_path: Path):
+    source = tmp_path / "feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    svc = MangoMeService(InMemoryStore())
+    scanner = FilesystemScanner(svc)
+
+    import pytest
+    with pytest.raises(ValueError, match="sensitive environment variable name"):
+        scanner.build_reproduction_binding(
+            command="pytest -q",
+            cwd=str(tmp_path),
+            exit_code=0,
+            input_paths=[str(source)],
+            environment_names=["OPENAI_API_TOKEN"],
+            git_commit="deadbeef",
+        )
+
+
+def test_reproduction_freshness_reports_source_change_and_fingerprint_tampering(tmp_path: Path):
+    source = tmp_path / "feature.py"
+    test_file = tmp_path / "test_feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    test_file.write_text("def test_feature(): assert True\n", encoding="utf-8")
+    svc = MangoMeService(InMemoryStore())
+    scanner = FilesystemScanner(svc)
+    scanner.scan([str(tmp_path)])
+
+    reproduction = scanner.build_reproduction_binding(
+        command="pytest -q test_feature.py",
+        cwd=str(tmp_path),
+        exit_code=0,
+        input_paths=[str(source), str(test_file)],
+        git_commit="deadbeef",
+    )["reproduction"]
+    family = svc.create_family("RB1", "RB1")
+    sl = svc.import_slice(
+        family_id=family["entity_id"], declared_id="RB1-S1", title="RB1",
+        execution_state="DONE_CLAIMED", assurance_state="UNVERIFIED",
+    )
+    evidence = svc.submit_evidence(
+        subject_id=sl["entity_id"], evidence_type="unit-test", source="pytest", result="PASS",
+        evidence_class="TEST_RESULT", payload={"reproduction": reproduction},
+    )
+    svc.store.update("evidence", evidence["entity_id"], {"trust": "VERIFIER_ATTESTED", "attested_by": "verifier"})
+
+    # Explicit fake git commit makes exact-context freshness UNKNOWN even while files match.
+    current = scanner.evidence_freshness(evidence["entity_id"])
+    assert current["state"] == "UNKNOWN"
+    assert "COMMIT_CHANGED" in current["reason_codes"] or "GIT_UNAVAILABLE" in current["reason_codes"]
+
+    source.write_text("VALUE = 2\n", encoding="utf-8")
+    stale = scanner.evidence_freshness(evidence["entity_id"])
+    assert stale["state"] == "STALE"
+    assert "SOURCE_CHANGED" in stale["reason_codes"]
+
+    stored = svc.store.get("evidence", evidence["entity_id"])
+    tampered = dict(stored["payload"])
+    tampered_repro = dict(tampered["reproduction"])
+    tampered_repro["command"] = "pytest -q --changed"
+    tampered["reproduction"] = tampered_repro
+    svc.store.update("evidence", evidence["entity_id"], {"payload": tampered})
+    invalid = scanner.evidence_freshness(evidence["entity_id"])
+    assert invalid["state"] == "INADMISSIBLE"
+    assert invalid["reason_codes"] == ["FINGERPRINT_MISMATCH"]
+
+
+def test_reproduction_freshness_is_reusable_when_git_and_inputs_match(tmp_path: Path):
+    import subprocess
+
+    source = tmp_path / "feature.py"
+    test_file = tmp_path / "test_feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    test_file.write_text("def test_feature(): assert True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "MangoMe Test"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "feature.py", "test_feature.py"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "fixture"], check=True)
+
+    svc = MangoMeService(InMemoryStore())
+    scanner = FilesystemScanner(svc)
+    scanner.scan([str(tmp_path)])
+    reproduction = scanner.build_reproduction_binding(
+        command="pytest -q test_feature.py",
+        cwd=str(tmp_path),
+        exit_code=0,
+        input_paths=[str(source), str(test_file)],
+    )["reproduction"]
+    family = svc.create_family("RB2", "RB2")
+    sl = svc.import_slice(
+        family_id=family["entity_id"], declared_id="RB2-S1", title="RB2",
+        execution_state="DONE_CLAIMED", assurance_state="UNVERIFIED",
+    )
+    evidence = svc.submit_evidence(
+        subject_id=sl["entity_id"], evidence_type="unit-test", source="pytest", result="PASS",
+        evidence_class="TEST_RESULT", payload={"reproduction": reproduction},
+    )
+    svc.store.update("evidence", evidence["entity_id"], {"trust": "VERIFIER_ATTESTED", "attested_by": "verifier"})
+
+    fresh = scanner.evidence_freshness(evidence["entity_id"])
+    assert fresh["state"] == "REUSABLE"
+    assert fresh["binding_version"] == "RB/1"
+    assert fresh["reason_codes"] == []
+
+    # Unrelated commit changes HEAD. Bound files remain identical, so the result is conservative UNKNOWN, not STALE.
+    unrelated = tmp_path / "README.md"
+    unrelated.write_text("unrelated\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "README.md"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "unrelated"], check=True)
+    drift = scanner.evidence_freshness(evidence["entity_id"])
+    assert drift["state"] == "UNKNOWN"
+    assert "COMMIT_CHANGED" in drift["reason_codes"]
+
+
+def test_reproduction_freshness_rejects_nonzero_pass_and_missing_output(tmp_path: Path):
+    source = tmp_path / "feature.py"
+    output = tmp_path / "report.txt"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    output.write_text("PASS\n", encoding="utf-8")
+    svc = MangoMeService(InMemoryStore())
+    scanner = FilesystemScanner(svc)
+    scanner.scan([str(tmp_path)])
+    import hashlib
+    artifact = svc.attach_artifact(
+        logical_name="report.txt", artifact_type="TEST_REPORT", storage_system="filesystem",
+        physical_location=str(output), checksum=hashlib.sha256(output.read_bytes()).hexdigest(),
+    )
+    reproduction = scanner.build_reproduction_binding(
+        command="pytest -q",
+        cwd=str(tmp_path),
+        exit_code=0,
+        input_paths=[str(source)],
+        output_artifact_id=artifact["entity_id"],
+        git_commit="",
+    )["reproduction"]
+    # Avoid unrelated Git uncertainty in a non-repository fixture.
+    reproduction["git_commit"] = None
+    from mangome.filesystem import reproduction_fingerprint
+    reproduction["fingerprint"] = reproduction_fingerprint(reproduction)
+
+    family = svc.create_family("RB3", "RB3")
+    sl = svc.import_slice(
+        family_id=family["entity_id"], declared_id="RB3-S1", title="RB3",
+        execution_state="DONE_CLAIMED", assurance_state="UNVERIFIED",
+    )
+    evidence = svc.submit_evidence(
+        subject_id=sl["entity_id"], evidence_type="unit-test", source="pytest", result="PASS",
+        evidence_class="TEST_RESULT", payload={"reproduction": reproduction},
+    )
+    svc.store.update("evidence", evidence["entity_id"], {"trust": "VERIFIER_ATTESTED", "attested_by": "verifier"})
+    assert scanner.evidence_freshness(evidence["entity_id"])["state"] == "REUSABLE"
+
+    output.unlink()
+    stale = scanner.evidence_freshness(evidence["entity_id"])
+    assert stale["state"] == "STALE"
+    assert "OUTPUT_MISSING" in stale["reason_codes"]
+
+    bad = dict(reproduction)
+    bad["exit_code"] = 1
+    bad["fingerprint"] = reproduction_fingerprint(bad)
+    evidence2 = svc.submit_evidence(
+        subject_id=sl["entity_id"], evidence_type="unit-test", source="pytest", result="PASS",
+        evidence_class="TEST_RESULT", payload={"reproduction": bad},
+    )
+    svc.store.update("evidence", evidence2["entity_id"], {"trust": "VERIFIER_ATTESTED", "attested_by": "verifier"})
+    inadmissible = scanner.evidence_freshness(evidence2["entity_id"])
+    assert inadmissible["state"] == "INADMISSIBLE"
+    assert inadmissible["reason_codes"] == ["EXIT_CODE_NONZERO"]

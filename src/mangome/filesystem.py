@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -54,6 +55,9 @@ _ADMISSIBLE_REUSE_TRUST = {
     EvidenceTrust.VERIFIER_ATTESTED.value,
     EvidenceTrust.OWNER_ATTESTED.value,
 }
+REPRODUCTION_BINDING_VERSION = "RB/1"
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
+_SENSITIVE_ENV_NAME_RE = re.compile(r"(?:^|_)(?:PASSWORD|PASSWD|SECRET|TOKEN|CREDENTIALS?|PRIVATE_KEY|API_KEY)(?:$|_)", re.IGNORECASE)
 
 
 def utcnow() -> datetime:
@@ -70,6 +74,43 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _canonical_reproduction_payload(raw: dict[str, Any]) -> dict[str, Any]:
+    """Return the stable semantic subset used for RB/1 fingerprinting.
+
+    Volatile capture timestamps and the fingerprint itself are intentionally excluded.
+    Environment *values* are not accepted by the RB/1 shape.
+    """
+    bindings: list[dict[str, str]] = []
+    for item in raw.get("input_bindings") or []:
+        if not isinstance(item, dict):
+            continue
+        bindings.append({
+            "path": str(item.get("path") or ""),
+            "sha256": str(item.get("sha256") or "").lower(),
+            "role": str(item.get("role") or "INPUT").upper(),
+        })
+    bindings.sort(key=lambda item: (item["path"], item["role"], item["sha256"]))
+    environment_names = sorted({str(name) for name in (raw.get("environment_names") or []) if str(name)})
+    return {
+        "version": str(raw.get("version") or REPRODUCTION_BINDING_VERSION),
+        "command": str(raw.get("command") or ""),
+        "cwd": str(raw.get("cwd") or ""),
+        "exit_code": raw.get("exit_code"),
+        "git_commit": str(raw.get("git_commit") or "") or None,
+        "input_bindings": bindings,
+        "output_artifact_id": str(raw.get("output_artifact_id") or "") or None,
+        "stdout_sha256": str(raw.get("stdout_sha256") or "").lower() or None,
+        "stderr_sha256": str(raw.get("stderr_sha256") or "").lower() or None,
+        "environment_names": environment_names,
+    }
+
+
+def reproduction_fingerprint(raw: dict[str, Any]) -> str:
+    canonical = _canonical_reproduction_payload(raw)
+    encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -172,6 +213,98 @@ class FilesystemScanner:
                 results.append(self._public_entry(matches[0]))
         return results
 
+    def build_reproduction_binding(
+        self,
+        *,
+        command: str,
+        cwd: str,
+        exit_code: int,
+        input_paths: Iterable[str],
+        output_artifact_id: str | None = None,
+        environment_names: Iterable[str] | None = None,
+        stdout_sha256: str | None = None,
+        stderr_sha256: str | None = None,
+        git_commit: str | None = None,
+        max_hash_bytes: int = 64 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Build an RB/1 binding from current observable facts without executing the command.
+
+        The caller is responsible for actually running the command and supplying its exit code.
+        MangoMe hashes the declared relevant inputs, records the current/provided Git commit,
+        and emits a deterministic fingerprint suitable for an Evidence payload.
+        """
+        if not command.strip():
+            raise ValueError("reproduction command must not be empty")
+        if not isinstance(exit_code, int):
+            raise ValueError("exit_code must be an integer")
+
+        cwd_path = Path(cwd).expanduser().resolve()
+        if not cwd_path.exists() or not cwd_path.is_dir() or cwd_path.is_symlink():
+            raise ValueError("reproduction cwd must be an existing non-symlink directory")
+
+        normalized_env: list[str] = []
+        for raw_name in environment_names or []:
+            name = str(raw_name).strip()
+            if not name:
+                continue
+            if _SENSITIVE_ENV_NAME_RE.search(name):
+                raise ValueError(f"sensitive environment variable name is not allowed in reproduction metadata: {name}")
+            if name not in normalized_env:
+                normalized_env.append(name)
+        normalized_env.sort()
+
+        normalized_stdout = self._optional_sha256(stdout_sha256, "stdout_sha256")
+        normalized_stderr = self._optional_sha256(stderr_sha256, "stderr_sha256")
+
+        if output_artifact_id is not None and self.service.store.get("artifacts", output_artifact_id) is None:
+            raise KeyError(f"unknown artifacts:{output_artifact_id}")
+
+        bindings: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for raw_path in input_paths:
+            candidate = Path(raw_path).expanduser()
+            if not candidate.is_absolute():
+                candidate = cwd_path / candidate
+            path = candidate.resolve()
+            path_text = str(path)
+            if path_text in seen:
+                continue
+            seen.add(path_text)
+            if not path.is_file() or path.is_symlink():
+                raise ValueError(f"reproduction input must be an existing non-symlink file: {path_text}")
+            if self._is_secret_file(path) or any(not self._include_dir(part) for part in path.parts if part.startswith(".")):
+                raise ValueError(f"secret/excluded file cannot be used as a reproduction input: {path_text}")
+            size = path.stat().st_size
+            if size > max_hash_bytes:
+                raise ValueError(f"reproduction input exceeds hash bound ({max_hash_bytes} bytes): {path_text}")
+            indexed = self.service.store.find("filesystem_entries", {"path": path_text})
+            role = str(indexed[0].get("role") or "INPUT") if indexed else self._binding_role(path)
+            bindings.append({"path": path_text, "sha256": _sha256_file(path), "role": role})
+
+        if not bindings:
+            raise ValueError("at least one reproduction input file is required")
+        bindings.sort(key=lambda item: (item["path"], item["role"]))
+
+        resolved_commit = str(git_commit or "").strip() or self._git_head(cwd_path)
+        reproduction: dict[str, Any] = {
+            "version": REPRODUCTION_BINDING_VERSION,
+            "command": command.strip(),
+            "cwd": str(cwd_path),
+            "exit_code": exit_code,
+            "git_commit": resolved_commit,
+            "input_bindings": bindings,
+            "output_artifact_id": output_artifact_id,
+            "stdout_sha256": normalized_stdout,
+            "stderr_sha256": normalized_stderr,
+            "environment_names": normalized_env,
+            "captured_at": utcnow().isoformat(),
+        }
+        reproduction["fingerprint"] = reproduction_fingerprint(reproduction)
+        return {
+            "reproduction": reproduction,
+            "rule": "RB/1 records and fingerprints declared reproduction metadata; it does not execute the command or create verification/acceptance.",
+        }
+
     def evidence_freshness(self, evidence_id: str, *, live_check: bool = True) -> dict[str, Any]:
         evidence = self.service.store.get("evidence", evidence_id)
         if evidence is None:
@@ -183,22 +316,197 @@ class FilesystemScanner:
         if evidence.get("verdict") != EvidenceVerdict.PASS.value:
             return self._freshness_result(evidence, "INADMISSIBLE", "only PASS evidence can be reused")
 
+        reproduction = evidence.get("payload", {}).get("reproduction")
+        if isinstance(reproduction, dict):
+            return self._reproduction_freshness(evidence, reproduction, live_check=live_check)
+
+        # v0.1.5 compatibility path for evidence that only has filesystem_bindings.
         bindings = self._evidence_bindings(evidence)
         if not bindings:
             return self._freshness_result(evidence, "UNBOUND", "no filesystem hash binding is attached")
+        checked = self._check_file_bindings(bindings, live_check=live_check)
+        state = "STALE" if checked["stale"] else ("UNKNOWN" if checked["unknown"] else "REUSABLE")
+        reason = {
+            "REUSABLE": "all bound filesystem hashes still match",
+            "STALE": "one or more bound filesystem facts changed or disappeared",
+            "UNKNOWN": "one or more bound filesystem facts could not be checked",
+        }[state]
+        return {
+            "evidence_id": evidence_id,
+            "subject_id": evidence.get("subject_id"),
+            "state": state,
+            "reason": reason,
+            "reason_codes": checked["reason_codes"],
+            "binding_version": "LEGACY_FILESYSTEM_BINDINGS",
+            "live_check": live_check,
+            "checks": checked["checks"],
+            "rule": "Freshness never creates verification or acceptance; it only assesses whether existing attested PASS evidence remains current under its declared bindings.",
+        }
 
+    def _reproduction_freshness(
+        self, evidence: dict[str, Any], reproduction: dict[str, Any], *, live_check: bool
+    ) -> dict[str, Any]:
+        if str(reproduction.get("version") or "") != REPRODUCTION_BINDING_VERSION:
+            return self._freshness_result(
+                evidence, "INADMISSIBLE", "unsupported reproduction binding version",
+                reason_codes=["UNSUPPORTED_BINDING_VERSION"], binding_version=str(reproduction.get("version") or "") or None,
+            )
+
+        command = str(reproduction.get("command") or "").strip()
+        cwd_text = str(reproduction.get("cwd") or "").strip()
+        exit_code = reproduction.get("exit_code")
+        expected_fingerprint = str(reproduction.get("fingerprint") or "").lower()
+        if not command or not cwd_text or not isinstance(exit_code, int):
+            return self._freshness_result(
+                evidence, "INADMISSIBLE", "reproduction binding is missing command/cwd/exit_code",
+                reason_codes=["INVALID_REPRODUCTION_BINDING"], binding_version=REPRODUCTION_BINDING_VERSION,
+            )
+        if exit_code != 0:
+            return self._freshness_result(
+                evidence, "INADMISSIBLE", "PASS evidence is bound to a non-zero reproduction exit code",
+                reason_codes=["EXIT_CODE_NONZERO"], binding_version=REPRODUCTION_BINDING_VERSION,
+            )
+        if not _HEX64_RE.fullmatch(expected_fingerprint):
+            return self._freshness_result(
+                evidence, "INADMISSIBLE", "reproduction fingerprint is missing or malformed",
+                reason_codes=["FINGERPRINT_MISSING"], binding_version=REPRODUCTION_BINDING_VERSION,
+            )
+        actual_fingerprint = reproduction_fingerprint(reproduction)
+        if actual_fingerprint != expected_fingerprint:
+            return self._freshness_result(
+                evidence, "INADMISSIBLE", "reproduction metadata no longer matches its fingerprint",
+                reason_codes=["FINGERPRINT_MISMATCH"], binding_version=REPRODUCTION_BINDING_VERSION,
+                reproduction_fingerprint=expected_fingerprint,
+            )
+
+        raw_bindings = reproduction.get("input_bindings") or []
+        bindings: list[dict[str, str]] = []
+        for item in raw_bindings:
+            if not isinstance(item, dict):
+                continue
+            bindings.append({
+                "path": str(item.get("path") or ""),
+                "sha256": str(item.get("sha256") or ""),
+                "role": str(item.get("role") or "INPUT").upper(),
+            })
+        if not bindings:
+            return self._freshness_result(
+                evidence, "UNBOUND", "reproduction binding has no hashed input files",
+                reason_codes=["NO_INPUT_BINDINGS"], binding_version=REPRODUCTION_BINDING_VERSION,
+                reproduction_fingerprint=expected_fingerprint,
+            )
+
+        checked = self._check_file_bindings(bindings, live_check=live_check)
+        checks = list(checked["checks"])
+        stale = bool(checked["stale"])
+        unknown = bool(checked["unknown"])
+        reason_codes = list(checked["reason_codes"])
+
+        expected_commit = str(reproduction.get("git_commit") or "").strip() or None
+        if expected_commit:
+            cwd_path = Path(cwd_text).expanduser()
+            current_commit: str | None = None
+            git_status = "MATCH"
+            if live_check:
+                try:
+                    current_commit = self._git_head(cwd_path.resolve()) if cwd_path.is_dir() else None
+                except OSError:
+                    current_commit = None
+            else:
+                indexed_commits = {
+                    row.get("git_head")
+                    for row in self.service.store.find("filesystem_entries")
+                    if row.get("present", True) and row.get("path") in {b["path"] for b in bindings}
+                }
+                indexed_commits.discard(None)
+                if len(indexed_commits) == 1:
+                    current_commit = next(iter(indexed_commits))
+            if current_commit is None:
+                git_status = "GIT_UNAVAILABLE"
+                unknown = True
+                reason_codes.append("GIT_UNAVAILABLE")
+            elif current_commit != expected_commit:
+                git_status = "COMMIT_CHANGED"
+                # A different HEAD does not prove a relevant input changed, but exact-context reuse is no longer established.
+                unknown = True
+                reason_codes.append("COMMIT_CHANGED")
+            checks.append({
+                "kind": "GIT",
+                "cwd": cwd_text,
+                "expected_commit": expected_commit,
+                "current_commit": current_commit,
+                "status": git_status,
+            })
+
+        output_artifact_id = str(reproduction.get("output_artifact_id") or "").strip() or None
+        if output_artifact_id:
+            artifact = self.service.store.get("artifacts", output_artifact_id)
+            output_status = "PRESENT"
+            if artifact is None or artifact.get("exists") is False:
+                output_status = "OUTPUT_MISSING"
+                stale = True
+                reason_codes.append("OUTPUT_MISSING")
+            elif live_check and artifact.get("storage_system") == "filesystem" and artifact.get("physical_location"):
+                output_path = Path(str(artifact["physical_location"])).expanduser()
+                expected_output_hash = str(artifact.get("checksum") or "").lower() or None
+                try:
+                    if not output_path.is_file() or output_path.is_symlink():
+                        output_status = "OUTPUT_MISSING"
+                        stale = True
+                        reason_codes.append("OUTPUT_MISSING")
+                    elif expected_output_hash:
+                        current_output_hash = _sha256_file(output_path)
+                        if current_output_hash != expected_output_hash:
+                            output_status = "OUTPUT_CHANGED"
+                            stale = True
+                            reason_codes.append("OUTPUT_CHANGED")
+                except OSError:
+                    output_status = "OUTPUT_UNREADABLE"
+                    unknown = True
+                    reason_codes.append("OUTPUT_UNREADABLE")
+            checks.append({"kind": "OUTPUT_ARTIFACT", "artifact_id": output_artifact_id, "status": output_status})
+
+        # Preserve deterministic ordering and avoid duplicate reasons.
+        reason_codes = list(dict.fromkeys(reason_codes))
+        state = "STALE" if stale else ("UNKNOWN" if unknown else "REUSABLE")
+        reason = {
+            "REUSABLE": "RB/1 fingerprint is intact and all declared live-checkable bindings remain current",
+            "STALE": "one or more declared reproduction bindings changed or disappeared",
+            "UNKNOWN": "declared file bindings remain current, but exact reproduction context could not be established",
+        }[state]
+        return {
+            "evidence_id": evidence["entity_id"],
+            "subject_id": evidence.get("subject_id"),
+            "state": state,
+            "reason": reason,
+            "reason_codes": reason_codes,
+            "binding_version": REPRODUCTION_BINDING_VERSION,
+            "reproduction_fingerprint": expected_fingerprint,
+            "live_check": live_check,
+            "checks": checks,
+            "rule": "RB/1 freshness never reruns the command and never creates verification or acceptance; changed/unknown context requires targeted revalidation when current proof is needed.",
+        }
+
+    def _check_file_bindings(self, bindings: list[dict[str, str]], *, live_check: bool) -> dict[str, Any]:
         checks: list[dict[str, Any]] = []
         stale = False
         unknown = False
+        reason_codes: list[str] = []
         for binding in bindings:
             path_text = str(binding.get("path") or "")
-            expected = str(binding.get("sha256") or "")
-            if not path_text or not expected:
-                checks.append({"path": path_text or None, "status": "INVALID_BINDING"})
+            expected = str(binding.get("sha256") or "").lower()
+            role = str(binding.get("role") or "INPUT").upper()
+            if not path_text or not _HEX64_RE.fullmatch(expected):
+                checks.append({"kind": "INPUT", "path": path_text or None, "role": role, "status": "INVALID_BINDING"})
                 unknown = True
+                reason_codes.append("INVALID_INPUT_BINDING")
                 continue
             path = Path(path_text).expanduser()
-            indexed = self.service.store.find("filesystem_entries", {"path": str(path.resolve())})
+            try:
+                resolved = str(path.resolve())
+            except OSError:
+                resolved = path_text
+            indexed = self.service.store.find("filesystem_entries", {"path": resolved})
             indexed_row = indexed[0] if indexed else None
             current_hash: str | None = None
             status = "MATCH"
@@ -227,32 +535,35 @@ class FilesystemScanner:
                     if not current_hash:
                         status = "UNHASHED"
                         unknown = True
-                    elif current_hash != expected:
+                    elif str(current_hash).lower() != expected:
                         status = "HASH_MISMATCH"
                         stale = True
+
+            if status in {"HASH_MISMATCH", "MISSING", "MISSING_OR_EXCLUDED"}:
+                if role == "TEST":
+                    reason_codes.append("TEST_CHANGED" if status == "HASH_MISMATCH" else "TEST_MISSING")
+                elif role == "SOURCE":
+                    reason_codes.append("SOURCE_CHANGED" if status == "HASH_MISMATCH" else "SOURCE_MISSING")
+                else:
+                    reason_codes.append("INPUT_CHANGED" if status == "HASH_MISMATCH" else "INPUT_MISSING")
+            elif status in {"UNREADABLE", "NOT_INDEXED", "UNHASHED", "INVALID_BINDING"}:
+                reason_codes.append("INPUT_UNCHECKABLE")
             checks.append({
+                "kind": "INPUT",
                 "path": str(path),
+                "role": role,
                 "expected_sha256": expected,
                 "current_sha256": current_hash,
                 "status": status,
                 "indexed": indexed_row is not None,
             })
-
-        state = "STALE" if stale else ("UNKNOWN" if unknown else "REUSABLE")
-        reason = {
-            "REUSABLE": "all bound filesystem hashes still match",
-            "STALE": "one or more bound filesystem facts changed or disappeared",
-            "UNKNOWN": "one or more bound filesystem facts could not be checked",
-        }[state]
         return {
-            "evidence_id": evidence_id,
-            "subject_id": evidence.get("subject_id"),
-            "state": state,
-            "reason": reason,
-            "live_check": live_check,
             "checks": checks,
-            "rule": "Freshness never creates verification or acceptance; it only determines whether an existing attested PASS proof remains reusable.",
+            "stale": stale,
+            "unknown": unknown,
+            "reason_codes": list(dict.fromkeys(reason_codes)),
         }
+
 
     def _scan_root(
         self,
@@ -506,6 +817,30 @@ class FilesystemScanner:
         root = max(matches, key=len)
         return root, repo_heads[root]
 
+    @staticmethod
+    def _binding_role(path: Path) -> str:
+        name = path.name.lower()
+        suffix = path.suffix.lower()
+        parts = {part.lower() for part in path.parts}
+        if "tests" in parts or "test" in parts or name.startswith(("test_", "spec_")) or name.endswith(("_test.py", ".spec.ts", ".test.ts", ".spec.js", ".test.js")):
+            return "TEST"
+        if suffix in _SOURCE_EXTENSIONS:
+            return "SOURCE"
+        if suffix in _CONFIG_EXTENSIONS:
+            return "CONFIG"
+        if suffix in {".md", ".txt", ".rst"}:
+            return "DOCUMENTATION"
+        return "INPUT"
+
+    @staticmethod
+    def _optional_sha256(value: str | None, field: str) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        normalized = str(value).strip().lower()
+        if not _HEX64_RE.fullmatch(normalized):
+            raise ValueError(f"{field} must be a 64-character SHA-256 hex digest")
+        return normalized
+
     def _evidence_bindings(self, evidence: dict[str, Any]) -> list[dict[str, str]]:
         raw = evidence.get("payload", {}).get("filesystem_bindings") or []
         bindings: list[dict[str, str]] = []
@@ -522,14 +857,25 @@ class FilesystemScanner:
         return bindings
 
     @staticmethod
-    def _freshness_result(evidence: dict[str, Any], state: str, reason: str) -> dict[str, Any]:
+    def _freshness_result(
+        evidence: dict[str, Any],
+        state: str,
+        reason: str,
+        *,
+        reason_codes: list[str] | None = None,
+        binding_version: str | None = None,
+        reproduction_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
         return {
             "evidence_id": evidence["entity_id"],
             "subject_id": evidence.get("subject_id"),
             "state": state,
             "reason": reason,
+            "reason_codes": reason_codes or [],
+            "binding_version": binding_version,
+            "reproduction_fingerprint": reproduction_fingerprint,
             "checks": [],
-            "rule": "Freshness never creates verification or acceptance; it only determines whether an existing attested PASS proof remains reusable.",
+            "rule": "Freshness never creates verification or acceptance; it only assesses whether existing attested PASS evidence remains current under its declared bindings.",
         }
 
     @staticmethod

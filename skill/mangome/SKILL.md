@@ -19,7 +19,7 @@ MangoMe is the canonical operational-memory system for durable multi-agent proje
 13. **PASS requires attested PASS evidence.** Claims or un-attested evidence cannot satisfy a gate.
 14. **WAIVED requires owner approval.** Never waive a gate without an approved `WAIVE_GATE` decision.
 15. **No self-verification.** The last executing actor may not verify its own DONE claim.
-16. **ACCEPTED is explicit.** Owner/human acceptance is separate from verification and requires approved `ACCEPT_SLICE` state.
+16. **ACCEPTED is explicit.** Authorized acceptance is separate from verification and requires approved `ACCEPT_SLICE` state.
 17. **Close obsolete plans.** Stale plans create stale collision traffic.
 18. **Do not invent missing truth.** Keep ambiguity `UNRESOLVED` / `SUGGESTED` until evidence or authorized confirmation exists.
 
@@ -109,6 +109,16 @@ A trusted verifier or owner must attest verification-grade evidence through a ru
 ```text
 attest_evidence
 ```
+
+When Evidence should be reusable across time, prefer an RB/1 reproduction binding rather than prose. Run the check in the real execution environment first, then record its command/exit code and bind the relevant input hashes:
+
+```text
+build_reproduction_binding
+→ submit_evidence(payload={"reproduction": ...})
+→ attest_evidence
+```
+
+`build_reproduction_binding` never executes the command and never reads environment-variable values. It records names only and rejects sensitive-looking environment names. `evidence_freshness` may later classify the binding as `REUSABLE`, `STALE`, `UNKNOWN`, `UNBOUND` or `INADMISSIBLE`, but freshness never upgrades assurance and never proves cross-slice semantic coverage.
 
 Then a gate may become PASS:
 
