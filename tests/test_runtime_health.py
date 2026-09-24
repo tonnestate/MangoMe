@@ -30,3 +30,14 @@ def test_health_snapshot_memory_backend_is_healthy(monkeypatch):
     assert result["ok"] is True
     assert result["store"]["backend"] == "memory"
     runtime.reset_service_for_tests()
+
+
+def test_health_snapshot_reports_managed_identity_mismatch_without_raw_path_leak(monkeypatch):
+    runtime.reset_service_for_tests()
+    monkeypatch.setenv("MANGOME_BACKEND", "memory")
+    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", "999.0")
+    result = runtime.health_snapshot()
+    assert result["ok"] is False
+    assert result["store"]["reason_code"] == "WRONG_MANGOME_VERSION"
+    assert "999.0" not in str(result)
+    runtime.reset_service_for_tests()

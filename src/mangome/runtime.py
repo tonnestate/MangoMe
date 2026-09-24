@@ -6,14 +6,17 @@ from .integrity import IntegrityMangoMeService
 from .service import MangoMeService
 from .storage.memory import InMemoryStore
 from .storage.mongo import MongoStore
+from .operability import OperabilityError, attach_workspace, enforce_expected_identity
 
 _service: MangoMeService | None = None
+_workspace_attachment: dict[str, object] | None = None
 
 
 def get_service() -> MangoMeService:
-    global _service
+    global _service, _workspace_attachment
     if _service is not None:
         return _service
+    enforce_expected_identity()
     backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
     if backend == "memory":
         store = InMemoryStore()
@@ -22,7 +25,23 @@ def get_service() -> MangoMeService:
         database = os.environ.get("MANGOME_DATABASE", "mangome")
         store = MongoStore(uri, database)
     _service = IntegrityMangoMeService(store)
+    if os.environ.get("MANGOME_AUTO_ATTACH", "").strip().lower() in {"1", "true", "yes", "on"}:
+        max_files = int(os.environ.get("MANGOME_AUTO_ATTACH_MAX_FILES", "50000"))
+        _workspace_attachment = attach_workspace(
+            _service, os.environ.get("MANGOME_WORKSPACE_ROOT"), max_files=max_files
+        )
     return _service
+
+
+def workspace_attachment_snapshot() -> dict[str, object] | None:
+    return _workspace_attachment
+
+
+def refresh_workspace_attachment(workspace_root: str | None = None) -> dict[str, object]:
+    global _workspace_attachment
+    service = get_service()
+    _workspace_attachment = attach_workspace(service, workspace_root)
+    return _workspace_attachment
 
 
 def health_snapshot() -> dict[str, object]:
@@ -46,7 +65,9 @@ def health_snapshot() -> dict[str, object]:
     except Exception as exc:  # health must survive failed store/bootstrap initialization
         error_type = type(exc).__name__
         code = getattr(exc, "code", None)
-        if code == 13 or error_type in {"AuthenticationFailure", "OperationFailure"}:
+        if isinstance(exc, OperabilityError):
+            diagnostic = "MangoMe client/runtime identity or workspace attachment failed"
+        elif code == 13 or error_type in {"AuthenticationFailure", "OperationFailure"}:
             diagnostic = "MongoDB authorization failed during MangoMe initialization"
         elif error_type in {"ServerSelectionTimeoutError", "ConnectionFailure", "AutoReconnect"}:
             diagnostic = "MongoDB is unreachable"
@@ -58,6 +79,8 @@ def health_snapshot() -> dict[str, object]:
             "error_type": error_type,
             "diagnostic": diagnostic,
         }
+        if isinstance(exc, OperabilityError):
+            store["reason_code"] = exc.code
         if database is not None:
             store["database"] = database
         return {
@@ -72,10 +95,12 @@ def health_snapshot() -> dict[str, object]:
         "version": __version__,
         "schema_version": CURRENT_SCHEMA_VERSION,
         "store": store_health,
+        "workspace_attachment": _workspace_attachment,
     }
 
 
 def reset_service_for_tests() -> None:
-    """Reset the process-global service singleton. Intended for tests only."""
-    global _service
+    """Reset process-global service/bootstrap state. Intended for tests only."""
+    global _service, _workspace_attachment
     _service = None
+    _workspace_attachment = None

@@ -13,4 +13,5 @@ compile:
 	python -m compileall -q src tests server.py
 
 check: test compile
-	diff -u skill/mangome/SKILL.md .github/skills/mangome/SKILL.md
+	diff -u skill/mangome/SKILL.md src/mangome/skill/SKILL.md
+	@if [ -f .github/skills/mangome/SKILL.md ]; then diff -u skill/mangome/SKILL.md .github/skills/mangome/SKILL.md; fi

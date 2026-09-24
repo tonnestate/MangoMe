@@ -16,18 +16,19 @@ from .importer import (
 from .maintenance import MangoMaintainer
 from .filesystem import FilesystemScanner
 from .interlingua import UAICompiler, decode_uai_result as decode_result_packet, render_uai_result as render_result_packet
-from .runtime import get_service, health_snapshot
+from .runtime import get_service, health_snapshot, refresh_workspace_attachment, workspace_attachment_snapshot
 
 mcp = MCPServer(
     "MangoMe",
-    description="Canonical contract-family, slice, evidence, and project-state graph for multi-agent work.",
+    description="Canonical operational memory and verification substrate for multi-agent work.",
     instructions=(
-        "Read relevant state before acting. Productive mutation requires a persisted plan. "
-        "DONE is a worker claim, not verification. Verification and approval use runtime capabilities. "
-        "Collision warnings are advisory and must never block work. UAI/1 is compact transport only: "
-        "decode worker results and route them through normal MangoMe mutation/assurance tools."
+        "Ordinary user intent is sufficient: never require the user to invoke Big Bang, contracts, slices, "
+        "or other MangoMe internals. Before project-changing work, inspect workspace_status/read_context and "
+        "resolve existing durable state; unknown managed workspaces are attached/discovered automatically. "
+        "Productive mutation requires a persisted plan. DONE is a worker claim, not verification. "
+        "Verification and approval use runtime capabilities; collisions remain advisory."
     ),
-    version="0.1.7.1",
+    version="0.1.8",
 )
 
 
@@ -35,6 +36,18 @@ mcp = MCPServer(
 def health() -> dict[str, Any]:
     """Return readiness even when backing-store initialization fails."""
     return health_snapshot()
+
+
+@mcp.tool()
+def workspace_status(workspace_root: str | None = None, refresh: bool = False) -> dict[str, Any]:
+    """Return automatic workspace attachment/discovery state; users never need to request Big Bang explicitly."""
+    current = workspace_attachment_snapshot()
+    if refresh or current is None or (workspace_root and current.get("workspace_root") != workspace_root):
+        current = refresh_workspace_attachment(workspace_root)
+    return {
+        "attachment": current,
+        "rule": "User intent is sufficient; MangoMe workspace discovery is an internal operability concern.",
+    }
 
 
 @mcp.tool()

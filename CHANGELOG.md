@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.8 — 2026-09-24
+
+- Added zero-touch operability/bootstrap without changing MangoMe's canonical domain model or assurance states.
+- Added `mangome setup` for managed local Claude Code/Codex integration and `mangome doctor --repair` / `mangome attest-client` for deterministic client-binding diagnostics and safe managed drift repair. MangoMe-named stale client entries are backed up and removed when the current workspace can be repaired unambiguously.
+- Added runtime identity expectations (`MANGOME_EXPECTED_VERSION` and optional source-root binding) so a managed client can fail closed instead of silently launching the wrong MangoMe installation.
+- Added automatic workspace attachment (`MANGOME_AUTO_ATTACH=1`): an unknown managed workspace receives one non-destructive Big-Bang discovery pass plus filesystem inventory; known workspaces refresh the inventory without requiring a user to request Big Bang manually.
+- Added `workspace_status` to expose the automatic attachment state to workers while keeping discovery/canonicalization conservative.
+- Updated the Agent Skill with standard frontmatter and a zero-touch rule: ordinary user intent is sufficient; users should not be asked to operate MangoMe vocabulary manually.
+- Added Claude Code Skill/project integration support and packaged the canonical Skill with the Python distribution; the packaged copy is checked against the canonical Skill in CI/Makefile.
+- Added short always-on client instructions: `.claude/rules/mangome.md` for Claude Code and a bounded managed block in Codex `AGENTS.md`, so ordinary user requests enter MangoMe without an explicit Skill/Big-Bang command while the full Skill remains contextual.
+- Added `docs/zero-touch-operability.md` and updated README installation/operability guidance.
+- Added deterministic regression coverage for first-attach discovery, repeated workspace refresh, Claude Code/Codex managed configuration, Skill installation, identity mismatch fail-closed behavior, and runtime auto-attachment.
+- Deliberately did not add new assurance states, Assignment/nonce/signature infrastructure, or semantic auto-admission of discovery candidates.
+
 ## 0.1.7.1 — 2026-09-24
 
 - Reserved `Evidence.payload.verification_observation` for `submit_verification_observation`; generic Evidence submission can no longer manufacture AV/1-shaped verifier provenance.

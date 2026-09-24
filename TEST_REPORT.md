@@ -1,4 +1,4 @@
-# Test Report — MangoMe v0.1.7.1
+# Test Report — MangoMe v0.1.8
 
 Date: 2026-09-24
 
@@ -11,8 +11,8 @@ PYTHONPATH=src python -m pytest --disable-warnings
 Result in the packaging environment:
 
 ```text
-..........................................sss............                [100%]
-54 passed, 3 skipped in 0.29s
+..........................................sss...................         [100%]
+61 passed, 3 skipped in 0.57s
 ```
 
 Skipped checks:
@@ -20,13 +20,24 @@ Skipped checks:
 - MCP surface integration: optional `mcp` dependency unavailable in the packaging sandbox.
 - Two MongoDB integration checks: `MANGOME_TEST_MONGO_URI` not configured.
 
-New v0.1.7.1 regression coverage includes:
+Additional deterministic checks:
 
-- generic `submit_evidence` cannot populate the reserved AV/1 `verification_observation` namespace;
-- a legacy/direct AV/1-shaped payload without dedicated verifier-path provenance cannot become independent AV/1 proof merely through later verifier attestation;
-- AV/1 independent observations require verifier-originated trust;
-- RB/1-bound AV/1 PASS Evidence is live-checked again immediately before final `VERIFIED` CAS; changing a bound input after observation blocks verification;
-- the equivalent unchanged RB/1 replay path still verifies successfully;
-- all existing v0.1.7 AV/1, v0.1.6 RB/1, filesystem, assurance, UAI/1, context and economics tests remain green.
+```text
+python -m compileall -q src tests server.py  PASS
+skill/mangome/SKILL.md == src/mangome/skill/SKILL.md  PASS
+skill/mangome/SKILL.md == .github/skills/mangome/SKILL.md  PASS when mirror is present
+```
 
-This report is not a claim of full production validation. MangoMe does not execute AV/1 replay commands itself. The final RB/1 re-check reduces the practical artifact-change window but is not a distributed atomic transaction across arbitrary external artifact stores and MongoDB. The three skipped optional integration checks were not exercised in this packaging environment.
+New v0.1.8 regression coverage includes:
+
+- first attachment of an unknown workspace performs deterministic inventory plus non-destructive Big-Bang discovery without creating canonical contracts;
+- a known workspace refresh does not repeat semantic discovery admission;
+- Claude Code managed setup preserves unrelated MCP configuration, removes stale MangoMe-named shadow entries, installs the current Agent Skill plus a short always-on project rule, and enables automatic workspace attachment;
+- Codex managed setup preserves unrelated TOML, removes stale user/project MangoMe MCP entries such as an old `mangome_eval` launcher, preserves existing `AGENTS.md` content while adding one idempotent managed zero-touch block, and remains idempotent;
+- managed runtime version mismatch fails closed before backing-store initialization;
+- `MANGOME_AUTO_ATTACH=1` attaches/discovers the configured workspace without requiring a user Big-Bang command;
+- health reports the sanitized managed-identity reason code without exposing the configured mismatch value.
+
+A wheel build with build isolation disabled in the offline packaging environment also confirmed that `mangome/operability.py` and the packaged `mangome/skill/SKILL.md` are included in the `0.1.8` distribution.
+
+This report is not a claim of full production validation. The real Claude Code/Codex client attestation paths are environment-dependent and require those clients to be installed; the three skipped optional MCP/MongoDB checks were not exercised in this packaging environment.

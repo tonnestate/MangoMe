@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.7.1-green">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.8-green">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -81,6 +81,30 @@ A Claude Code session ends. Codex takes over. A contract has received two additi
 
 MangoMe moves that problem out of the prompt.
 
+# Zero-touch operation
+
+MangoMe v0.1.8 adds an operability/bootstrap layer so users do not need to know MangoMe's internal vocabulary. A normal user request is sufficient; the client integration is expected to attach the current workspace, discover an unknown workspace once, refresh known workspace state, and let the worker translate user intent into the normal MangoMe flow.
+
+```text
+user opens a supported coding client
+        ↓
+managed MangoMe binding
+        ↓
+workspace auto-attach
+        ↓
+unknown workspace?
+  yes → one Big-Bang discovery pass
+   no → inventory refresh
+        ↓
+canonical state remains conservative
+        ↓
+worker handles the ordinary user request
+```
+
+The user should not have to say “start Big Bang”, “create a Slice”, or “call begin_work”. Those are implementation details. Automatic discovery still does **not** invent semantic truth: ambiguous contracts/specifications remain candidates until they can be resolved safely.
+
+`mangome setup` is an installer/administrator operation, not an end-user workflow step. It can configure supported local clients, install the MangoMe Skill for Claude Code, bind the client to the intended MangoMe runtime, and enable automatic workspace attachment. `mangome doctor --repair` detects and repairs managed configuration drift where doing so is deterministic and safe.
+
 ```text
 REQUEST
    │
@@ -122,7 +146,7 @@ Canonical MangoMe Context
 UAI/1 compact semantic transport
            │
            ▼
-CogC / Claude / Codex / Luna / other workers
+Claude Code / Codex / other agent clients
 ```
 
 MangoMe is not an autonomous project manager and not an agent framework. It is the durable substrate underneath them.
@@ -584,7 +608,7 @@ UAI/1
 compact versioned representation
         │
         ▼
-CogC (optional)
+optional context selector/router
 capacity-aware selection / further compaction
         │
         ▼
@@ -751,7 +775,7 @@ See [`docs/adversarial-verification.md`](docs/adversarial-verification.md).
 
 # MCP tools
 
-The v0.1.7.1 MCP surface includes:
+The v0.1.8 MCP surface includes:
 
 ```text
 Intake / specification
@@ -790,6 +814,7 @@ Evidence / assurance
   accept_slice
 
 Read / truth
+  workspace_status
   status
   project_overview
   effective_family_view
@@ -835,7 +860,12 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
+
+# one-time supported-client bootstrap for the current workspace
+mangome setup --client auto
 ```
+
+After managed setup, supported clients start MangoMe with automatic workspace attachment. The first attachment of an unknown workspace performs non-destructive Big-Bang discovery automatically; subsequent starts refresh the deterministic filesystem inventory. Use `mangome doctor --repair` for managed client drift.
 
 For deterministic local tests:
 
@@ -881,7 +911,7 @@ Canonical skill:
 skill/mangome/SKILL.md
 ```
 
-The current public repository exposes this canonical Skill path. A `.github/skills/...` mirror is not required for MangoMe runtime behavior.
+The Skill now carries standard Agent-Skill frontmatter and is mirrored for packaging/Claude Code discovery. Managed Claude Code setup copies the current Skill into the workspace's `.claude/skills/mangome/` location so the worker can discover it without the user invoking it manually.
 
 The Skill describes how a worker must behave.
 
@@ -936,15 +966,11 @@ compile_uai_context
 
 ## “There are many entities.”
 
-Correct.
-
 MangoMe optimizes for durable multi-agent state, provenance and assurance, not for having the smallest possible schema.
 
 The interface can be simplified without deleting semantics from the source of truth.
 
 ## “MongoDB is heavier than SQLite.”
-
-Correct.
 
 MangoMe is a document store plus work graph plus state system. MongoDB is the canonical production backend by design.
 
@@ -952,13 +978,13 @@ The project does not currently pursue interchangeable production persistence bac
 
 ## “Agents may not call every tool correctly.”
 
-Correct, which is why MangoMe increasingly provides composed surfaces (`begin_work`), Agent Skills and deterministic enforcement rather than relying only on prompt discipline.
+That is why MangoMe increasingly provides composed surfaces (`begin_work`), Agent Skills and deterministic enforcement rather than relying only on prompt discipline.
 
-The intended integration is that runtimes/IntakeGov invoke the appropriate MangoMe path automatically where possible.
+The intended integration is that the client/runtime invokes the appropriate MangoMe path automatically where possible; users should not operate MangoMe internals manually.
 
 ## “Strong governance can become bureaucracy.”
 
-Correct — this is the trade-off MangoMe actively addresses.
+This is a trade-off MangoMe actively addresses.
 
 The answer is proportional invocation and composed tools, not deleting the evidence, contract and state model required by difficult work.
 
@@ -1008,11 +1034,13 @@ MangoMe deliberately does not:
 │   ├── interlingua.py        # UAI/1 compile/decode/render
 │   ├── importer.py           # Big-Bang discovery/reconciliation
 │   ├── filesystem.py         # deterministic filesystem inventory/evidence freshness
+│   ├── operability.py        # client bootstrap, attestation and workspace auto-attach
 │   ├── maintenance.py        # deterministic diagnostics/migrations
 │   ├── schema.py             # schema evolution
 │   ├── mcp_server.py         # MCP v2 surface
 │   └── storage/              # MongoDB + in-memory test backend
 ├── skill/mangome/
+├── .claude/skills/mangome/  # Claude Code discovery mirror
 ├── docs/
 ├── examples/
 ├── tests/
@@ -1024,12 +1052,14 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.7 introduced AV/1 adversarial completion verification on top of RB/1 reproducible Evidence bindings. v0.1.7.1 is a narrow hardening patch: it closes generic AV/1 provenance spoofing, requires verifier-originated AV/1 trust, re-checks declared RB/1 bindings immediately before the final assurance CAS write, and restores the public CI/Skill-mirror dotfiles that were missing from the GitHub tree.
+v0.1.8 adds zero-touch operability on top of the v0.1.7.1 assurance baseline: supported clients can be configured and attested, managed configuration drift can be diagnosed/repaired, unknown workspaces auto-attach with one non-destructive Big-Bang discovery pass, and known workspaces refresh without requiring the user to issue MangoMe-specific commands. The domain truth model is unchanged.
 
 The current architecture is:
 
 ```text
-IntakeGov
+ordinary user intent / client runtime
+    ↓
+zero-touch workspace attachment
     ↓
 MangoMe canonical operational memory
     ↓
@@ -1056,10 +1086,11 @@ Important current limits:
 - AV/1 strengthens provenance/independence of observed Evidence but still does not prove that every requirement is semantically covered unless the relevant gates/specification make that coverage explicit.
 - RB/1 freshness still does not create Verification or Acceptance and does not infer cross-Slice semantic proof equivalence.
 - UAI/1's published `80.91%` figure remains a **character reduction in one representative demo**, not a universal provider-token saving.
-- Filesystem scans require explicit roots and still walk the configured scope on each scan.
+- Managed clients can supply the workspace root automatically; the underlying filesystem inventory still walks the configured workspace scope on each refresh and does not perform host-wide discovery.
 - The public implementation does not reconstruct missing historical Slices or certify old AI audits as truth.
 - Execution-cost and token economics are only as complete as the Execution Receipts supplied by the surrounding runtime.
-- The v0.1.7.1 packaging test result is recorded in `TEST_REPORT.md`; skipped optional integration checks are not represented as production validation.
+- v0.1.8 only auto-repairs configuration that MangoMe can identify as managed and safe to change. Ambiguous third-party/global client configuration remains a stop condition rather than being silently overwritten.
+- The v0.1.8 packaging test result is recorded in `TEST_REPORT.md`; skipped optional integration checks are not represented as production validation.
 
 The next phase is empirical evaluation: adversarial false-DONE fixtures, worker-vs-verifier separation tests, test-weakening/scope-deviation traps, and then RAW vs compiled vs UAI cost measurement per verified outcome.
 

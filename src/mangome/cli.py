@@ -5,9 +5,10 @@ import json
 import os
 
 from .importer import BigBangScanner, serialize_discovery, serialize_git_discovery
-from .maintenance import MangoMaintainer
 from .interlingua import UAICompiler, render_uai_result
-from .runtime import get_service, health_snapshot
+from .maintenance import MangoMaintainer
+from .operability import attest_client, doctor, setup_clients
+from .runtime import get_service, health_snapshot, refresh_workspace_attachment
 
 
 def _print(value) -> None:
@@ -17,6 +18,30 @@ def _print(value) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="mangome")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    setup = sub.add_parser("setup", help="zero-touch setup for supported local agent clients")
+    setup.add_argument("--workspace", default=None, help="workspace root; defaults to Git root/current directory")
+    setup.add_argument("--client", action="append", choices=["auto", "all", "claude-code", "codex"], default=None)
+    setup.add_argument("--backend", choices=["mongo", "memory"], default="mongo")
+    setup.add_argument("--database", default="mangome")
+    setup.add_argument("--dry-run", action="store_true")
+
+    doctor_cmd = sub.add_parser("doctor", help="inspect client binding drift and optionally repair managed configuration")
+    doctor_cmd.add_argument("--workspace", default=None)
+    doctor_cmd.add_argument("--client", action="append", choices=["claude-code", "codex"], default=None)
+    doctor_cmd.add_argument("--backend", choices=["mongo", "memory"], default="mongo")
+    doctor_cmd.add_argument("--database", default="mangome")
+    doctor_cmd.add_argument("--repair", action="store_true")
+
+    client_attest = sub.add_parser("attest-client", help="prove static/effective MangoMe binding for a supported client")
+    client_attest.add_argument("client", choices=["claude-code", "codex"])
+    client_attest.add_argument("--workspace", default=None)
+    client_attest.add_argument("--backend", choices=["mongo", "memory"], default="mongo")
+    client_attest.add_argument("--database", default="mangome")
+    client_attest.add_argument("--static-only", action="store_true")
+
+    attach = sub.add_parser("attach", help="explicitly refresh automatic workspace attachment/discovery")
+    attach.add_argument("--workspace", default=None)
 
     scan = sub.add_parser("scan", help="non-destructive Big-Bang filesystem/Git discovery")
     scan.add_argument("roots", nargs="+")
@@ -31,7 +56,7 @@ def main() -> None:
     project = sub.add_parser("project", help="show deterministic project overview")
     project.add_argument("project_ref")
 
-    sub.add_parser("health", help="show backend and schema readiness")
+    sub.add_parser("health", help="show backend, schema and automatic workspace readiness")
     sub.add_parser("refresh", help="refresh materialized family views")
 
     diagnose = sub.add_parser("diagnose", help="run non-destructive maintenance diagnostics")
@@ -76,12 +101,36 @@ def main() -> None:
     uai_render.add_argument("--context-hash", default=None)
 
     args = parser.parse_args()
+
+    # Operability commands intentionally do not require a live MangoMe backend.
+    if args.cmd == "setup":
+        clients = args.client or ["auto"]
+        _print(setup_clients(
+            args.workspace or os.getcwd(), clients=clients, backend=args.backend,
+            database=args.database, dry_run=args.dry_run,
+        ))
+        return
+    if args.cmd == "doctor":
+        clients = args.client or ["claude-code", "codex"]
+        _print(doctor(
+            args.workspace, clients=clients, backend=args.backend,
+            database=args.database, repair=args.repair,
+        ))
+        return
+    if args.cmd == "attest-client":
+        _print(attest_client(
+            args.client, args.workspace or os.getcwd(), backend=args.backend,
+            database=args.database, check_client=not args.static_only,
+        ))
+        return
     if args.cmd == "health":
         _print(health_snapshot())
         return
 
     svc = get_service()
-    if args.cmd == "scan":
+    if args.cmd == "attach":
+        result = refresh_workspace_attachment(args.workspace)
+    elif args.cmd == "scan":
         scanner = BigBangScanner(svc)
         records = scanner.scan(args.roots)
         result = {"records": serialize_discovery(records)}
