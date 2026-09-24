@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mangome-mcp"
+version = "0.1.0"
+description = "Persistent contract, slice, evidence, and project-state graph for multi-agent work"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name = "MangoMe contributors"}]
+keywords = [
+  "mcp", "mongodb", "multi-agent", "project-management", "agent-state",
+  "contracts", "provenance", "work-graph", "ai-agents", "agent-handoff"
+]
+dependencies = [
+  "mcp>=2,<3",
+  "pydantic>=2.7,<3",
+  "pymongo>=4.10,<5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+[project.scripts]
+mangome = "mangome.cli:main"
+mangome-mcp = "mangome.mcp_server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mangome*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mangome": {
+      "command": "/absolute/path/to/.venv/bin/mangome-mcp",
+      "env": {
+        "MANGOME_BACKEND": "mongo",
+        "MANGOME_MONGODB_URI": "mongodb://127.0.0.1:27017",
+        "MANGOME_DATABASE": "mangome"
+      }
+    }
+  }
+}
