@@ -137,7 +137,7 @@ submit_verification_observation(
 )
 ```
 
-`UNVERIFIABLE` maps to `UNKNOWN`, never PASS. `REPLAY` requires an intact RB/1 reproduction binding. MangoMe records the observation but does not execute the command itself.
+`UNVERIFIABLE` maps to `UNKNOWN`, never PASS. `REPLAY` requires an intact RB/1 reproduction binding. MangoMe records the observation but does not execute the command itself. Never place `verification_observation` inside generic `submit_evidence`; that namespace is reserved for the verifier-capability path. If AV/1 Evidence carries RB/1, final verification live-checks the binding again immediately before the assurance CAS write and blocks stale/unknown context.
 
 A gate may then become PASS using Evidence that includes an independent AV/1 observed PASS:
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.7.1 — 2026-09-24
+
+- Reserved `Evidence.payload.verification_observation` for `submit_verification_observation`; generic Evidence submission can no longer manufacture AV/1-shaped verifier provenance.
+- Added dedicated-path provenance marking and require `VERIFIER_ATTESTED` trust for AV/1 independent observations. Legacy/direct AV/1-shaped records without dedicated-path provenance remain readable but cannot satisfy final verification.
+- Added final-time live RB/1 freshness validation for AV/1 PASS Evidence immediately before the revision-CAS `VERIFIED` write. Stale, unknown, unbound, or inadmissible declared reproduction context blocks the transition.
+- Kept the boundary explicit: this narrows the practical TOCTOU window but does not claim an atomic transaction across arbitrary external filesystems and MongoDB.
+- Restored `.github/workflows/ci.yml`, `.github/skills/mangome/SKILL.md`, and `.gitignore` to the upload delta; the Skill mirror is byte-identical to the canonical Skill.
+- Added regression coverage for generic AV/1 payload spoofing, legacy-shaped payload + later verifier attestation, stale RB/1 between observation and commit, and the matching positive replay path.
+- Deliberately did not add new assurance states, Assignment/nonce/signature entities, or a second fixture lifecycle. Those proposals belong to empirical evaluation before any domain-model expansion.
+- Test result for this packaging run: 54 passed, 3 skipped (optional MCP/MongoDB runtime checks unavailable/unconfigured in the sandbox).
+
 ## 0.1.7 — 2026-09-24
 
 - Added AV/1 adversarial completion verification without introducing a new Proof entity or parallel assurance state machine.

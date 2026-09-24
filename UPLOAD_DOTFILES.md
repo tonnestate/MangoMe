@@ -1,10 +1,8 @@
-# Uploading MangoMe dotfiles through GitHub Web
+# MangoMe dotfile upload note
 
-The current repository tree is missing `.github/...` and `.gitignore` because the previous browser upload did not include dot-prefixed paths.
+The earlier browser-upload gap is resolved by the v0.1.7.1 hardening delta.
 
-Use GitHub's **Add file → Create new file** flow and type the complete path into the filename field.
-
-Create these exact files:
+The canonical repository tree should contain these paths:
 
 ```text
 .github/workflows/ci.yml
@@ -12,8 +10,6 @@ Create these exact files:
 .gitignore
 ```
 
-Copy the content from this review pack into those paths.
+`skill/mangome/SKILL.md` and `.github/skills/mangome/SKILL.md` must remain byte-identical; CI and `make check` enforce that invariant.
 
-Afterward verify that the repository tree visibly contains `.github` and that the Actions tab starts the `CI` workflow.
-
-Do not rename `.github` to `github`; GitHub only recognizes the dot-prefixed directory for workflows and repository metadata.
+If a browser or file manager hides dot-prefixed paths during a manual upload, create the missing path explicitly in GitHub rather than renaming `.github` or `.gitignore`.

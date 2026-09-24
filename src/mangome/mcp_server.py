@@ -27,7 +27,7 @@ mcp = MCPServer(
         "Collision warnings are advisory and must never block work. UAI/1 is compact transport only: "
         "decode worker results and route them through normal MangoMe mutation/assurance tools."
     ),
-    version="0.1.7",
+    version="0.1.7.1",
 )
 
 

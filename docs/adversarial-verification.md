@@ -102,6 +102,16 @@ Worker Evidence may still be retained, attested, inspected, and attached to gate
 
 Existing Slices that were already `VERIFIED` before v0.1.7 are not rewritten. The stronger rule applies when `verify_slice` is invoked under v0.1.7.
 
+## v0.1.7.1 provenance and final-time freshness hardening
+
+The `verification_observation` payload namespace is reserved for `submit_verification_observation`. Generic `submit_evidence` calls that try to populate it are rejected. This prevents caller-declared `actor_id` values from being shaped like independent AV/1 observations and then upgraded by later attestation.
+
+AV/1 independence also requires `VERIFIER_ATTESTED` trust. Owner attestation remains valid for ordinary Evidence and governed waivers/acceptance, but it does not manufacture verifier provenance. Dedicated AV/1 observations carry a `provenance = VERIFIER_CAPABILITY_PATH` marker; older or directly injected AV/1-shaped payloads without that marker are not accepted as independent observations.
+
+Immediately before the `VERIFIED` compare-and-swap write, MangoMe live-checks every independent AV/1 PASS Evidence item used for the transition that carries an RB/1 reproduction binding. The binding must be `REUSABLE`; `STALE`, `UNKNOWN`, `UNBOUND`, or `INADMISSIBLE` blocks verification. This catches the practical case where an input or bound output changed after the verifier observed it but before final assurance commit.
+
+This is intentionally not described as a fully atomic filesystem-plus-database transaction. MangoMe's slice update remains revision-CAS protected; runtimes that require a zero-width TOCTOU window across external artifact stores must additionally provide isolation, locking, immutable artifact addressing, or an equivalent storage-level mechanism.
+
 ## Relationship to RB/1 freshness
 
 AV/1 and RB/1 answer different questions:

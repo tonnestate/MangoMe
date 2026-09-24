@@ -5,7 +5,7 @@ from typing import Any
 
 from .authority import CapabilityDenied, require_approver, require_verifier
 from .enums import AssuranceState, ClaimType, EvidenceClass, EvidenceTrust, EvidenceVerdict, ExecutionState
-from .filesystem import reproduction_fingerprint
+from .filesystem import FilesystemScanner, reproduction_fingerprint
 from .models import utcnow
 from .service import ApprovalRequired, InvalidTransition, MangoMeService
 
@@ -77,6 +77,41 @@ class IntegrityMangoMeService(MangoMeService):
             raise ApprovalRequired("approval subject does not match requested action")
         return approval
 
+    def submit_evidence(
+        self,
+        *,
+        subject_id: str,
+        evidence_type: str,
+        source: str,
+        result: str | None = None,
+        evidence_class: str = "CLAIM",
+        artifact_id: str | None = None,
+        actor_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Persist generic Evidence while reserving AV/1 provenance for the dedicated verifier path.
+
+        ``verification_observation`` is an assurance-bearing namespace. Allowing a
+        normal caller to populate it would let caller-declared ``actor_id`` values
+        masquerade as independently observed Evidence after later attestation.
+        AV/1 observations must therefore be created through
+        ``submit_verification_observation`` only.
+        """
+        if isinstance(payload, dict) and "verification_observation" in payload:
+            raise InvalidTransition(
+                "verification_observation is reserved for submit_verification_observation"
+            )
+        return super().submit_evidence(
+            subject_id=subject_id,
+            evidence_type=evidence_type,
+            source=source,
+            result=result,
+            evidence_class=evidence_class,
+            artifact_id=artifact_id,
+            actor_id=actor_id,
+            payload=payload,
+        )
+
     def attest_evidence(
         self,
         *,
@@ -137,6 +172,9 @@ class IntegrityMangoMeService(MangoMeService):
         observed_by = observation.get("observed_by")
         observation_type = str(observation.get("observation_type") or "").upper()
         status = str(observation.get("status") or "").upper()
+        provenance = str(observation.get("provenance") or "")
+        if provenance != "VERIFIER_CAPABILITY_PATH":
+            return False
         if not observed_by or (executor_actor_id and observed_by == executor_actor_id):
             return False
         if observation_type not in _VERIFICATION_OBSERVATION_TYPES or status not in _VERIFICATION_OBSERVATION_STATUS:
@@ -145,7 +183,10 @@ class IntegrityMangoMeService(MangoMeService):
             return False
         if evidence.get("actor_id") != observed_by or evidence.get("attested_by") != observed_by:
             return False
-        if evidence.get("trust") not in _ADMISSIBLE_TRUST:
+        # AV/1 independent observations are verifier-originated. Owner attestation
+        # remains valid for ordinary Evidence/waivers, but must not manufacture
+        # verifier provenance for AV/1.
+        if evidence.get("trust") != EvidenceTrust.VERIFIER_ATTESTED.value:
             return False
         expected_verdict = {"PASS": EvidenceVerdict.PASS.value, "FAIL": EvidenceVerdict.FAIL.value, "UNVERIFIABLE": EvidenceVerdict.UNKNOWN.value}[status]
         if evidence.get("verdict") != expected_verdict:
@@ -351,6 +392,7 @@ class IntegrityMangoMeService(MangoMeService):
             "observation_type": normalized_type,
             "status": normalized_status,
             "observed_by": verifier_actor_id,
+            "provenance": "VERIFIER_CAPABILITY_PATH",
             "original_evidence_id": original_evidence_id,
             "observed_at": utcnow(),
         }
@@ -375,6 +417,34 @@ class IntegrityMangoMeService(MangoMeService):
             },
             expected_revision=int(evidence.get("revision", 0)),
         )
+
+    def _require_current_av1_bindings(self, evidence_ids: list[str]) -> None:
+        """Re-check live RB/1 bindings immediately before the VERIFIED CAS write.
+
+        This closes the practical gap where a verifier observed artifact/input A,
+        the bound file changed, and MangoMe later committed VERIFIED using stale
+        Evidence. The check is deliberately limited to Evidence that declares an
+        RB/1 binding; AV/1 observations without a reproduction binding keep their
+        existing semantics.
+
+        The database CAS still protects MangoMe state. This live filesystem check
+        is not a cross-storage atomic transaction, so runtimes that require a
+        zero-width external TOCTOU window must additionally isolate or lock the
+        verified artifact set.
+        """
+        scanner = FilesystemScanner(self)
+        for evidence_id in list(dict.fromkeys(evidence_ids)):
+            evidence = self._must_get("evidence", evidence_id)
+            reproduction = (evidence.get("payload") or {}).get("reproduction")
+            if not isinstance(reproduction, dict):
+                continue
+            freshness = scanner.evidence_freshness(evidence_id, live_check=True)
+            if freshness.get("state") != "REUSABLE":
+                codes = ",".join(freshness.get("reason_codes") or []) or "NO_REASON_CODE"
+                raise InvalidTransition(
+                    "verification denied: AV/1 reproduction binding is not current "
+                    f"({freshness.get('state')}:{codes})"
+                )
 
     def set_gate(
         self,
@@ -479,6 +549,12 @@ class IntegrityMangoMeService(MangoMeService):
             raise InvalidTransition("verification of a gateless slice requires explicit attested evidence")
         if not gates and not independent_observation_ids:
             raise InvalidTransition("verification of a gateless slice requires independent AV/1 observed PASS evidence")
+
+        # Final-time revalidation: any RB/1-bound AV/1 proof used for this
+        # transition must still match its live inputs immediately before the
+        # revision-guarded assurance write.
+        self._require_current_av1_bindings(independent_observation_ids)
+
         now = utcnow()
         updated = self._update(
             "slices", slice_id,

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from mangome.filesystem import FilesystemScanner
 from mangome.integrity import IntegrityMangoMeService
-from mangome.service import ApprovalRequired, InvalidTransition, PlanRequired
+from mangome.service import ApprovalRequired, InvalidTransition, MangoMeService, PlanRequired
 from mangome.storage.memory import InMemoryStore
 
 
@@ -244,15 +245,34 @@ def test_replay_observation_requires_intact_rb1_binding(monkeypatch):
         )
 
 
-def test_forged_generic_replay_payload_without_rb1_cannot_satisfy_av1(monkeypatch):
+def test_generic_evidence_path_cannot_forge_av1_observation(monkeypatch):
+    configure_caps(monkeypatch)
+    svc, _, sl, _ = make_ready_slice()
+    with pytest.raises(InvalidTransition, match="verification_observation is reserved"):
+        svc.submit_evidence(
+            subject_id=sl["entity_id"], evidence_type="pytest", evidence_class="TEST_RESULT",
+            source="generic-path", result="PASS", actor_id="verifier-b",
+            payload={"verification_observation": {
+                "version": "AV/1", "claim": "pytest passes", "observation_type": "SPEC_CHECK",
+                "status": "PASS", "observed_by": "verifier-b", "original_evidence_id": None,
+            }},
+        )
+
+
+def test_legacy_shaped_payload_plus_later_verifier_attestation_is_not_av1(monkeypatch):
     configure_caps(monkeypatch)
     svc, _, sl, _ = make_ready_slice()
     gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
-    ev = svc.submit_evidence(
-        subject_id=sl["entity_id"], evidence_type="pytest", evidence_class="TEST_RESULT",
-        source="generic-path", result="PASS", actor_id="verifier-b",
+
+    # Simulate a v0.1.7-era generic/direct record created before the AV/1
+    # namespace was reserved. A later real verifier attestation must still not
+    # manufacture dedicated-path provenance.
+    ev = MangoMeService.submit_evidence(
+        svc,
+        subject_id=sl["entity_id"], evidence_type="legacy-shaped", evidence_class="TEST_RESULT",
+        source="legacy", result="PASS", actor_id="verifier-b",
         payload={"verification_observation": {
-            "version": "AV/1", "claim": "pytest passes", "observation_type": "REPLAY",
+            "version": "AV/1", "claim": "looks good", "observation_type": "SPEC_CHECK",
             "status": "PASS", "observed_by": "verifier-b", "original_evidence_id": None,
         }},
     )
@@ -268,6 +288,71 @@ def test_forged_generic_replay_payload_without_rb1_cannot_satisfy_av1(monkeypatc
         svc.verify_slice(
             slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN
         )
+
+
+def test_verify_slice_rechecks_rb1_binding_immediately_before_commit(monkeypatch, tmp_path):
+    configure_caps(monkeypatch)
+    svc, _, sl, _ = make_ready_slice()
+    source = tmp_path / "feature.py"
+    test_file = tmp_path / "test_feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    test_file.write_text("def test_feature(): assert True\n", encoding="utf-8")
+
+    reproduction = FilesystemScanner(svc).build_reproduction_binding(
+        command="pytest -q test_feature.py",
+        cwd=str(tmp_path),
+        exit_code=0,
+        input_paths=[str(source), str(test_file)],
+        git_commit="",
+    )["reproduction"]
+    observation = svc.submit_verification_observation(
+        slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN,
+        claim="pytest passes", observation_type="REPLAY", status="PASS",
+        evidence_type="pytest", evidence_class="TEST_RESULT", source="pytest",
+        reproduction=reproduction,
+    )
+    gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
+    svc.set_gate(
+        slice_id=sl["entity_id"], gate_id=gate_id, status="PASS",
+        actor_id="verifier-b", evidence_ids=[observation["entity_id"]],
+    )
+
+    # The verifier observed hash A. The file changes before the authoritative
+    # assurance write. v0.1.7.1 must re-check the live RB/1 binding and refuse.
+    source.write_text("VALUE = 2\n", encoding="utf-8")
+    with pytest.raises(InvalidTransition, match="AV/1 reproduction binding is not current"):
+        svc.verify_slice(
+            slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN
+        )
+    assert svc.store.get("slices", sl["entity_id"])["assurance_state"] == "UNVERIFIED"
+
+
+def test_verify_slice_accepts_current_rb1_replay(monkeypatch, tmp_path):
+    configure_caps(monkeypatch)
+    svc, _, sl, _ = make_ready_slice()
+    source = tmp_path / "feature.py"
+    test_file = tmp_path / "test_feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    test_file.write_text("def test_feature(): assert True\n", encoding="utf-8")
+    reproduction = FilesystemScanner(svc).build_reproduction_binding(
+        command="pytest -q test_feature.py", cwd=str(tmp_path), exit_code=0,
+        input_paths=[str(source), str(test_file)], git_commit="",
+    )["reproduction"]
+    observation = svc.submit_verification_observation(
+        slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN,
+        claim="pytest passes", observation_type="REPLAY", status="PASS",
+        evidence_type="pytest", evidence_class="TEST_RESULT", source="pytest",
+        reproduction=reproduction,
+    )
+    gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
+    svc.set_gate(
+        slice_id=sl["entity_id"], gate_id=gate_id, status="PASS",
+        actor_id="verifier-b", evidence_ids=[observation["entity_id"]],
+    )
+    verified = svc.verify_slice(
+        slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN
+    )
+    assert verified["assurance_state"] == "VERIFIED"
 
 
 def test_approved_waiver_remains_explicit_gate_exception(monkeypatch):
