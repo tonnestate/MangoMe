@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Project truth survives the agent.</strong><br>
+  <strong>Governed project state survives the agent.</strong><br>
   Canonical operational memory for long-lived multi-agent work.
 </p>
 
@@ -61,13 +61,13 @@ MangoMe can tell you:
 - what a worker merely claimed;
 - what evidence exists;
 - whether that evidence was actually attested;
-- what has been independently verified;
-- what a human/owner explicitly accepted;
-- what model performed the work;
-- how much the execution, verification and repair cost;
-- and what context the next worker actually needs.
+- what has been verified by a separately authorized verifier;
+- what an authorized approver explicitly accepted;
+- which model identity was recorded for an execution, when an Execution Receipt exists;
+- what execution, verification and repair costs were recorded;
+- and what bounded context MangoMe compiled for a worker.
 
-> **Workers are ephemeral executors. MangoMe is durable operational truth.**
+> **Workers are ephemeral executors. MangoMe is the canonical operational record within its governed scope.**
 
 Sessions may disappear. Models may change. Agents may hand work to one another. The work does not have to reconstruct itself from chat history.
 
@@ -316,7 +316,7 @@ Reducing the canonical model until it resembles a todo list would make the inter
 
 MangoMe chooses the opposite trade-off:
 
-> **Rich canonical truth, simple execution surfaces.**
+> **Rich canonical state, simple execution surfaces.**
 
 The complexity belongs in the durable system, not repeatedly inside expensive model context.
 
@@ -347,7 +347,7 @@ The same Request, Plan and Slice are still persisted.
 simple interface ≠ simple data model
 ```
 
-Longer term, IntakeGov is the natural place to decide how much workflow ceremony a request deserves. MangoMe should remain the source of truth, while IntakeGov decides the proportional execution route.
+Longer term, IntakeGov is the natural place to decide how much workflow ceremony a request deserves. MangoMe should remain the canonical operational record, while IntakeGov decides the proportional execution route.
 
 For a small bounded change, a worker can use a narrow surface.
 
@@ -589,9 +589,9 @@ capacity-aware selection / further compaction
 Worker
 ```
 
-This means expensive models do not need to repeatedly consume the full historical contract/document corpus merely to recover the current position.
+This architecture is intended to let expensive models avoid repeatedly consuming the full historical contract/document corpus merely to recover the current position.
 
-The richer MangoMe becomes as a document store, the **less reconstruction work a worker should have to perform**.
+The richer and better maintained MangoMe becomes as a document store, the **less reconstruction work a worker should usually have to perform**.
 
 ---
 
@@ -645,9 +645,9 @@ It does **not** convert ambiguity into truth automatically.
 
 ---
 
-# Deterministic filesystem inventory and proof reuse
+# Deterministic filesystem inventory and evidence freshness
 
-MangoMe 0.1.5 adds a cheap filesystem substrate for legacy verification. The goal is not to reconstruct historical slices or trust old AI audits. Instead, one shared scan indexes what actually exists now, and later verification work can target only the relevant files.
+MangoMe 0.1.5 adds a cheap deterministic filesystem inventory intended as a substrate for targeted legacy revalidation and future proof reuse. It does **not** reconstruct historical slices, infer implementation from file presence, or trust old AI audits.
 
 ```text
 filesystem_scan
@@ -659,15 +659,25 @@ filesystem_references(<declared-id>)
 small candidate set for targeted verification
 ```
 
-Every indexed file receives a stable path identity, SHA-256 where bounded, size/mtime, lexical declared-ID references and nearest Git root/HEAD. Repeated scans are incremental and persist a per-root tree fingerprint.
+Every indexed file receives a stable path identity, SHA-256 where bounded, size/mtime, lexical declared-ID references and nearest Git root/HEAD.
 
-Existing Evidence can optionally carry reproducible bindings in `payload.filesystem_bindings` (`path` + `sha256`). `evidence_freshness` checks those bindings live and returns `REUSABLE`, `STALE`, `UNKNOWN`, `UNBOUND` or `INADMISSIBLE`.
+Repeated scans reuse persisted inventory state and avoid rewriting unchanged records. The current scanner still walks the configured filesystem scope on each scan; it is not yet a Git-delta scanner, filesystem watcher, or host-wide auto-discovery daemon.
 
-The rule is strict:
+Existing Evidence can optionally carry hash-bound filesystem bindings in `payload.filesystem_bindings` (`path` + `sha256`). `evidence_freshness` checks those bindings live and returns `REUSABLE`, `STALE`, `UNKNOWN`, `UNBOUND` or `INADMISSIBLE`.
 
-> **Reuse reproducible proof, not previous AI conclusions.**
+Here, `REUSABLE` has a deliberately narrow meaning:
 
-An old audit saying “PASS” remains a claim/report. Freshness does not create verification or acceptance, and it does not invent historical slice provenance.
+> **The evidence was already admissible, attested and PASS-valued, and its bound filesystem hashes still match.**
+
+It does **not** mean that MangoMe has re-proven the requirement, inferred semantic equivalence between two requirements, or established that Evidence from one Slice automatically satisfies another Slice.
+
+An old audit saying “PASS” remains a claim/report. Freshness does not create `VERIFIED` or `ACCEPTED`, and it does not invent historical Slice provenance.
+
+v0.1.5 also does not require a complete reproduction capsule containing test command, runner version, dependency/environment fingerprint and exit code. Such details may be stored in Evidence payloads or artifacts, but full reproduction-capsule enforcement is future hardening work.
+
+The conservative rule is:
+
+> **Reuse previously attested evidence only while its concrete bindings remain current; never reuse an AI conclusion merely because it says PASS.**
 
 See [`docs/filesystem-proof-reuse.md`](docs/filesystem-proof-reuse.md).
 
@@ -675,7 +685,7 @@ See [`docs/filesystem-proof-reuse.md`](docs/filesystem-proof-reuse.md).
 
 # MCP tools
 
-The v0.1.3 MCP surface includes:
+The v0.1.5 MCP surface includes:
 
 ```text
 Intake / specification
@@ -802,11 +812,7 @@ Canonical skill:
 skill/mangome/SKILL.md
 ```
 
-GitHub-discoverable mirror:
-
-```text
-.github/skills/mangome/SKILL.md
-```
+The current public repository exposes this canonical Skill path. A `.github/skills/...` mirror is not required for MangoMe runtime behavior.
 
 The Skill describes how a worker must behave.
 
@@ -831,7 +837,7 @@ intake_request
 → attest evidence
 → pass gates
 → verify_slice
-→ optional owner acceptance
+→ optional authorized acceptance
 → record_execution_receipt
 ```
 
@@ -863,7 +869,7 @@ compile_uai_context
 
 Correct.
 
-MangoMe optimizes for durable multi-agent truth, not for having the smallest possible schema.
+MangoMe optimizes for durable multi-agent state, provenance and assurance, not for having the smallest possible schema.
 
 The interface can be simplified without deleting semantics from the source of truth.
 
@@ -909,6 +915,11 @@ MangoMe deliberately does not:
 - serialize all parallel project work behind locks;
 - use an LLM for ordinary status calculation;
 - silently canonicalize ambiguous Big-Bang discoveries;
+- infer implementation correctness from filesystem presence alone;
+- treat `evidence_freshness=REUSABLE` as new verification or acceptance;
+- infer cross-slice semantic proof equivalence automatically;
+- fabricate historical Slices for legacy work;
+- automatically discover every project/root on a host;
 - let compact UAI output directly mutate canonical state;
 - make external reviewers a source of truth;
 - promise interchangeable production persistence semantics;
@@ -927,12 +938,12 @@ MangoMe deliberately does not:
 │   ├── context.py            # bounded execution context
 │   ├── interlingua.py        # UAI/1 compile/decode/render
 │   ├── importer.py           # Big-Bang discovery/reconciliation
+│   ├── filesystem.py         # deterministic filesystem inventory/evidence freshness
 │   ├── maintenance.py        # deterministic diagnostics/migrations
 │   ├── schema.py             # schema evolution
 │   ├── mcp_server.py         # MCP v2 surface
 │   └── storage/              # MongoDB + in-memory test backend
 ├── skill/mangome/
-├── .github/skills/mangome/
 ├── docs/
 ├── examples/
 ├── tests/
@@ -944,9 +955,9 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.5 adds deterministic filesystem inventory and strict proof-freshness checks on top of the v0.1.4 MCP/MongoDB operability hotfix. It fixes BSON `_id` leakage in successful MongoDB create operations and makes health reporting survive backing-store bootstrap failures without exposing secrets.
+v0.1.5 adds deterministic filesystem inventory and hash-bound evidence-freshness checks on top of the v0.1.4 MCP/MongoDB operability hotfix. v0.1.4 fixed BSON `_id` leakage in successful MongoDB create operations and made health reporting survive backing-store bootstrap failures without exposing secrets.
 
-The current architecture is now:
+The current architecture is:
 
 ```text
 IntakeGov
@@ -964,12 +975,22 @@ UAI/1R / structured result
 MangoMe evidence + state + verification
 ```
 
-The next valuable work is primarily integration and empirical evaluation:
+Important current limits:
 
-- measure RAW vs compiled vs UAI token/cost per verified outcome across real models;
-- integrate IntakeGov routing with `begin_work` / full paths;
-- integrate CogC against the UAI semantic projection;
-- integrate OmniRoute execution receipts automatically;
+- UAI/1's published `80.91%` figure is a **character reduction in one representative demo**, not a universal provider-token saving.
+- `evidence_freshness=REUSABLE` means existing attested PASS evidence still matches its bound filesystem hashes. It does not create new Verification or Acceptance.
+- MangoMe does not yet infer semantic equivalence between Evidence/requirements across Slices.
+- Filesystem scans currently require explicit roots and still walk the configured scope on each scan.
+- The public implementation does not reconstruct missing historical Slices or certify old AI audits as truth.
+- Execution-cost and token economics are only as complete as the Execution Receipts supplied by the surrounding runtime.
+- The latest packaged test report records all runnable tests passing, with three optional integration/surface tests skipped because the required runtime dependency/environment was unavailable in that packaging sandbox. That is not equivalent to full production validation.
+
+The next useful work is therefore hardening and empirical evaluation rather than stronger marketing claims:
+
+- strengthen reproducible Evidence bindings where the use case requires commands, environments and execution outputs in addition to file hashes;
+- build targeted legacy revalidation on top of the shared filesystem/reference inventory without fabricating history;
+- improve runtime integration so governed work actually passes through MangoMe;
+- measure RAW vs compiled vs UAI provider-token/cost per verified outcome with real model telemetry;
 - run longer multi-agent durability evaluations against real project families.
 
 ---
