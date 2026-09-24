@@ -1,4 +1,4 @@
-"""Convenience entry point for `mcp dev server.py:mcp`."""
-from mangome.mcp_integrity import mcp
+"""Convenience entry point for `mcp dev server.py`."""
+from mangome.mcp_server import mcp
 
 __all__ = ["mcp"]

@@ -1,7 +1,7 @@
-from mangome.service import MangoMeService
+from mangome.integrity import IntegrityMangoMeService
 from mangome.storage.memory import InMemoryStore
 
-svc = MangoMeService(InMemoryStore())
+svc = IntegrityMangoMeService(InMemoryStore())
 project = svc.create_project("AVCOS", "AVCOS")
 family = svc.create_family("AVCOS-OSEP", "OSEP", [project["entity_id"]], ["AVCOS"])
 request = svc.intake_request(
@@ -28,7 +28,7 @@ plan = svc.submit_plan(
     request_id=request["entity_id"],
     spec_id=spec["entity_id"],
     actor_id="codex",
-    intent="Implement and verify phase 3B",
+    intent="Implement phase 3B",
     contract_ids=[contract["entity_id"]],
     proposed_slices=[{
         "declared_id": "OSEP-3B",
@@ -36,4 +36,7 @@ plan = svc.submit_plan(
         "acceptance": spec["acceptance_criteria"],
     }],
 )
-print(plan)
+sl = svc.store.find("slices", {"family_id": family["entity_id"]})[0]
+svc.start_slice(slice_id=sl["entity_id"], actor_id="codex", plan_id=plan["entity_id"])
+svc.update_slice_progress(slice_id=sl["entity_id"], actor_id="codex", plan_id=plan["entity_id"], current_step=1, total_steps=3)
+print(svc.status(family["entity_id"]))

@@ -3,7 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from .base import Store
+from ..schema import upgrade_document
+from .base import RevisionConflictError, Store
 
 
 def _matches(doc: dict[str, Any], query: dict[str, Any]) -> bool:
@@ -31,23 +32,51 @@ class InMemoryStore(Store):
         entity_id = str(doc["entity_id"])
         if entity_id in bucket:
             raise ValueError(f"duplicate entity_id {entity_id}")
-        bucket[entity_id] = deepcopy(doc)
+        doc = deepcopy(doc)
+        doc.setdefault("revision", 0)
+        bucket[entity_id] = doc
         return deepcopy(bucket[entity_id])
 
     def get(self, collection: str, entity_id: str) -> dict[str, Any] | None:
         doc = self._data.get(collection, {}).get(entity_id)
-        return deepcopy(doc) if doc else None
+        if not doc:
+            return None
+        upgraded, _ = upgrade_document(collection, doc)
+        return upgraded
 
     def find(self, collection: str, query: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         query = query or {}
         docs = self._data.get(collection, {}).values()
-        return [deepcopy(d) for d in docs if _matches(d, query)]
+        result: list[dict[str, Any]] = []
+        for raw in docs:
+            doc, _ = upgrade_document(collection, raw)
+            if _matches(doc, query):
+                result.append(doc)
+        return result
 
-    def update(self, collection: str, entity_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+
+    def raw_find(self, collection: str) -> list[dict[str, Any]]:
+        return [deepcopy(d) for d in self._data.get(collection, {}).values()]
+
+    def update(
+        self,
+        collection: str,
+        entity_id: str,
+        patch: dict[str, Any],
+        *,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
         bucket = self._data.setdefault(collection, {})
         if entity_id not in bucket:
             raise KeyError(f"missing {collection}:{entity_id}")
+        current_revision = int(bucket[entity_id].get("revision", 0))
+        if expected_revision is not None and current_revision != expected_revision:
+            raise RevisionConflictError(
+                f"revision conflict for {collection}:{entity_id}: expected {expected_revision}, current {current_revision}"
+            )
         for key, value in patch.items():
+            if key == "revision":
+                continue
             if "." not in key:
                 bucket[entity_id][key] = deepcopy(value)
                 continue
@@ -56,7 +85,13 @@ class InMemoryStore(Store):
             for part in parts[:-1]:
                 target = target.setdefault(part, {})
             target[parts[-1]] = deepcopy(value)
-        return deepcopy(bucket[entity_id])
+        bucket[entity_id]["revision"] = current_revision + 1
+        upgraded, _ = upgrade_document(collection, bucket[entity_id])
+        bucket[entity_id] = deepcopy(upgraded)
+        return deepcopy(upgraded)
 
     def ensure_indexes(self) -> None:
         return None
+
+    def health(self) -> dict[str, Any]:
+        return {"ok": True, "backend": "memory", "collections": len(self._data)}

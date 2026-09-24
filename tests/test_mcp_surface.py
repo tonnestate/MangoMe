@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+import asyncio
+import importlib.util
+
+import pytest
+
+
+@pytest.mark.skipif(importlib.util.find_spec("mcp") is None, reason="mcp dependency not installed in local sandbox")
+def test_mcp_v2_surface_lists_core_tools(monkeypatch):
+    monkeypatch.setenv("MANGOME_BACKEND", "memory")
+
+    async def run():
+        from mcp.client.client import Client
+        from mangome.mcp_server import mcp
+        from mangome.runtime import reset_service_for_tests
+
+        reset_service_for_tests()
+        async with Client(mcp) as client:
+            result = await client.list_tools()
+            names = {tool.name for tool in result.tools}
+            required = {
+                "health", "intake_request", "submit_plan", "start_slice", "update_slice_progress",
+                "claim_done", "attest_evidence", "verify_slice", "project_overview",
+                "effective_family_view", "bigbang_scan", "reconcile_bigbang", "migrate_schema",
+            }
+            assert required.issubset(names)
+
+    asyncio.run(run())

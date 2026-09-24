@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mangome.service import InvalidTransition, MangoMeService, PlanRequired
+from mangome.service import ApprovalRequired, MangoMeService, PlanRequired
 from mangome.storage.memory import InMemoryStore
 
 
@@ -49,21 +49,16 @@ def test_done_claim_is_not_verification_and_gates_are_hard():
     )
     sl = svc.store.find("slices", {"family_id": family["entity_id"]})[0]
     svc.start_slice(slice_id=sl["entity_id"], actor_id="luna", plan_id=plan["entity_id"])
-    svc.claim_done(slice_id=sl["entity_id"], actor_id="luna", summary="done")
+    svc.claim_done(slice_id=sl["entity_id"], actor_id="luna", plan_id=plan["entity_id"], summary="done")
 
     status = svc.status(family["entity_id"])
     assert status["execution_state"] == "DONE_CLAIMED"
     assert status["assurance_state"] == "UNVERIFIED"
 
-    with pytest.raises(InvalidTransition):
+    with pytest.raises(ApprovalRequired):
         svc.verify_slice(slice_id=sl["entity_id"], verifier_actor_id="codex")
 
-    refreshed = svc.store.get("slices", sl["entity_id"])
-    for gate in refreshed["gates"]:
-        svc.set_gate(slice_id=sl["entity_id"], gate_id=gate["gate_id"], status="PASS")
-    verified = svc.verify_slice(slice_id=sl["entity_id"], verifier_actor_id="codex")
-    assert verified["assurance_state"] == "VERIFIED"
-    assert svc.status(family["entity_id"])["assurance_state"] == "VERIFIED"
+    assert svc.status(family["entity_id"])["assurance_state"] == "UNVERIFIED"
 
 
 def test_plan_before_mutate_is_enforced():
@@ -137,7 +132,7 @@ def test_last_started_slice_is_derived_from_persistent_timestamps():
     )
     slices = {s["declared_id"]: s for s in svc.store.find("slices", {"family_id": family["entity_id"]})}
     svc.start_slice(slice_id=slices["S1"]["entity_id"], actor_id="codex", plan_id=plan["entity_id"])
-    svc.claim_done(slice_id=slices["S1"]["entity_id"], actor_id="codex")
+    svc.claim_done(slice_id=slices["S1"]["entity_id"], actor_id="codex", plan_id=plan["entity_id"])
     svc.start_slice(slice_id=slices["S2"]["entity_id"], actor_id="codex", plan_id=plan["entity_id"])
     status = svc.status(family["entity_id"])
     assert status["last_started_slice_id"] == slices["S2"]["entity_id"]

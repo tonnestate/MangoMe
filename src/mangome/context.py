@@ -20,7 +20,7 @@ class ContextCompiler:
         else:
             active = [s for s in slices if s["entity_id"] in ctx["status"].get("active_slice_ids", [])]
             if active:
-                selected = active[0]
+                selected = max(active, key=lambda s: s.get("last_activity_at") or s.get("started_at") or s["created_at"])
             elif ctx["status"].get("next_known_slice_ids"):
                 next_id = ctx["status"]["next_known_slice_ids"][0]
                 selected = next((s for s in slices if s["entity_id"] == next_id), None)
@@ -39,9 +39,14 @@ class ContextCompiler:
                 "scope_ids": ctx["family"].get("scope_ids", []),
             },
             "current_state": ctx["status"],
+            "effective_family": ctx["effective"],
             "current_spec": next((x for x in ctx.get("specs", []) if x.get("entity_id") == ctx["family"].get("current_spec_id")), None),
             "current_slice": selected,
+            "active_plan_id": selected.get("active_plan_id") if selected else None,
             "relevant_contracts": relevant_contracts,
             "evidence": evidence,
-            "instruction": "Treat worker completion statements as claims. Follow the recorded plan and gates; do not infer VERIFIED from DONE_CLAIMED.",
+            "instruction": (
+                "Treat worker completion statements as claims. Mutations must stay bound to the active plan. "
+                "Do not infer VERIFIED from DONE_CLAIMED and do not treat un-attested evidence as verification proof."
+            ),
         }

@@ -4,110 +4,172 @@ MangoMe is the canonical work-state system for durable multi-agent projects.
 
 ## Non-negotiable rules
 
-1. **Read first.** Every agent may and should read all relevant MangoMe project state before acting.
-2. **Categorize every assignment.** Call `intake_request`; use IntakeGov's classification when available.
-3. **Resolve before creating.** Search existing family/contract/slice identity before creating a new family.
-4. **A prompt is not a contract.** Register a contract only when a durable contract contribution exists or the current workflow explicitly creates one.
-5. **Spec before execution.** Ensure the family has the specification that defines objective, deliverables, constraints, acceptance criteria and evidence expectations.
-6. **Plan before mutate.** Submit a plan with intended slices, estimate, scope and expected artifacts before productive work.
-7. **Preserve existing slices.** If the contract already has phases/slices/workstreams, import/reuse them. Do not replace them merely because you prefer another decomposition.
-8. **Collision warnings never block.** Observe them, expect concurrent changes, re-read affected artifacts when needed, then continue.
-9. **Persist state during meaningful progress.** Update current step, total steps, blocker and evidence. Do not rely on chat/session memory.
-10. **DONE is a claim.** Use `claim_done`; never describe the slice as VERIFIED unless MangoMe assurance says VERIFIED/ACCEPTED.
-11. **Gate PASS requires evidence.** Persist the evidence first, then reference its evidence ID when setting PASS.
-12. **WAIVED requires approval.** Never waive a gate without an APPROVED `WAIVE_GATE` record for `<slice_id>:<gate_id>`.
-13. **No self-verification.** The actor that last executed the slice may not verify its own DONE claim.
-14. **ACCEPTED is explicit.** Owner/human acceptance is separate from verification and requires an approved `ACCEPT_SLICE` decision.
-15. **Close plans that are no longer active.** Use `close_plan` so stale plans do not continue to create collision traffic.
-16. **Do not invent missing truth.** Use UNKNOWN/UNRESOLVED or attach a suggested relation when evidence is insufficient.
+1. **Read first.** Read the relevant MangoMe project/family state before acting.
+2. **Categorize every assignment.** Call `intake_request`; reuse IntakeGov classification when available.
+3. **Resolve before creating.** Search existing project/family/contract/slice identity before creating a new one.
+4. **A prompt is not a contract.** Register only durable contract contributions.
+5. **Spec before execution.** Ensure objective, deliverables, constraints, acceptance criteria and evidence expectations are explicit.
+6. **Plan before mutate.** Submit a plan before productive work.
+7. **Stay bound to the plan.** After `start_slice`, every progress mutation and `claim_done` must use the same active `plan_id`.
+8. **Preserve existing slices.** Import/reuse existing phases/slices/workstreams instead of casually replanning them.
+9. **Collision warnings never block.** Observe traffic, re-read overlapping artifacts where useful, and continue.
+10. **Persist meaningful progress.** Do not rely on chat/session memory.
+11. **DONE is a claim.** `DONE_CLAIMED` is not `VERIFIED` or `ACCEPTED`.
+12. **Evidence is not automatically proof.** New evidence is `UNATTESTED`; verification-grade evidence must be attested by a trusted verifier/owner capability.
+13. **PASS requires attested PASS evidence.** Claims or un-attested evidence cannot satisfy a gate.
+14. **WAIVED requires owner approval.** Never waive a gate without an approved `WAIVE_GATE` decision.
+15. **No self-verification.** The last executing actor may not verify its own DONE claim.
+16. **ACCEPTED is explicit.** Owner/human acceptance is separate from verification and requires approved `ACCEPT_SLICE` state.
+17. **Close obsolete plans.** Stale plans create stale collision traffic.
+18. **Do not invent missing truth.** Keep ambiguity `UNRESOLVED` / `SUGGESTED` until evidence or authorized confirmation exists.
 
 ## Start of work
-
-For every executable assignment:
 
 ```text
 intake_request
 → resolve
 → read_context
+→ inspect effective_family_view when contract evolution matters
 → verify/create specification
 → submit_plan
 → inspect collision warning
-→ start_slice
+→ start_slice(plan_id=...)
 ```
 
-The plan must state what you intend to do, which slices you will touch/create, expected artifacts/scope, acceptance expectations, and an estimate when meaningful.
+The plan must state intended slices, expected scope/artifacts, acceptance expectations and an estimate when meaningful.
 
 ## Existing contract handoff
 
-When a user hands you an existing contract plus existing slices, use `import_contract_bundle` or equivalent explicit onboarding. Preserve the supplied slice identities and states. Then create an intake request/spec/plan for the new execution session.
+When given an existing contract and existing slices, use `import_contract_bundle` or equivalent explicit onboarding. Preserve supplied slice identity and state. Then create the current intake/spec/plan for the new execution session.
 
 ## During work
 
-Use `update_slice_progress` whenever the durable project position changes materially. Attach evidence with `submit_evidence`. Register durable artifacts with `attach_artifact`. Use `link_entities` for explicit relations such as `ADDS_TO`, `AMENDS`, `EXTENDS`, `REPAIRS`, `RECOVERS`, `SUPERSEDES`, or `RELATES_TO`.
+Use the same `plan_id` that started the slice:
+
+```text
+update_slice_progress(slice_id=..., actor_id=..., plan_id=...)
+```
+
+Register durable artifacts with `attach_artifact`. Use `link_entities` for explicit typed relations such as:
+
+```text
+ADDS_TO
+AMENDS
+EXTENDS
+REPAIRS
+RECOVERS
+SUPERSEDES
+CONFLICTS_WITH
+VALIDATES
+IMPLEMENTS
+PART_OF
+EXPOSED_BY
+RELATES_TO
+```
 
 New work discovered during execution should become an additional slice or contract contribution without rewriting history.
 
-## Completion and verification
-
-When implementation work is finished:
+## Completion
 
 ```text
-claim_done
+claim_done(slice_id=..., actor_id=..., plan_id=...)
 ```
 
-This produces `DONE_CLAIMED / UNVERIFIED` unless assurance already exists.
+This produces a stable `DONE_CLAIMED / UNVERIFIED` state.
 
-For a PASS gate:
+## Evidence and verification
+
+New evidence is deliberately untrusted by default:
 
 ```text
-submit_evidence
-→ set_gate_controlled(status=PASS, evidence_ids=[...])
+submit_evidence(
+  evidence_class=TEST_RESULT | RUNTIME_OBSERVATION | STATIC_ANALYSIS |
+                 ARTIFACT_CHECK | HUMAN_ATTESTATION | EXTERNAL_REVIEW | ...
+)
 ```
 
-For a gate that must be waived:
+A trusted verifier or owner must attest verification-grade evidence through a runtime capability:
 
 ```text
-request_override(action_type=WAIVE_GATE, subject_id=<slice_id>:<gate_id>)
-→ explicit approval
-→ set_gate_controlled(status=WAIVED, approval_id=...)
+attest_evidence
 ```
 
-Verification is a separate action by a different actor:
+Then a gate may become PASS:
+
+```text
+set_gate(status=PASS, evidence_ids=[...])
+```
+
+Verification is separate and requires an independent verifier capability:
 
 ```text
 verify_slice
 ```
 
-After verification, owner/human acceptance may be recorded explicitly:
+Never place capability tokens in contracts, project state, evidence payloads, chat summaries or source files. Runtime/host injection is preferred.
+
+## Owner approval
+
+A worker may request but cannot grant approval:
 
 ```text
-request_override(action_type=ACCEPT_SLICE, subject_id=<slice_id>)
-→ explicit approval
-→ accept_slice
+request_override(action_type=WAIVE_GATE | ACCEPT_SLICE, ...)
 ```
 
-## Approval trust boundary
+Owner approval/rejection requires the separate runtime approval capability. For local/self-hosted operation, a human can use the CLI so the token remains in the environment rather than the prompt:
 
-MangoMe records and enforces approval-state relationships, but v0.1.1 does not authenticate MCP caller identities. `actor_id`, `decided_by`, and related identity strings come from the host environment. Do not represent this as cryptographic authorization.
+```text
+mangome approve <approval_id> --actor human-owner
+mangome reject <approval_id> --actor human-owner
+```
 
-## Session loss / context loss
+After an approved `ACCEPT_SLICE`, `accept_slice` derives the authoritative accepting actor from the approval record.
 
-Do not reconstruct project truth from your own memory. Read MangoMe again. The persistent fields `last_started_slice_id`, `active_slice_ids`, `last_done_claimed_slice_id`, `last_verified_slice_id`, current steps, gates and timestamps are authoritative state inputs for the next plan.
+## Contract evolution
 
-MangoMe stores state; it does not force an automatic recovery/replay strategy. Decide the next plan from the observed state and current artifacts.
+Contract contributions are append-only. Use typed relations rather than overwriting history. `effective_family_view` resolves confirmed supersession and surfaces conflicts/suggestions. It does not silently merge ambiguous prose; the current effective specification remains the operational requirements view.
 
-## Parallel work
+## Project status
 
-Collision warnings are advisory. Never use a collision warning as a reason for inactivity. Re-read overlapping artifacts when appropriate and continue with greater care. Close obsolete plans to reduce stale warnings.
+Use:
 
-## Model/cost receipt
+```text
+status                # one family
+project_overview      # all known families in a project
+effective_family_view # contract evolution/current contribution set
+graph                 # explicit typed relations
+```
 
-When execution telemetry is available, register the model identity and write an execution receipt. Include context size, tokens, execution/verification/repair/human costs and final outcome. This data is evidence for future routing, not a popularity score.
+These are deterministic projections, not LLM summaries.
+
+## Dependencies
+
+Slices may depend on another slice at one of three levels:
+
+```text
+DONE_CLAIMED
+VERIFIED
+ACCEPTED
+```
+
+Do not treat an execution-level completion dependency as equivalent to an assurance-level dependency.
+
+## Session/context loss
+
+Do not reconstruct project truth from your own memory. Read MangoMe again. `last_started_slice_id`, active slices, last DONE claim, last verified slice, active plan binding, gates, evidence and timestamps are the durable starting point for a new plan.
+
+MangoMe stores state; it does not replay or automatically recover a dead session.
 
 ## Big-Bang import
 
-`bigbang_scan` is non-destructive discovery. `CONTRACT_CANDIDATE` is not a canonical contract. Ambiguous relationships stay unresolved/suggested until there is evidence or authorized confirmation.
+`bigbang_scan` is non-destructive discovery across configured filesystem roots and optional Git metadata. Identifier patterns are generic/configurable rather than hard-coded to one organization.
+
+`reconcile_bigbang` matches discovery against canonical state without semantic mutation. Candidates, collisions and unresolved items remain explicit.
+
+## Schema evolution and maintenance
+
+Readers can lazily understand older schema documents. Use `migrate_schema` for an explicit dry-run or persistence migration. Use `maintenance_diagnose` for stale-plan candidates, ID collisions, open approvals and suggested relations. Diagnostics must not silently change semantic truth.
 
 ## External model reconciliation
 
-An external ChatGPT/Claude/Gemini review is advisory. Import its result as evidence/suggestion. Never let an external reviewer directly rewrite canonical MangoMe state.
+External ChatGPT/Claude/Gemini reviews are advisory. Import results as evidence/suggestions and route them through normal MangoMe verification/approval. External reviewers must not rewrite canonical truth directly.

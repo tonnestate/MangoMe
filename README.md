@@ -1,52 +1,42 @@
 # MangoMe
 
 <p align="center">
-  <strong>Move project truth out of the agent session.</strong><br>
-  A persistent work-state graph and document-state machine for durable multi-agent execution.
+  <strong>Project truth survives the agent.</strong><br>
+  A persistent work-state, contract-family, evidence, and verification MCP for multi-agent systems.
 </p>
 
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.1-green">
-  <img alt="MCP Server" src="https://img.shields.io/badge/MCP-server-blueviolet">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.2-green">
+  <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
+  <img alt="MongoDB" src="https://img.shields.io/badge/store-MongoDB-47A248">
   <img alt="Agent Skill" src="https://img.shields.io/badge/agent-skill-purple">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-blue">
-  <img alt="MongoDB" src="https://img.shields.io/badge/MongoDB-document%20state-47A248">
 </p>
 
 ---
 
-> [!WARNING]
-> **EXPERIMENTAL — v0.1.1**  
-> MangoMe is an early work-state MCP for multi-agent systems. The current release implements the core state model, contract families, append-only contract contributions, specifications, plans, slices, claims, evidence, deterministic status projections, advisory collision detection, Big-Bang discovery, context compilation, and model/cost receipts. It is **not yet a production authorization boundary** for untrusted remote clients.
-
 ## Why MangoMe exists
 
-Long-running agent projects fail in a surprisingly mundane way: **the work survives longer than the session that was doing it**.
+Long-running AI work fails in a very specific way: the work may survive, but the **agent's understanding of the work does not**.
 
-A Claude session ends.  
-A Codex run loses context.  
-An SSH tunnel dies.  
-A token budget is exhausted.  
-A different model continues tomorrow.  
-Contracts, reports, Git branches, status files and implementation artifacts live in different places.
+Sessions end. SSH tunnels drop. Token budgets expire. A different model takes over. Contracts are copied into new chats. A worker says “done” although nobody has verified the result. Two agents start changing the same area. A project accumulates base contracts, additions, repairs, reports, evidence and half-finished slices until nobody can state the current truth without reconstructing it from files and memory.
 
-The next worker then has to reconstruct the project from fragments and often reaches a different conclusion about:
+MangoMe moves that truth out of the agent session.
 
-- which contract is canonical;
-- which contracts belong together;
-- which slices already exist;
-- which slice was started last;
-- what is currently active;
-- what a worker only *claimed* to have finished;
-- what has actually been verified;
-- which artifacts and evidence support that state;
-- which other agents are working in the same area.
+> **Workers are ephemeral executors. MangoMe is durable operational state.**
 
-**MangoMe exists to make that reconstruction unnecessary.**
+It is designed to answer questions such as:
 
-The agent session is temporary. The work identity and work state are durable.
+- Which project and contract family does this work belong to?
+- Which contract contributions are still effective?
+- Which slice was started last?
+- Which slices are active, blocked, DONE-claimed, verified or accepted?
+- Which plan is currently allowed to mutate a slice?
+- Which evidence actually supports a gate?
+- Which other agents are working in overlapping scope?
+- Which approvals are still open?
+- What is the current state of the whole project, not just one chat?
 
 ---
 
@@ -59,91 +49,93 @@ REQUEST
 Intake / classification
    │
    ▼
-PROJECT + CONTRACT FAMILY
+Project + Contract Family
    │
-   ├── append-only contract contributions
-   ├── specification
-   ├── artifacts + graph relations
-   └── existing slices
-   │
-   ▼
-MANDATORY PLAN
-   │
-   ├── intended slices
-   ├── expected artifacts / scope
-   ├── estimate
-   └── acceptance expectations
+   ├── BASE
+   ├── ADDITION
+   ├── AMENDMENT
+   ├── REPAIR
+   └── ... append-only contributions
    │
    ▼
-EXECUTION
-   │
-   ├── persistent slice state
-   ├── advisory collision warnings
-   ├── claims
-   └── evidence
+Effective Specification
    │
    ▼
-DONE_CLAIMED
-   │
-   ├── stable state
-   └── NOT equivalent to VERIFIED
+PLAN BEFORE MUTATE
    │
    ▼
-VERIFICATION / ACCEPTANCE
+Persistent Slices + Dependencies
    │
    ▼
-MATERIALIZED CURRENT STATE
+Execution State + Claims + Evidence
    │
-   ├── Claude
-   ├── Codex
-   ├── Luna
-   ├── IntakeGov
-   ├── CogC
-   ├── OmniRoute
-   └── dashboards / operators
+   ├── DONE_CLAIMED
+   │       ≠
+   └── VERIFIED / ACCEPTED
+           │
+           ▼
+Deterministic Family / Project Views
+           │
+           ▼
+Claude / Codex / Luna / dashboards / IntakeGov / CogC / OmniRoute / other MCP hosts
 ```
 
-The central rule is simple:
-
-> **Workers may report what they did. MangoMe owns the durable operational state.**
+MangoMe is not an autonomous project manager and not an agent framework. It is the shared state substrate underneath them.
 
 ---
 
 # Core principles
 
-## 1. Read is open; execution starts with a plan
+## 1. Work identity is more durable than a session
 
-Every agent may read MangoMe state and is expected to resolve the existing project/family context before productive work.
+A prompt, chat, filename or model session is not the identity of the work.
 
-Before execution begins, the worker records a plan describing what it intends to change, which slices it will work on, expected scope/artifacts, acceptance expectations, and an estimate when meaningful.
+MangoMe gives first-class identity to:
 
-MangoMe is not intended to make agents wait for locks or a central dispatcher.
+- projects;
+- contract families;
+- append-only contract contributions;
+- specifications;
+- plans;
+- slices;
+- evidence;
+- artifacts;
+- graph relations;
+- approvals;
+- model execution receipts.
 
-## 2. Slices are durable execution addresses
+Every entity receives an immutable internal `entity_id`. Human IDs such as `AVCOS-OSEP-001` remain `declared_id` values and may collide without overwriting history.
 
-Slices are first-class objects, not disposable checklist text.
+## 2. Contracts evolve by addition, not silent replacement
 
-Existing slices are preserved when a contract already defines phases, slices or workstreams. MangoMe records at least:
+A new contract contribution does not rewrite an old one.
+
+Relations are explicit:
 
 ```text
-last_started_slice_id
-active_slice_ids
-last_done_claimed_slice_id
-last_verified_slice_id
-next_known_slice_ids
-current_step
-total_steps
-blocker
-last_activity_at
+ADDS_TO
+AMENDS
+EXTENDS
+REPAIRS
+RECOVERS
+SUPERSEDES
+CONFLICTS_WITH
+VALIDATES
+IMPLEMENTS
+PART_OF
+EXPOSED_BY
+RELATES_TO
 ```
 
-This lets a new worker determine the last known project position without trusting another model's chat memory.
+`effective_family_view` determines the currently active contribution set from confirmed supersession and exposes conflicts and suggested relations.
 
-## 3. DONE is a claim
+It intentionally does **not** pretend that ambiguous prose can always be deterministically merged. The family's current effective specification is the operational requirements view.
 
-Execution state and assurance state are independent.
+## 3. Slices are durable execution addresses
 
-Execution:
+A slice survives the worker that created or executed it.
+
+Execution state:
 
 ```text
 PLANNED
@@ -155,7 +147,7 @@ DONE_CLAIMED
 CANCELLED
 ```
 
-Assurance:
+Assurance state is independent:
 
 ```text
 UNVERIFIED
@@ -165,54 +157,38 @@ ACCEPTED
 REJECTED
 ```
 
-Therefore this is a normal and potentially long-lived state:
+Therefore this is normal and may remain stable for days or weeks:
 
 ```text
-DONE_CLAIMED / UNVERIFIED
+execution_state: DONE_CLAIMED
+assurance_state: UNVERIFIED
 ```
 
-A worker saying "done" is useful state. It is not proof.
+## 4. Plan-before-mutate is enforced beyond `start_slice`
 
-## 4. Contracts are append-only contributions
+A plan is not merely a pre-flight note.
 
-A new contract does not silently overwrite an older contract.
-
-A durable family can contain:
+When a slice starts, MangoMe binds it to the active `plan_id`. Subsequent progress updates and `claim_done` must use that same actor + plan binding.
 
 ```text
-BASE
-ADDITION
-AMENDMENT
-EXTENSION
-REPAIR
-RECOVERY
-EVALUATION
-VALIDATION
-SPECIFICATION
+submit_plan
+   ↓
+start_slice(plan_id=P1)
+   ↓
+update_slice_progress(plan_id=P1)
+   ↓
+claim_done(plan_id=P1)
 ```
 
-MangoMe separates the immutable internal `entity_id` from a human-declared id such as `AVCOS-OSEP-001`.
+A different or missing plan cannot mutate that execution state.
 
-Declared IDs may collide. Both contributions remain present and the collision is surfaced rather than repaired by silent renaming.
-
-Typed relations can express:
-
-```text
-ADDS_TO
-AMENDS
-EXTENDS
-REPAIRS
-RECOVERS
-SUPERSEDES
-CONFLICTS_WITH
-RELATES_TO
-```
+This closes a common loophole in agent workflows where planning is mandatory in theory but execution stops referencing it immediately afterwards.
 
 ## 5. Parallel work warns; it does not lock
 
-MangoMe deliberately allows several agents to work in the same family.
+MangoMe does not turn multi-agent work into a global lock manager.
 
-Plans publish expected scope and artifacts. Overlap produces advisory traffic information:
+Active plans declare expected scope and artifacts. Overlap produces advisory traffic information:
 
 ```text
 COLLISION_WARNING
@@ -224,217 +200,274 @@ other_actor_ids:
 action: CONTINUE_ALLOWED
 ```
 
-The agent remains responsible for observing concurrent changes and adapting.
+The worker observes the warning, re-reads overlapping state where useful, and continues.
 
-## 6. Project status is deterministic whenever possible
+## 6. Worker assertions are claims, not truth
 
-Routine questions such as these should not require an LLM:
+`claim_done` records what the worker claims happened.
 
-- Which slice was started last?
-- Which slices are active?
-- Which slices are only `DONE_CLAIMED`?
-- Which slices are verified?
-- Which actors are currently active?
-- Which declared contract IDs collide?
-- Which approvals remain open?
-
-MangoMe materializes state views from stored data. LLM reasoning is reserved for genuinely semantic ambiguity.
-
-## 7. MangoMe stores state, not automatic recovery
-
-MangoMe does not replay a failed worker or guess how to recover a dead session.
-
-The next worker reads the persisted state, inspects the current artifacts, submits a new plan, and continues from the observed project position.
-
-## 8. Big-Bang and incremental onboarding must both exist
-
-MangoMe supports two complementary paths:
+It does not set `VERIFIED`.
 
 ```text
-BIG-BANG DISCOVERY
-    existing estate → inventory → candidates → reconciliation
-
-LIVE / INCREMENTAL INTAKE
-    new work → resolve → register → plan → execute
-```
-
-The v0.1 scanner is non-destructive: it discovers and hashes artifacts and extracts cheap structural signals without moving, renaming, merging or deleting source files.
-
----
-
-# What MangoMe tracks
-
-The current document model includes:
-
-```text
-requests
-projects
-families
-contracts
-specs
-slices
-plans
-claims
-evidence
-artifacts
-edges
-approvals
-project_views
-models
-execution_receipts
-```
-
-Every persisted first-class document carries a `schema_version`.
-
-MongoDB is the durable production document store. An in-memory backend is included for deterministic tests.
-
----
-
-# Verification and acceptance
-
-v0.1.1 separates implementation claims from assurance more strictly:
-
-```text
-ACTIVE
+worker
   ↓
 DONE_CLAIMED
   ↓
-acceptance gates + persisted evidence
+attested evidence
+  ↓
+acceptance gates
+  ↓
+independent verifier capability
   ↓
 VERIFIED
   ↓
-explicit acceptance decision
+optional owner approval
   ↓
 ACCEPTED
 ```
 
-Current integrity rules include:
+## 7. Evidence is untrusted by default
 
-- a `PASS` gate requires persisted evidence belonging to the same slice;
-- failing evidence cannot support a `PASS` gate;
-- a `WAIVED` gate requires an approved `WAIVE_GATE` decision;
-- the last executing actor may not verify its own `DONE_CLAIMED` state;
-- `VERIFIED` and `ACCEPTED` are distinct states.
+New evidence is stored as `UNATTESTED`.
 
-> [!IMPORTANT]
-> In v0.1.1, actor identities and approval identities are still supplied by the MCP host/caller. The domain protocol is enforced, but caller authentication is **not** yet a production trust boundary. See **Known limitations** below.
+Supported evidence classes include:
+
+```text
+CLAIM
+TEST_RESULT
+RUNTIME_OBSERVATION
+STATIC_ANALYSIS
+ARTIFACT_CHECK
+HUMAN_ATTESTATION
+EXTERNAL_REVIEW
+OTHER
+```
+
+Verification-grade gate PASS requires:
+
+- evidence belonging to the same slice;
+- an admissible evidence class;
+- PASS verdict;
+- trusted verifier/owner attestation.
+
+A worker cannot turn arbitrary prose into verification proof merely by calling it evidence.
+
+## 8. Verification and owner approval use different runtime capabilities
+
+MangoMe v0.1.2 adds two explicit runtime capability boundaries:
+
+```text
+MANGOME_VERIFIER_TOKEN
+MANGOME_APPROVAL_TOKEN
+```
+
+Optional actor allowlists:
+
+```text
+MANGOME_VERIFIER_ACTORS
+MANGOME_APPROVER_ACTORS
+```
+
+The capability token is compared at runtime and is **never persisted** in MangoMe.
+
+For a stronger host boundary without secrets in tool arguments, run a dedicated privileged MangoMe process:
+
+```text
+MANGOME_RUNTIME_ROLE=VERIFIER | OWNER
+MANGOME_RUNTIME_ACTOR=<trusted actor id>
+```
+
+A `WORKER` runtime cannot become a verifier/owner by changing an `actor_id`. A dedicated `VERIFIER`/`OWNER` process authorizes only its configured runtime actor and can keep secrets entirely outside the tool call. OS/process/network access to that privileged endpoint then becomes the control boundary.
+
+The last executing actor is still prohibited from verifying its own DONE claim.
+
+Owner decisions such as `WAIVE_GATE` or `ACCEPT_SLICE` require the separate approval capability.
+
+For local/self-hosted human approval, the CLI can read the capability from the environment so it does not need to be pasted into an agent prompt:
+
+```bash
+mangome approve <approval_id> --actor human-owner
+mangome reject <approval_id> --actor human-owner
+```
+
+> MangoMe is still not a complete IAM platform. Protect capability tokens at the MCP host/runtime boundary and do not expose Streamable HTTP publicly without appropriate authentication and network controls.
+
+## 9. Dependencies can require execution or assurance
+
+A downstream slice may depend on another slice at different levels:
+
+```text
+DONE_CLAIMED
+VERIFIED
+ACCEPTED
+```
+
+This prevents an execution claim from accidentally satisfying a dependency that actually requires verification or owner acceptance.
+
+## 10. Project status is deterministic
+
+`status(family_id)` gives a family view.
+
+`project_overview(project_ref)` aggregates all known families, contracts, slices, warnings, active actors and open approvals for a project.
+
+No LLM is required to answer:
+
+- what is active;
+- what was started last;
+- what is only DONE-claimed;
+- what is verified;
+- which approvals are open;
+- what the current known next slices are.
 
 ---
 
-# Big-Bang discovery
+# Big-Bang import and live onboarding
 
-`bigbang_scan` inventories configured filesystem roots and registers discovered artifacts without changing them.
+MangoMe supports both operating modes.
 
-The current deterministic extraction layer can detect contract-like IDs, explicit slice/phase/workstream headings, report/status filename signals and checksums.
+### Live / lazy onboarding
 
-Discovery does not equal truth:
+An agent handling an existing or new assignment can resolve/create the family, register the relevant contract contribution, preserve existing slices and submit its current plan.
+
+### Big-Bang discovery
+
+`bigbang_scan` can non-destructively inventory configured filesystem roots. v0.1.2 also records optional Git metadata such as:
+
+- repository origin;
+- HEAD;
+- local branches;
+- worktrees;
+- recent commits.
+
+Identifier extraction is generic and can be overridden with explicit regex patterns; MangoMe no longer hard-codes organization/project prefixes.
+
+Discovery remains non-destructive:
 
 ```text
-DISCOVERED ARTIFACT
-       ↓
-CONTRACT_CANDIDATE / WORK_STRUCTURE_CANDIDATE / REFERENCE_ONLY / UNRESOLVED
-       ↓
-explicit onboarding or later reconciliation
-       ↓
-CANONICAL MANGOME STATE
+DISCOVER
+  ↓
+CONTRACT_CANDIDATE / WORK_STRUCTURE_CANDIDATE / SUPPORTING_ARTIFACT / UNRESOLVED
+  ↓
+reconcile_bigbang
+  ↓
+exact match / collision / unresolved
+  ↓
+explicit semantic admission later
 ```
 
-Ambiguous relationships should remain unresolved or suggested rather than being silently promoted by a model.
+`reconcile_bigbang` performs **zero canonical semantic mutations**. It compares discovery against current state and leaves uncertainty visible.
+
+---
+
+# Schema evolution and concurrent state safety
+
+Every first-class document carries:
+
+```text
+schema_version
+revision
+```
+
+v0.1.2 introduces reader-side lazy migration plus an explicit migration registry path:
+
+```bash
+mangome migrate          # dry-run
+mangome migrate --apply  # persist registered migrations
+```
+
+Mutable state updates use revision-aware compare-and-swap where MangoMe performs state transitions. This protects MangoMe's own state from silent concurrent overwrite without locking project work itself.
 
 ---
 
 # Context compilation
 
-MangoMe can emit a bounded current-state package for a family or slice:
+`compile_execution_context` emits a deterministic bounded package containing current family state, effective contract view, current spec, selected slice, active plan binding, relevant contracts and evidence.
+
+This is intentionally separate from cognitive compression.
+
+A typical composition is:
 
 ```text
-family identity
-current materialized state
-current specification
-selected/current slice
-relevant contract contributions
-relevant evidence
+MangoMe
+  ↓ current durable truth
+ContextCompiler
+  ↓ bounded execution package
+CogC
+  ↓ capacity-aware compression
+worker model
 ```
-
-This is intentionally a deterministic projection.
-
-A downstream system such as **CogC** can then perform capacity-aware compression for a particular worker instead of retransmitting the full historical contract/session context every time.
 
 ---
 
-# Model and execution economics
+# Model and cost ledger
 
-Execution receipts can record:
+Execution receipts can capture:
 
-- agent and model identity;
-- provider/access path;
+- model/provider/access-path identity;
 - work class;
-- raw and compiled context size;
 - input/output tokens;
+- raw vs compiled context size;
 - execution cost;
 - verification cost;
 - repair cost;
 - human cost;
-- final outcome.
+- outcome.
 
-MangoMe calculates:
+MangoMe computes:
 
 ```text
 durable_cost = execution + verification + repair + human
 ```
 
-This creates a foundation for future empirical routing based on **cost per durable verified outcome**, rather than cost per token alone.
+and can aggregate cost per verified outcome by model/work class.
+
+The ledger is empirical evidence for routing decisions, not a model popularity score.
 
 ---
 
 # Where MangoMe fits
 
-MangoMe is not intended to replace an intake governor, context compiler, model router, Git, or an agent framework.
-
-It is the shared persistent work-state layer between them.
-
 ```text
-                         USER / REQUEST
-                              │
-                              ▼
-                         IntakeGov
-                  classify + resolve work type
-                              │
-                              ▼
-                           MangoMe
-              identity + state + slices + evidence
-                    + contracts + provenance
-                              │
-              ┌───────────────┼────────────────┐
-              │               │                │
-              ▼               ▼                ▼
-             CogC         OmniRoute        Agent runtime
-        compile context   route models   Claude/Codex/Luna
-              │               │                │
-              └───────────────┴────────────────┘
-                              │
-                              ▼
-                     execution receipts
-                              │
-                              └──────────► MangoMe
+                    REQUEST
+                       │
+                       ▼
+                  IntakeGov
+          classify / qualify / route
+                       │
+                       ▼
+                    MangoMe
+       identity / contracts / state / evidence
+                       │
+             ┌─────────┼─────────┐
+             │         │         │
+             ▼         ▼         ▼
+           CogC    OmniRoute   Workers
+        context       model    Claude/
+       compiler       path     Codex/Luna
+             │         │         │
+             └─────────┼─────────┘
+                       ▼
+               claims + evidence
+                       │
+                       ▼
+                  MangoMe
+                       │
+                       ▼
+              verifier / owner
 ```
 
-A useful division of responsibilities is:
-
-```text
-IntakeGov = what kind of work is this?
-MangoMe   = what durable work identity/state does it belong to?
-CogC      = what context does this worker actually need?
-OmniRoute = which execution path/model should handle it?
-```
+MangoMe does not replace IntakeGov, CogC, OmniRoute, Beads, Git, CI or a model provider. It gives those systems a shared durable work identity and state substrate.
 
 ---
 
 # MCP tools
 
-v0.1.1 exposes the following groups.
+The v0.1.2 server exposes:
 
 ```text
+Readiness
+  health
+
 Intake / specification
   intake_request
   create_spec
@@ -457,8 +490,9 @@ Planning / execution
 
 Evidence / assurance
   submit_evidence
+  attest_evidence
   set_gate
-  set_gate_controlled
+  set_gate_controlled       # v0.1.1 compatibility alias
   verify_slice
   request_override
   approve_override
@@ -466,8 +500,10 @@ Evidence / assurance
   list_approvals
   accept_slice
 
-Read / context
+Read / explanation
   status
+  project_overview
+  effective_family_view
   read_context
   compile_execution_context
   graph
@@ -477,16 +513,19 @@ Economics
   record_execution_receipt
   model_stats
 
-Maintenance / discovery
+Import / maintenance
   bigbang_scan
+  reconcile_bigbang
   refresh_views
+  maintenance_diagnose
+  migrate_schema
 ```
 
 ---
 
 # Installation
 
-Python 3.10+ is required. The production backend uses MongoDB.
+Python 3.10+:
 
 ```bash
 python -m venv .venv
@@ -495,7 +534,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-For local development without MongoDB:
+For an in-memory development backend:
 
 ```bash
 export MANGOME_BACKEND=memory
@@ -511,9 +550,29 @@ export MANGOME_DATABASE='mangome'
 mangome-mcp
 ```
 
+Configure either dedicated runtime roles (preferred when you can separate endpoints):
+
+```bash
+export MANGOME_RUNTIME_ROLE='VERIFIER'
+export MANGOME_RUNTIME_ACTOR='verifier-service'
+# run a verifier-scoped MangoMe process behind host/network controls
+```
+
+Or use capability tokens for a shared/self-hosted process:
+
+```bash
+export MANGOME_VERIFIER_TOKEN='runtime-secret'
+export MANGOME_VERIFIER_ACTORS='verifier-service,codex-verifier'
+
+export MANGOME_APPROVAL_TOKEN='owner-runtime-secret'
+export MANGOME_APPROVER_ACTORS='human-owner'
+```
+
+Do not place these values in contracts, prompts, committed configuration or MangoMe evidence.
+
 The default MCP transport is stdio.
 
-Streamable HTTP can be enabled with:
+Streamable HTTP:
 
 ```bash
 export MANGOME_MCP_TRANSPORT=streamable-http
@@ -522,63 +581,30 @@ export MANGOME_MCP_PORT=8000
 mangome-mcp
 ```
 
-The root `server.py` exposes the MCP server for the official MCP CLI.
-
-Current MCP Python SDK v2 syntax:
+The repository exposes `server.py` for the official MCP Python SDK v2 CLI:
 
 ```bash
 mcp dev server.py
 mcp run server.py --transport streamable-http
 ```
 
-The MCP Python SDK v2 is the current stable release line and supports Python 3.10+.
-
----
-
-# MCP host configuration
-
-Example stdio configuration:
-
-```json
-{
-  "mcpServers": {
-    "mangome": {
-      "command": "/absolute/path/to/.venv/bin/mangome-mcp",
-      "env": {
-        "MANGOME_BACKEND": "mongo",
-        "MANGOME_MONGODB_URI": "mongodb://127.0.0.1:27017",
-        "MANGOME_DATABASE": "mangome"
-      }
-    }
-  }
-}
-```
-
-See [`examples/mcp-config.json`](examples/mcp-config.json).
-
 ---
 
 # Agent Skill
 
-The canonical skill lives at:
+Canonical skill:
 
 ```text
 skill/mangome/SKILL.md
 ```
 
-A GitHub-discoverable mirror should exist at:
+GitHub-discoverable mirror:
 
 ```text
 .github/skills/mangome/SKILL.md
 ```
 
-The distinction is deliberate:
-
-```text
-SKILL   = how an agent must work
-MCP     = what the system knows and enforces
-MongoDB = what durably survives
-```
+The Skill describes how agents must behave. The MCP owns persistent state and domain invariants.
 
 ---
 
@@ -586,74 +612,24 @@ MongoDB = what durably survives
 
 ```text
 intake_request
-      ↓
-resolve / read_context
-      ↓
-create or select family + contract contribution
-      ↓
-create/select specification
-      ↓
-submit_plan
-      ↓
-inspect collision warning
-      ↓
-start_slice
-      ↓
-update_slice_progress + submit_evidence
-      ↓
-claim_done
-      ↓
-gate evaluation
-      ↓
-verify_slice
-      ↓
-optional human/owner acceptance
-      ↓
-record_execution_receipt
-      ↓
-status
+→ resolve / create_family
+→ register_contract
+→ create_spec
+→ submit_plan
+→ start_slice(plan_id)
+→ update_slice_progress(plan_id)
+→ submit_evidence
+→ attest_evidence
+→ claim_done(plan_id)
+→ set_gate(PASS)
+→ verify_slice(verifier capability)
+→ optional ACCEPT_SLICE approval
+→ accept_slice
+→ close_plan
+→ status / project_overview
 ```
 
-A terminated model session does not erase the durable work state. The next worker reads MangoMe and creates its own plan from the persisted state and current artifacts.
-
----
-
-# Known limitations in v0.1.1
-
-MangoMe is executable, but these boundaries are intentionally not hidden:
-
-1. **Caller identity is still declarative.** The MCP host/runtime must eventually provide trusted actor identity for production authorization and human approvals.
-2. **Plan enforcement is strongest at slice start.** Subsequent execution mutations still need tighter actor/plan binding.
-3. **Evidence semantics are still coarse.** Persisted evidence is required for `PASS`, but gate-specific evidence policies and evidence assurance classes are not yet complete.
-4. **Contract contributions do not yet compile into a full effective-family view.** The graph exists; deterministic effective-spec composition is a next step.
-5. **Big-Bang discovery is not yet full reconciliation.** Git history/branches/worktrees, configurable identifier grammars, richer parsers and semantic candidate reconciliation are planned.
-6. **`schema_version` exists, but an explicit migration registry is not yet implemented.**
-7. **Project-level rollups are still thinner than family-level state.** A deterministic multi-family project overview is a planned core addition.
-8. **Streamable HTTP should not be exposed publicly without transport authentication and deployment-specific authorization.**
-
-These are roadmap items, not claims of completed capability.
-
----
-
-# Testing
-
-The repository contains tests for:
-
-- plan-before-mutate at slice start;
-- `DONE_CLAIMED` vs `VERIFIED` separation;
-- evidence-backed gate passing;
-- approval-backed gate waivers;
-- independent verification;
-- explicit `VERIFIED → ACCEPTED` transition;
-- advisory collision detection;
-- last-started slice derivation;
-- contract ID collision preservation;
-- Big-Bang non-destructive discovery;
-- context compilation;
-- durable execution cost calculations;
-- MongoDB persistence integration.
-
-When `.github/workflows/ci.yml` is present, CI should run the test suite against Python 3.10–3.12 plus MongoDB 7 and verify the Agent Skill mirror.
+A dead model session does not erase this chain.
 
 ---
 
@@ -668,109 +644,107 @@ When `.github/workflows/ci.yml` is present, CI should run the test suite against
 ├── examples/
 ├── skill/mangome/SKILL.md
 ├── src/mangome/
+│   ├── authority.py
 │   ├── context.py
 │   ├── importer.py
 │   ├── integrity.py
 │   ├── maintenance.py
-│   ├── mcp_integrity.py
 │   ├── mcp_server.py
 │   ├── models.py
-│   ├── runtime.py
+│   ├── schema.py
 │   ├── service.py
 │   └── storage/
 ├── tests/
-├── .gitignore
-├── CHANGELOG.md
-├── LICENSE
 ├── pyproject.toml
-├── README.md
 └── server.py
 ```
 
 ---
 
+# Testing
+
+The suite covers:
+
+- plan-before-mutate and persistent plan binding;
+- DONE vs verification separation;
+- capability-backed verifier and owner approval boundaries;
+- attested evidence requirements;
+- gate schema/audit metadata;
+- advisory collision warnings;
+- declared-contract-ID collisions;
+- effective family supersession/conflict views;
+- project-level status aggregation;
+- dependency assurance levels;
+- optimistic revision conflicts;
+- schema migration;
+- generic Big-Bang discovery and reconciliation;
+- MongoDB persistence;
+- MCP v2 tool discovery.
+
+GitHub Actions runs Python 3.10–3.12 with MongoDB 7 and the real MCP dependency.
+
+---
+
+# What MangoMe deliberately does not do
+
+- It does not treat every prompt as a contract.
+- It does not use agent memory as canonical truth.
+- It does not block work merely because another agent overlaps.
+- It does not automatically replay/recover a dead model session.
+- It does not accept a worker's DONE statement as verification.
+- It does not accept un-attested evidence as verification proof.
+- It does not semantically merge ambiguous contract prose by guesswork.
+- It does not let Big-Bang discovery silently canonicalize uncertain relationships.
+- It does not require Git.
+- It does not impose Scrum, sprints or story points.
+- It is not yet a complete identity/IAM or internet-facing authorization platform.
+
+---
+
 # Roadmap
 
-## v0.1.x — integrity and operational truth
+## 0.1.x — Durable truth foundation
 
 - [x] Contract families and append-only contributions
-- [x] Persistent slices
-- [x] Plan-before-start
-- [x] Claims vs assurance state
-- [x] Evidence-backed acceptance gates
-- [x] Advisory collision warnings
-- [x] Non-destructive Big-Bang discovery
-- [x] Deterministic family status
-- [x] Context compiler
-- [x] Model/cost execution receipts
-- [ ] Bind all execution mutations to an active actor plan
-- [ ] Trusted human/owner approval boundary
-- [ ] Evidence assurance classes and gate policies
-- [ ] Deterministic project-level multi-family overview
-- [ ] Effective-family specification compiled from contract contributions
-- [ ] Typed/validated relation vocabulary and endpoint validation
-- [ ] Explicit schema migration registry
-- [ ] Optimistic revision/CAS protection for MangoMe internal state
-- [ ] Stale-plan and stale-state maintenance
+- [x] Specifications and persistent slices
+- [x] Plan-before-mutate
+- [x] Persistent plan binding during execution
+- [x] Execution vs assurance state
+- [x] Evidence attestation
+- [x] Separate verifier / owner capabilities
+- [x] Advisory collision detection
+- [x] Effective family view
+- [x] Project overview
+- [x] Big-Bang filesystem + Git discovery
+- [x] Non-destructive reconciliation
+- [x] Schema-version migration path
+- [x] Revision/CAS state protection
+- [x] MCP v2 and MongoDB integration tests
 
-## Next — reconciliation and learning
+## Next
 
-- [ ] Configurable identifier grammars and parsers
-- [ ] Git branch/history/worktree discovery
-- [ ] Big-Bang candidate reconciliation
-- [ ] External review packages for Claude / ChatGPT / Gemini
-- [ ] Provider/model/version-aware execution receipts
-- [ ] Cost-per-durable-verified-outcome routing feedback
-- [ ] A/B/C replay evaluation for model and context strategies
-
----
-
-# What MangoMe is not
-
-MangoMe is not:
-
-- another Jira/Scrum implementation;
-- an agent framework;
-- a replacement for Git;
-- a generic vector memory;
-- a model router;
-- an automatic recovery/replay engine;
-- a reason to trust worker completion claims;
-- a license to block parallel agents because work overlaps.
-
-It is the persistent **work identity + work state + evidence + provenance** layer that lets those systems cooperate without reconstructing project truth from scratch.
-
----
-
-# Research and prior art
-
-MangoMe is independently implemented and deliberately reuse-first in architecture.
-
-Its design is informed by established concepts and systems including:
-
-- MongoDB document storage and schema-versioning patterns;
-- Model Context Protocol for provider-neutral agent tooling;
-- OpenSpec-style specification/delta evolution;
-- Beads/Gas Town-style persistent dependency-aware work structures;
-- W3C PROV concepts for provenance;
-- OpenTelemetry GenAI conventions for future telemetry alignment;
-- CogC for downstream capacity-aware context compilation.
-
-These are architectural references, not claims of affiliation.
-
-See [`docs/research-foundations.md`](docs/research-foundations.md).
+- [ ] Transport-native identity / scoped MCP authorization adapters
+- [ ] Change-stream or scheduled materialized-view daemon
+- [ ] Richer Git / repository artifact adapters
+- [ ] OpenSpec / Beads adapters
+- [ ] IntakeGov automatic handoff adapter
+- [ ] CogC execution-package adapter
+- [ ] OmniRoute automatic execution receipts
+- [ ] External reviewer reconciliation adapter
+- [ ] Provenance alignment with W3C PROV / OpenTelemetry conventions
+- [ ] Dashboard / operator UI
 
 ---
 
 # The long-term goal
 
-The goal is not merely to remember what an agent said.
+The long-term idea is simple:
 
-The goal is for an agent organization to be able to answer, at any time and without reconstructing a lost session:
+> AI systems should not depend on whichever model currently remembers the project best.
 
-> **What are we building, which contracts define it, which slices exist, what is happening now, what has only been claimed, what has actually been verified, what evidence supports that state, who else is working nearby, and what should the next worker know before acting?**
+A project should have a durable, inspectable and evidence-aware operational state that survives model changes, session loss, parallel workers and years of contract evolution.
 
-That durable organizational state is MangoMe's job.
+MangoMe is that layer.
 
 ---
 
@@ -783,5 +757,5 @@ See [`LICENSE`](LICENSE).
 ---
 
 <p align="center">
-  <strong>Read the state. Declare the plan. Execute freely. Persist the truth.</strong>
+  <strong>Read the truth. Declare the plan. Persist the state. Verify the outcome.</strong>
 </p>

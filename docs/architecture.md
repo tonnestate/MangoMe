@@ -1,52 +1,62 @@
-# MangoMe architecture v0.1
+# MangoMe architecture v0.1.2
 
-MangoMe separates three responsibilities:
+MangoMe separates four responsibilities:
 
 ```text
-Skill   = how an agent must behave
-MCP     = tools + invariants + canonical state transitions
-MongoDB = durable document-state substrate
+Skill        = how an agent must behave
+MCP          = provider-neutral tools and state transitions
+Domain Core  = identity, plans, slices, evidence, assurance, projections
+MongoDB      = durable document-state substrate
 ```
-
-The core is intentionally not a generic agent framework. It can sit under Claude, Codex, Luna, AVCOS, TonnEstate, Aurora or another orchestrator.
 
 ## Truth model
 
-MangoMe is the canonical operational state. Worker statements are stored as claims. Assurance is separate.
-
 ```text
-Worker: "done"
-  ↓
+worker execution
+   ↓
+claim / evidence
+   ↓
 DONE_CLAIMED
-  ↓
-Gates + evidence
-  ↓
-VERIFIED / ACCEPTED
+   ↓
+attested proof + gates
+   ↓
+VERIFIED
+   ↓
+optional owner approval
+   ↓
+ACCEPTED
 ```
+
+Execution and assurance are deliberately orthogonal.
+
+## Work identity
+
+Project → Family → Contract Contributions / Specs / Slices is the durable hierarchy. Physical files, repositories and sessions are storage/execution references, not identity.
+
+Families may belong to multiple projects/scopes without duplication.
 
 ## Contract evolution
 
-A family is long-lived. Contracts are append-only contributions. Internal entity identity never changes. Human-declared IDs may collide and remain queryable.
+Contract contributions are append-only. Typed relations express evolution. Confirmed `SUPERSEDES` removes the target from the effective contribution set; conflicts remain visible. The current Specification is the operational effective requirements view.
 
-```text
-Family
-├── Base contribution
-├── Addition
-├── Amendment
-├── Repair
-└── Extension
-```
+## Planning and concurrency
 
-Specs are append-only versions. The family points at the current effective spec while older spec documents remain present.
+A persisted plan precedes productive mutation. Starting a slice binds it to `active_plan_id`; progress/DONE must remain on that binding.
 
-## Project management
+Parallel plans remain allowed. Overlap creates advisory collision warnings only.
 
-MangoMe adopts useful project-management dimensions (scope, plan, slice, dependency, estimate, time, blocker, status) without requiring Scrum concepts. A slice is primarily a durable execution address.
+## Assurance authority
 
-## Concurrency
+Evidence is un-attested by default. Verifier/owner authority is separated from worker execution using runtime roles or capability tokens. Direct database access remains outside the trust boundary.
 
-Parallel plans are allowed. Expected family/artifact/scope overlap creates warnings only. MongoDB's atomic document writes protect MangoMe's own state; project work itself is not locked.
+## State concurrency
 
-## Context compilation
+All first-class documents carry `revision`. State transitions use compare-and-swap so concurrent stale writers fail explicitly instead of silently overwriting newer MangoMe state.
 
-MangoMe can emit current family/spec/slice/evidence state as a compact package. CogC can then perform capacity-aware compression for a particular worker.
+## Import
+
+Big-Bang discovery inventories filesystem and optional Git state. Reconciliation matches candidates against canonical identity but never auto-admits ambiguous semantic truth.
+
+## Context
+
+MangoMe emits deterministic current-state packages. CogC or another downstream compiler may then compress/shape that package for a target worker.

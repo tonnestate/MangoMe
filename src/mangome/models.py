@@ -10,13 +10,17 @@ from .enums import (
     AssuranceState,
     ClaimType,
     ContractKind,
+    DependencyLevel,
     EdgeStatus,
+    EvidenceClass,
+    EvidenceTrust,
+    EvidenceVerdict,
     ExecutionState,
     SliceOrigin,
 )
 from .ids import new_id
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def utcnow() -> datetime:
@@ -26,6 +30,7 @@ def utcnow() -> datetime:
 class BaseEntity(BaseModel):
     entity_id: str = Field(default_factory=new_id)
     schema_version: int = SCHEMA_VERSION
+    revision: int = 0
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -115,6 +120,14 @@ class Gate(BaseModel):
     description: str
     status: Literal["OPEN", "PASS", "FAIL", "WAIVED"] = "OPEN"
     evidence_ids: list[str] = Field(default_factory=list)
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    approval_id: str | None = None
+
+
+class SliceDependency(BaseModel):
+    slice_id: str
+    required_level: DependencyLevel = DependencyLevel.DONE_CLAIMED
 
 
 class Slice(BaseEntity):
@@ -126,7 +139,8 @@ class Slice(BaseEntity):
     origin: SliceOrigin = SliceOrigin.PLANNED
     sequence: float | None = None
     parent_slice_id: str | None = None
-    depends_on: list[str] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list)  # v0.1 compatibility projection
+    dependency_requirements: list[SliceDependency] = Field(default_factory=list)
     execution_state: ExecutionState = ExecutionState.PLANNED
     assurance_state: AssuranceState = AssuranceState.UNVERIFIED
     started_at: datetime | None = None
@@ -135,6 +149,8 @@ class Slice(BaseEntity):
     verified_at: datetime | None = None
     accepted_at: datetime | None = None
     last_actor_id: str | None = None
+    active_plan_id: str | None = None
+    last_plan_id: str | None = None
     current_step: int | None = None
     total_steps: int | None = None
     gates: list[Gate] = Field(default_factory=list)
@@ -149,12 +165,18 @@ class Estimate(BaseModel):
     tokens: int | None = None
 
 
+class ProposedDependency(BaseModel):
+    declared_id: str
+    required_level: DependencyLevel = DependencyLevel.DONE_CLAIMED
+
+
 class ProposedSlice(BaseModel):
     declared_id: str
     title: str
     objective: str | None = None
     sequence: float | None = None
     depends_on_declared_ids: list[str] = Field(default_factory=list)
+    dependencies: list[ProposedDependency] = Field(default_factory=list)
     expected_artifacts: list[str] = Field(default_factory=list)
     acceptance: list[str] = Field(default_factory=list)
 
@@ -185,10 +207,15 @@ class Claim(BaseEntity):
 class Evidence(BaseEntity):
     subject_id: str
     evidence_type: str
+    evidence_class: EvidenceClass = EvidenceClass.CLAIM
     source: str
     result: str | None = None
+    verdict: EvidenceVerdict = EvidenceVerdict.UNKNOWN
+    trust: EvidenceTrust = EvidenceTrust.UNATTESTED
     artifact_id: str | None = None
     actor_id: str | None = None
+    attested_by: str | None = None
+    attested_at: datetime | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -226,6 +253,7 @@ class Approval(BaseEntity):
     status: ApprovalStatus = ApprovalStatus.REQUIRED
     decided_by: str | None = None
     decided_at: datetime | None = None
+    decision_ref: str | None = None
 
 
 class CollisionWarning(BaseModel):

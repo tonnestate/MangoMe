@@ -1,23 +1,27 @@
-# External model reconciliation — next stage
+# External model reconciliation — next-stage adapter
 
-MangoMe should support external reviews without making an external model a source of truth.
+MangoMe can already store external reviews safely, but v0.1.2 does not invoke ChatGPT/Claude/Gemini providers itself.
 
-Proposed flow:
+Intended flow:
 
 ```text
 MangoMe canonical state
   ↓
-compile comparison package
+compile bounded comparison package
   ↓
-external reviewer (Claude / ChatGPT API / Gemini / other MCP-capable client)
+external reviewer
   ↓
-review result + provenance
+EXTERNAL_REVIEW evidence + suggested relations/conflicts
   ↓
-SUGGESTED edge / evidence / conflict report
+UNATTESTED by default
   ↓
-normal MangoMe approval or verification path
+trusted verifier/owner attestation when appropriate
+  ↓
+normal gate / verification / approval path
 ```
 
-For ChatGPT consumer Plus accounts, direct unattended cross-session/API invocation cannot be assumed. An API or connector-capable environment would be a separate integration. Claude and other MCP hosts can consume the MangoMe MCP directly when configured.
+An external model is never a direct writer of canonical semantic truth.
 
-The adapter should therefore be capability-based, not provider-name-based.
+Consumer ChatGPT subscriptions should not be assumed to provide unattended API/session access. Provider invocation belongs in a capability-specific adapter or connected runtime. Claude or other MCP-capable hosts may consume MangoMe directly when configured.
+
+The adapter should therefore be capability-based rather than provider-name-based.

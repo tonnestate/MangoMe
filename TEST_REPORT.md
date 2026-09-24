@@ -1,42 +1,68 @@
-# MangoMe v0.1.1 patch test report
+# MangoMe v0.1.2 test report
 
 Date: 2026-09-24
 
-## Local overlay test
-
-The v0.1.1 patch was applied over the exact local v0.1.0 baseline and tested as an overlay.
-
-Result:
+## Local result
 
 ```text
-13 passed, 1 skipped
+25 passed
+2 skipped
 ```
 
-Passed coverage includes the original v0.1 tests plus new checks for:
+The two local skips are intentional integration checks that require external runtime dependencies unavailable in this sandbox:
 
-- evidence-backed gate PASS;
-- rejection of PASS without persisted evidence;
-- separation of executor and verifier;
-- approval-backed gate WAIVE;
-- explicit VERIFIED → ACCEPTED owner/human acceptance;
-- plan closing removing stale plans from active context;
-- original plan-before-mutate, collision-warning, slice-state, Big-Bang and economics behavior.
+- `tests/test_mcp_surface.py` — requires the installed MCP Python SDK v2 package;
+- `tests/test_mongo_integration.py` — requires `MANGOME_TEST_MONGO_URI` and a live MongoDB instance.
 
-Python bytecode compilation succeeded for `src`, `tests`, and `server.py`.
+GitHub Actions is configured to install the declared dependencies and run both checks against MongoDB 7.
 
-## Local environment limitations
+## Covered behavior
 
-The local sandbox does not have the external `mcp` package installed, so a live MCP import could not be executed locally.
+The test suite covers:
 
-The MongoDB integration test is present but is skipped locally unless `MANGOME_TEST_MONGO_URI` is configured.
+- plan-before-mutate;
+- persistent plan binding after `start_slice`;
+- rejection of progress/DONE mutations outside the bound plan;
+- stable `DONE_CLAIMED / UNVERIFIED` state;
+- verifier capability enforcement;
+- dedicated VERIFIER runtime role without secrets in tool calls;
+- worker inability to spoof owner authority;
+- owner approval capability enforcement;
+- evidence classification, verdict and attestation;
+- PASS gates requiring attested PASS evidence;
+- WAIVED gates requiring approved owner decision;
+- self-verification denial;
+- VERIFIED → approved ACCEPT_SLICE → ACCEPTED;
+- gate audit metadata in the canonical schema;
+- advisory collision warnings;
+- closing plans after active slice bindings are released;
+- declared contract ID collision preservation;
+- effective family supersession/conflict view;
+- typed graph endpoint/relation validation;
+- project-level overview across multiple families;
+- multi-project / multi-scope family membership;
+- assurance-aware dependencies;
+- revision compare-and-swap conflict detection;
+- schema v1 → v2 lazy/persisted migration;
+- generic Big-Bang ID discovery;
+- non-destructive Big-Bang reconciliation;
+- context compilation;
+- durable model/cost receipts;
+- health/readiness state.
 
-## CI added by this patch
+## Build checks
 
-`.github/workflows/ci.yml` installs the declared dependencies and runs on Python 3.10, 3.11 and 3.12 with a MongoDB 7 service container. CI executes:
+- `python -m compileall -q src tests server.py` — PASS
+- canonical/GitHub skill mirror diff — PASS
+- wheel build with `--no-deps --no-build-isolation` — PASS
 
-- all pytest tests including the real MongoDB persistence test;
-- MCP import smoke test;
-- Agent Skill mirror consistency check;
-- Python source compilation.
+Built wheel:
 
-The GitHub Actions result after upload is therefore the authoritative integration result for external MCP/PyMongo dependencies.
+```text
+mangome_mcp-0.1.2-py3-none-any.whl
+SHA-256: 8392e85fc56c307aa6242b59f4a74e17b08a6cf93eeb03661ec6253dd491ce2f
+```
+
+## CI expectation
+
+`.github/workflows/ci.yml` runs Python 3.10, 3.11 and 3.12 with MongoDB 7 and the real `mcp>=2,<3` dependency. CI additionally verifies MCP v2 tool discovery and the Agent Skill mirror.

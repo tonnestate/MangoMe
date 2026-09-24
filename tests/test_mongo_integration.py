@@ -40,15 +40,16 @@ def test_mongo_persists_verified_state_end_to_end():
         )
         sl = svc.store.find("slices", {"family_id": family["entity_id"]})[0]
         svc.start_slice(slice_id=sl["entity_id"], actor_id="worker-a", plan_id=plan["entity_id"])
-        svc.claim_done(slice_id=sl["entity_id"], actor_id="worker-a")
+        svc.claim_done(slice_id=sl["entity_id"], actor_id="worker-a", plan_id=plan["entity_id"])
         ev = svc.submit_evidence(
-            subject_id=sl["entity_id"], evidence_type="INTEGRATION_TEST", source="pytest", result="PASS", actor_id="verifier-b"
+            subject_id=sl["entity_id"], evidence_type="INTEGRATION_TEST", evidence_class="TEST_RESULT", source="pytest", result="PASS", actor_id="verifier-b"
         )
+        ev = svc.attest_evidence(evidence_id=ev["entity_id"], attested_by="verifier-b", capability_token=os.environ["MANGOME_VERIFIER_TOKEN"])
         gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
         svc.set_gate(
             slice_id=sl["entity_id"], gate_id=gate_id, status="PASS", actor_id="verifier-b", evidence_ids=[ev["entity_id"]]
         )
-        svc.verify_slice(slice_id=sl["entity_id"], verifier_actor_id="verifier-b")
+        svc.verify_slice(slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=os.environ["MANGOME_VERIFIER_TOKEN"])
 
         fresh = IntegrityMangoMeService(MongoStore(URI, database))
         status = fresh.status(family["entity_id"])

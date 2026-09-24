@@ -6,7 +6,13 @@ from typing import Any
 from mcp.server import MCPServer
 
 from .context import ContextCompiler
-from .importer import BigBangScanner, serialize_discovery
+from .importer import (
+    BigBangReconciler,
+    BigBangScanner,
+    load_id_patterns_json,
+    serialize_discovery,
+    serialize_git_discovery,
+)
 from .maintenance import MangoMaintainer
 from .runtime import get_service
 
@@ -14,46 +20,30 @@ mcp = MCPServer(
     "MangoMe",
     description="Canonical contract-family, slice, evidence, and project-state graph for multi-agent work.",
     instructions=(
-        "Read access is unrestricted. Before productive mutation, submit a plan. "
-        "DONE is a worker claim, not verification. Collision warnings are advisory and must never block work."
+        "Read relevant state before acting. Productive mutation requires a persisted plan. "
+        "DONE is a worker claim, not verification. Verification and approval use runtime capabilities. "
+        "Collision warnings are advisory and must never block work."
     ),
-    version="0.1.0",
+    version="0.1.2",
 )
 
 
 @mcp.tool()
-def intake_request(
-    request_text: str,
-    classification: str | None = None,
-    classification_source: str | None = None,
-    source_ref: str | None = None,
-    family_id: str | None = None,
-) -> dict[str, Any]:
-    """Persist and categorize a new assignment before execution. IntakeGov should pass its classification when available."""
-    return get_service().intake_request(
-        request_text=request_text, classification=classification, classification_source=classification_source,
-        source_ref=source_ref, family_id=family_id,
-    )
+def health() -> dict[str, Any]:
+    """Return MangoMe version, schema version, and backing-store readiness."""
+    return get_service().health()
 
 
 @mcp.tool()
-def create_spec(
-    family_id: str,
-    objective: str,
-    contract_ids: list[str] | None = None,
-    deliverables: list[str] | None = None,
-    constraints: list[str] | None = None,
-    acceptance_criteria: list[str] | None = None,
-    out_of_scope: list[str] | None = None,
-    required_evidence: list[str] | None = None,
-    supersedes_spec_id: str | None = None,
-) -> dict[str, Any]:
+def intake_request(request_text: str, classification: str | None = None, classification_source: str | None = None, source_ref: str | None = None, family_id: str | None = None) -> dict[str, Any]:
+    """Persist and categorize a new assignment before execution."""
+    return get_service().intake_request(request_text=request_text, classification=classification, classification_source=classification_source, source_ref=source_ref, family_id=family_id)
+
+
+@mcp.tool()
+def create_spec(family_id: str, objective: str, contract_ids: list[str] | None = None, deliverables: list[str] | None = None, constraints: list[str] | None = None, acceptance_criteria: list[str] | None = None, out_of_scope: list[str] | None = None, required_evidence: list[str] | None = None, supersedes_spec_id: str | None = None) -> dict[str, Any]:
     """Append an immutable specification version for a family."""
-    return get_service().create_spec(
-        family_id=family_id, objective=objective, contract_ids=contract_ids, deliverables=deliverables,
-        constraints=constraints, acceptance_criteria=acceptance_criteria, out_of_scope=out_of_scope,
-        required_evidence=required_evidence, supersedes_spec_id=supersedes_spec_id,
-    )
+    return get_service().create_spec(family_id=family_id, objective=objective, contract_ids=contract_ids, deliverables=deliverables, constraints=constraints, acceptance_criteria=acceptance_criteria, out_of_scope=out_of_scope, required_evidence=required_evidence, supersedes_spec_id=supersedes_spec_id)
 
 
 @mcp.tool()
@@ -75,58 +65,20 @@ def create_family(family_key: str, title: str, project_ids: list[str] | None = N
 
 
 @mcp.tool()
-def register_contract(
-    declared_id: str,
-    family_id: str,
-    title: str,
-    kind: str = "BASE",
-    actor_id: str | None = None,
-    storage_system: str | None = None,
-    physical_location: str | None = None,
-    checksum: str | None = None,
-) -> dict[str, Any]:
-    """Append a contract contribution. Declared-id collisions are preserved and warned, never overwritten."""
-    return get_service().register_contract(
-        declared_id=declared_id,
-        family_id=family_id,
-        title=title,
-        kind=kind,
-        actor_id=actor_id,
-        storage_system=storage_system,
-        physical_location=physical_location,
-        checksum=checksum,
-    )
+def register_contract(declared_id: str, family_id: str, title: str, kind: str = "BASE", actor_id: str | None = None, storage_system: str | None = None, physical_location: str | None = None, checksum: str | None = None) -> dict[str, Any]:
+    """Append a contract contribution; declared-id collisions are preserved and warned."""
+    return get_service().register_contract(declared_id=declared_id, family_id=family_id, title=title, kind=kind, actor_id=actor_id, storage_system=storage_system, physical_location=physical_location, checksum=checksum)
 
 
 @mcp.tool()
-def import_contract_bundle(
-    family_key: str,
-    family_title: str,
-    declared_id: str,
-    contract_title: str,
-    actor_id: str,
-    slices: list[dict[str, Any]],
-    kind: str = "BASE",
-    project_ids: list[str] | None = None,
-    scope_ids: list[str] | None = None,
-    storage_system: str | None = None,
-    physical_location: str | None = None,
-) -> dict[str, Any]:
+def import_contract_bundle(family_key: str, family_title: str, declared_id: str, contract_title: str, actor_id: str, slices: list[dict[str, Any]], kind: str = "BASE", project_ids: list[str] | None = None, scope_ids: list[str] | None = None, storage_system: str | None = None, physical_location: str | None = None) -> dict[str, Any]:
     """Onboard an existing contract plus its existing slices in one explicit operation."""
     svc = get_service()
     family = svc.create_family(family_key, family_title, project_ids, scope_ids)
-    contract = svc.register_contract(
-        declared_id=declared_id,
-        family_id=family["entity_id"],
-        title=contract_title,
-        kind=kind,
-        actor_id=actor_id,
-        storage_system=storage_system,
-        physical_location=physical_location,
-    )
+    contract = svc.register_contract(declared_id=declared_id, family_id=family["entity_id"], title=contract_title, kind=kind, actor_id=actor_id, storage_system=storage_system, physical_location=physical_location)
     imported = []
-    for s in slices:
-        payload = dict(s)
+    for item in slices:
+        payload = dict(item)
         payload.setdefault("contract_ids", [contract["entity_id"]])
         payload["family_id"] = family["entity_id"]
         imported.append(svc.import_slice(**payload))
@@ -134,110 +86,128 @@ def import_contract_bundle(
 
 
 @mcp.tool()
-def submit_plan(
-    family_id: str,
-    request_id: str,
-    spec_id: str,
-    actor_id: str,
-    intent: str,
-    proposed_slices: list[dict[str, Any]],
-    contract_ids: list[str] | None = None,
-    expected_artifacts: list[str] | None = None,
-    expected_scope: list[str] | None = None,
-    estimate: dict[str, Any] | None = None,
-    acceptance_expectations: list[str] | None = None,
-) -> dict[str, Any]:
+def attach_artifact(logical_name: str, artifact_type: str, storage_system: str, physical_location: str, belongs_to: list[str] | None = None, checksum: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Register a physical artifact/reference without changing its external storage."""
+    return get_service().attach_artifact(logical_name=logical_name, artifact_type=artifact_type, storage_system=storage_system, physical_location=physical_location, belongs_to=belongs_to, checksum=checksum, metadata=metadata)
+
+
+@mcp.tool()
+def link_entities(from_type: str, from_id: str, relation: str, to_type: str, to_id: str, status: str = "CONFIRMED", source_actor_id: str | None = None, confidence: float | None = None) -> dict[str, Any]:
+    """Create a validated typed relation such as ADDS_TO, AMENDS, EXTENDS, REPAIRS or SUPERSEDES."""
+    return get_service().link(from_type=from_type, from_id=from_id, relation=relation, to_type=to_type, to_id=to_id, status=status, source_actor_id=source_actor_id, confidence=confidence)
+
+
+@mcp.tool()
+def submit_plan(family_id: str, request_id: str, spec_id: str, actor_id: str, intent: str, proposed_slices: list[dict[str, Any]], contract_ids: list[str] | None = None, expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None, estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None) -> dict[str, Any]:
     """Record the mandatory pre-execution plan and return advisory collision warnings."""
-    return get_service().submit_plan(
-        family_id=family_id,
-        request_id=request_id,
-        spec_id=spec_id,
-        actor_id=actor_id,
-        intent=intent,
-        proposed_slices=proposed_slices,
-        contract_ids=contract_ids,
-        expected_artifacts=expected_artifacts,
-        expected_scope=expected_scope,
-        estimate=estimate,
-        acceptance_expectations=acceptance_expectations,
-    )
+    return get_service().submit_plan(family_id=family_id, request_id=request_id, spec_id=spec_id, actor_id=actor_id, intent=intent, proposed_slices=proposed_slices, contract_ids=contract_ids, expected_artifacts=expected_artifacts, expected_scope=expected_scope, estimate=estimate, acceptance_expectations=acceptance_expectations)
 
 
 @mcp.tool()
 def start_slice(slice_id: str, actor_id: str, plan_id: str) -> dict[str, Any]:
-    """Start a slice. A matching recorded plan is mandatory; collisions only warn."""
+    """Start a slice and bind it to the actor's persisted active plan."""
     return get_service().start_slice(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id)
 
 
 @mcp.tool()
-def update_slice_progress(
-    slice_id: str,
-    actor_id: str,
-    current_step: int | None = None,
-    total_steps: int | None = None,
-    blocker: str | None = None,
-    execution_state: str | None = None,
-) -> dict[str, Any]:
-    """Persist current slice state. Does not verify or complete work."""
-    return get_service().update_slice_progress(
-        slice_id=slice_id,
-        actor_id=actor_id,
-        current_step=current_step,
-        total_steps=total_steps,
-        blocker=blocker,
-        execution_state=execution_state,
-    )
+def update_slice_progress(slice_id: str, actor_id: str, plan_id: str, current_step: int | None = None, total_steps: int | None = None, blocker: str | None = None, execution_state: str | None = None) -> dict[str, Any]:
+    """Persist slice progress; the same active plan that started the slice is mandatory."""
+    return get_service().update_slice_progress(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id, current_step=current_step, total_steps=total_steps, blocker=blocker, execution_state=execution_state)
 
 
 @mcp.tool()
-def claim_done(slice_id: str, actor_id: str, summary: str | None = None) -> dict[str, Any]:
-    """Record DONE_CLAIMED. The slice remains open/unverified until its gates are verified."""
-    return get_service().claim_done(slice_id=slice_id, actor_id=actor_id, summary=summary)
+def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None = None) -> dict[str, Any]:
+    """Record DONE_CLAIMED under the slice's active plan; this never implies verification."""
+    return get_service().claim_done(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id, summary=summary)
 
 
 @mcp.tool()
-def submit_evidence(
-    subject_id: str,
-    evidence_type: str,
-    source: str,
-    result: str | None = None,
-    artifact_id: str | None = None,
-    actor_id: str | None = None,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Attach durable evidence to a family, contract, slice, or artifact."""
-    return get_service().submit_evidence(
-        subject_id=subject_id,
-        evidence_type=evidence_type,
-        source=source,
-        result=result,
-        artifact_id=artifact_id,
-        actor_id=actor_id,
-        payload=payload,
-    )
+def close_plan(plan_id: str, actor_id: str) -> dict[str, Any]:
+    """Close an unbound plan so it stops generating collision traffic."""
+    return get_service().close_plan(plan_id, actor_id)
 
 
 @mcp.tool()
-def set_gate(slice_id: str, gate_id: str, status: str, evidence_ids: list[str] | None = None) -> dict[str, Any]:
-    """Update an acceptance gate with evidence references. Verification still requires all gates PASS/WAIVED."""
-    return get_service().set_gate(slice_id=slice_id, gate_id=gate_id, status=status, evidence_ids=evidence_ids)
+def submit_evidence(subject_id: str, evidence_type: str, source: str, result: str | None = None, evidence_class: str = "CLAIM", artifact_id: str | None = None, actor_id: str | None = None, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Persist evidence. New evidence is UNATTESTED until a trusted verifier/owner attests it."""
+    return get_service().submit_evidence(subject_id=subject_id, evidence_type=evidence_type, source=source, result=result, evidence_class=evidence_class, artifact_id=artifact_id, actor_id=actor_id, payload=payload)
 
 
 @mcp.tool()
-def verify_slice(slice_id: str, verifier_actor_id: str, evidence_ids: list[str] | None = None) -> dict[str, Any]:
-    """Verify a DONE_CLAIMED slice only when every acceptance gate is PASS or WAIVED."""
-    return get_service().verify_slice(slice_id=slice_id, verifier_actor_id=verifier_actor_id, evidence_ids=evidence_ids)
+def attest_evidence(evidence_id: str, attested_by: str, capability_token: str | None = None, authority: str = "VERIFIER") -> dict[str, Any]:
+    """Attest evidence using a runtime verifier/owner capability. The capability is never persisted."""
+    return get_service().attest_evidence(evidence_id=evidence_id, attested_by=attested_by, capability_token=capability_token, authority=authority)
+
+
+@mcp.tool()
+def set_gate(slice_id: str, gate_id: str, status: str, actor_id: str | None = None, evidence_ids: list[str] | None = None, approval_id: str | None = None) -> dict[str, Any]:
+    """Set a gate. PASS requires attested PASS evidence; WAIVED requires approved owner decision."""
+    return get_service().set_gate(slice_id=slice_id, gate_id=gate_id, status=status, actor_id=actor_id, evidence_ids=evidence_ids, approval_id=approval_id)
+
+
+@mcp.tool()
+def set_gate_controlled(slice_id: str, gate_id: str, status: str, actor_id: str, evidence_ids: list[str] | None = None, approval_id: str | None = None) -> dict[str, Any]:
+    """Compatibility alias for v0.1.1 controlled gate updates."""
+    return get_service().set_gate(slice_id=slice_id, gate_id=gate_id, status=status, actor_id=actor_id, evidence_ids=evidence_ids, approval_id=approval_id)
+
+
+@mcp.tool()
+def verify_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, evidence_ids: list[str] | None = None) -> dict[str, Any]:
+    """Verify DONE_CLAIMED using an independent runtime verifier capability and attested evidence."""
+    return get_service().verify_slice(slice_id=slice_id, verifier_actor_id=verifier_actor_id, verifier_token=verifier_token, evidence_ids=evidence_ids)
+
+
+@mcp.tool()
+def request_override(action_type: str, subject_id: str, requested_by: str, reason: str) -> dict[str, Any]:
+    """Create an explicit approval request; requesting approval does not grant it."""
+    return get_service().request_override(action_type=action_type, subject_id=subject_id, requested_by=requested_by, reason=reason)
+
+
+@mcp.tool()
+def approve_override(approval_id: str, decided_by: str, approval_token: str | None = None, decision_ref: str | None = None) -> dict[str, Any]:
+    """Approve using the owner runtime capability; actor strings alone are insufficient."""
+    return get_service().approve_override(approval_id=approval_id, decided_by=decided_by, approval_token=approval_token, decision_ref=decision_ref)
+
+
+@mcp.tool()
+def reject_override(approval_id: str, decided_by: str, approval_token: str | None = None, decision_ref: str | None = None) -> dict[str, Any]:
+    """Reject using the owner runtime capability."""
+    return get_service().reject_override(approval_id=approval_id, decided_by=decided_by, approval_token=approval_token, decision_ref=decision_ref)
+
+
+@mcp.tool()
+def list_approvals(status: str | None = None, subject_id: str | None = None) -> list[dict[str, Any]]:
+    """List approval requests, optionally filtered by status and subject."""
+    return get_service().list_approvals(status=status, subject_id=subject_id)
+
+
+@mcp.tool()
+def accept_slice(slice_id: str, approval_id: str, accepted_by: str | None = None) -> dict[str, Any]:
+    """Move VERIFIED to ACCEPTED using a trusted approved ACCEPT_SLICE decision."""
+    return get_service().accept_slice(slice_id=slice_id, approval_id=approval_id, accepted_by=accepted_by)
 
 
 @mcp.tool()
 def status(family_id: str) -> dict[str, Any]:
-    """Return deterministic materialized project-management state for one family."""
+    """Return deterministic materialized state for one family."""
     return get_service().status(family_id)
 
 
 @mcp.tool()
+def project_overview(project_ref: str) -> dict[str, Any]:
+    """Explain a complete project's current state across all known families."""
+    return get_service().project_overview(project_ref)
+
+
+@mcp.tool()
+def effective_family_view(family_id: str) -> dict[str, Any]:
+    """Return the effective append-only contract-family view, supersession, relations, and conflicts."""
+    return get_service().effective_family_view(family_id)
+
+
+@mcp.tool()
 def read_context(family_id: str) -> dict[str, Any]:
-    """Read all current family context. Reading is unrestricted for every agent."""
+    """Read all relevant family context. Reading is unrestricted."""
     return get_service().get_context(family_id)
 
 
@@ -249,7 +219,7 @@ def compile_execution_context(family_id: str, slice_id: str | None = None) -> di
 
 @mcp.tool()
 def graph(entity_id: str) -> dict[str, Any]:
-    """Return confirmed/suggested incoming and outgoing graph edges for an entity."""
+    """Return validated confirmed/suggested incoming and outgoing graph edges for an entity."""
     return get_service().graph(entity_id)
 
 
@@ -260,44 +230,55 @@ def register_model(model_key: str, provider: str | None = None, access_path: str
 
 
 @mcp.tool()
-def record_execution_receipt(
-    family_id: str, slice_id: str, actor_id: str, model_id: str | None = None, work_class: str = "UNCLASSIFIED",
-    input_tokens: int | None = None, output_tokens: int | None = None, execution_cost: float = 0.0,
-    verification_cost: float = 0.0, repair_cost: float = 0.0, human_cost: float = 0.0, currency: str = "EUR",
-    outcome: str = "UNKNOWN", context_tokens_raw: int | None = None, context_tokens_compiled: int | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Record model/agent cost and outcome for a slice; durable cost includes verification, repair and human cost."""
-    return get_service().record_execution_receipt(
-        family_id=family_id, slice_id=slice_id, actor_id=actor_id, model_id=model_id, work_class=work_class,
-        input_tokens=input_tokens, output_tokens=output_tokens, execution_cost=execution_cost,
-        verification_cost=verification_cost, repair_cost=repair_cost, human_cost=human_cost, currency=currency,
-        outcome=outcome, context_tokens_raw=context_tokens_raw, context_tokens_compiled=context_tokens_compiled, metadata=metadata,
-    )
+def record_execution_receipt(family_id: str, slice_id: str, actor_id: str, model_id: str | None = None, work_class: str = "UNCLASSIFIED", input_tokens: int | None = None, output_tokens: int | None = None, execution_cost: float = 0.0, verification_cost: float = 0.0, repair_cost: float = 0.0, human_cost: float = 0.0, currency: str = "EUR", outcome: str = "UNKNOWN", context_tokens_raw: int | None = None, context_tokens_compiled: int | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Record model/agent cost and durable outcome economics for a slice."""
+    return get_service().record_execution_receipt(family_id=family_id, slice_id=slice_id, actor_id=actor_id, model_id=model_id, work_class=work_class, input_tokens=input_tokens, output_tokens=output_tokens, execution_cost=execution_cost, verification_cost=verification_cost, repair_cost=repair_cost, human_cost=human_cost, currency=currency, outcome=outcome, context_tokens_raw=context_tokens_raw, context_tokens_compiled=context_tokens_compiled, metadata=metadata)
 
 
 @mcp.tool()
 def model_stats(model_id: str | None = None, work_class: str | None = None) -> dict[str, Any]:
-    """Return empirical cost/verified-outcome statistics from MangoMe execution receipts."""
+    """Return empirical cost/verified-outcome statistics."""
     return get_service().model_stats(model_id=model_id, work_class=work_class)
 
 
 @mcp.tool()
-def bigbang_scan(roots: list[str]) -> dict[str, Any]:
-    """Non-destructively inventory configured filesystem roots; never auto-canonicalizes ambiguous contracts."""
-    records = BigBangScanner(get_service()).scan(roots)
+def bigbang_scan(roots: list[str], id_patterns: list[str] | None = None, include_git: bool = True) -> dict[str, Any]:
+    """Non-destructively inventory filesystem and optional Git state; never auto-canonicalizes semantic truth."""
+    patterns = id_patterns or load_id_patterns_json(os.environ.get("MANGOME_ID_PATTERNS_JSON"))
+    scanner = BigBangScanner(get_service(), id_patterns=patterns)
+    records = scanner.scan(roots)
+    git_records = scanner.scan_git(roots) if include_git else []
     return {
         "roots": roots,
         "count": len(records),
         "records": serialize_discovery(records),
-        "note": "Discovery only. CONTRACT_CANDIDATE does not become a canonical contract until explicitly onboarded.",
+        "git": serialize_git_discovery(git_records),
+        "note": "Discovery only. Candidates do not become canonical contracts until explicitly admitted.",
     }
 
 
 @mcp.tool()
+def reconcile_bigbang(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Match Big-Bang discovery against canonical state without performing semantic mutations."""
+    return BigBangReconciler(get_service()).reconcile(records)  # type: ignore[return-value]
+
+
+@mcp.tool()
 def refresh_views() -> dict[str, int]:
-    """Run deterministic maintenance and refresh all family status projections without LLM use."""
+    """Refresh all deterministic family views without LLM use."""
     return MangoMaintainer(get_service()).refresh_all_family_views()
+
+
+@mcp.tool()
+def maintenance_diagnose(stale_after_hours: float = 24.0) -> dict[str, Any]:
+    """Report stale plan candidates, collisions, approvals and unresolved graph work without auto-fixing it."""
+    return MangoMaintainer(get_service()).diagnose(stale_after_hours=stale_after_hours)
+
+
+@mcp.tool()
+def migrate_schema(dry_run: bool = True) -> dict[str, Any]:
+    """Dry-run or explicitly persist registered lazy schema migrations."""
+    return MangoMaintainer(get_service()).migrate_schema(dry_run=dry_run)
 
 
 def main() -> None:

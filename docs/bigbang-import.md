@@ -1,9 +1,31 @@
-# Big-Bang import
+# Big-Bang import and reconciliation
 
-The Big-Bang scanner is deliberately non-destructive.
+Big-Bang remains deliberately non-destructive.
 
-It walks configured roots, hashes readable text artifacts, extracts cheap structural signals, classifies the artifact and registers its physical location. It never moves, renames, merges or deletes source files.
+`bigbang_scan` inventories configured filesystem roots, hashes supported text artifacts and extracts cheap structural signals. Identifier patterns are generic by default and may be supplied explicitly or through `MANGOME_ID_PATTERNS_JSON`.
 
-A discovered `CONTRACT_CANDIDATE` is not automatically a canonical contract. Canonical onboarding happens explicitly with `import_contract_bundle` or normal contract registration. This separates inventory from semantic truth.
+When enabled, Git discovery also records repository origin, HEAD, local branches, worktrees and recent commit metadata. No checkout, reset, merge, rename or file mutation is performed.
 
-The preferred escalation order for future reconciliation is: structured fields → known parsers → deterministic rules → lexical/regex extraction → graph context → cheap classifier → strong model → human approval.
+Discovery classifications such as `CONTRACT_CANDIDATE` and `WORK_STRUCTURE_CANDIDATE` are not canonical truth.
+
+`reconcile_bigbang` compares discovered declared IDs with existing canonical contracts and returns:
+
+- exact matches;
+- declared-ID collisions;
+- unresolved artifacts;
+- slice markers associated with the candidate.
+
+It performs zero semantic mutations. Admission into a family/contract/slice graph remains explicit.
+
+Preferred escalation order:
+
+```text
+structured fields
+→ known parsers
+→ deterministic rules
+→ narrow lexical/regex extraction
+→ graph context
+→ cheap classifier
+→ strong model
+→ human/authorized decision
+```

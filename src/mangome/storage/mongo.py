@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import Store
+from ..schema import upgrade_document
+from .base import RevisionConflictError, Store
 
 try:
     from pymongo import ASCENDING, MongoClient, ReturnDocument
@@ -20,11 +21,16 @@ class MongoStore(Store):
         self.db = self.client[database]
 
     def insert(self, collection: str, doc: dict[str, Any]) -> dict[str, Any]:
+        doc = dict(doc)
+        doc.setdefault("revision", 0)
         self.db[collection].insert_one(doc)
-        return doc
+        return dict(doc)
 
     def get(self, collection: str, entity_id: str) -> dict[str, Any] | None:
-        return self.db[collection].find_one({"entity_id": entity_id}, {"_id": 0})
+        doc = self.db[collection].find_one({"entity_id": entity_id}, {"_id": 0})
+        if doc is None:
+            return None
+        return upgrade_document(collection, doc)[0]
 
     def find(self, collection: str, query: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         mongo_query: dict[str, Any] = {}
@@ -35,18 +41,41 @@ class MongoStore(Store):
                 mongo_query[key[:-10]] = value
             else:
                 mongo_query[key] = value
-        return list(self.db[collection].find(mongo_query, {"_id": 0}))
+        return [upgrade_document(collection, d)[0] for d in self.db[collection].find(mongo_query, {"_id": 0})]
 
-    def update(self, collection: str, entity_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+
+    def raw_find(self, collection: str) -> list[dict[str, Any]]:
+        return list(self.db[collection].find({}, {"_id": 0}))
+
+    def update(
+        self,
+        collection: str,
+        entity_id: str,
+        patch: dict[str, Any],
+        *,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {"entity_id": entity_id}
+        if expected_revision is not None:
+            if expected_revision == 0:
+                query["$or"] = [{"revision": 0}, {"revision": {"$exists": False}}]
+            else:
+                query["revision"] = expected_revision
+        clean_patch = {k: v for k, v in patch.items() if k != "revision"}
         result = self.db[collection].find_one_and_update(
-            {"entity_id": entity_id},
-            {"$set": patch},
+            query,
+            {"$set": clean_patch, "$inc": {"revision": 1}},
             return_document=ReturnDocument.AFTER,
             projection={"_id": 0},
         )
         if result is None:
-            raise KeyError(f"missing {collection}:{entity_id}")
-        return result
+            exists = self.db[collection].find_one({"entity_id": entity_id}, {"_id": 0, "revision": 1})
+            if exists is None:
+                raise KeyError(f"missing {collection}:{entity_id}")
+            raise RevisionConflictError(
+                f"revision conflict for {collection}:{entity_id}: expected {expected_revision}, current {exists.get('revision', 0)}"
+            )
+        return upgrade_document(collection, result)[0]
 
     def ensure_indexes(self) -> None:
         for name in (
@@ -66,3 +95,7 @@ class MongoStore(Store):
         self.db["models"].create_index([("model_key", ASCENDING)], unique=True)
         self.db["execution_receipts"].create_index([("model_id", ASCENDING), ("work_class", ASCENDING)])
         self.db["edges"].create_index([("from_id", ASCENDING), ("relation", ASCENDING), ("to_id", ASCENDING)])
+
+    def health(self) -> dict[str, Any]:
+        result = self.db.command("ping")
+        return {"ok": result.get("ok") == 1.0, "backend": "mongodb", "database": self.db.name}

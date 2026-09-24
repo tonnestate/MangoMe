@@ -5,7 +5,8 @@
       "env": {
         "MANGOME_BACKEND": "mongo",
         "MANGOME_MONGODB_URI": "mongodb://127.0.0.1:27017",
-        "MANGOME_DATABASE": "mangome"
+        "MANGOME_DATABASE": "mangome",
+        "MANGOME_RUNTIME_ROLE": "WORKER"
       }
     }
   }
