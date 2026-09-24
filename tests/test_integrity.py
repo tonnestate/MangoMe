@@ -28,6 +28,7 @@ def make_ready_slice():
         family_id=family["entity_id"], request_id=req["entity_id"], spec_id=spec["entity_id"],
         actor_id="worker-a", intent="execute", contract_ids=[contract["entity_id"]],
         proposed_slices=[{"declared_id": "S1", "title": "Slice 1", "acceptance": ["runtime check passes"]}],
+        expected_scope=["src/"], acceptance_expectations=["runtime check passes"],
     )
     sl = svc.store.find("slices", {"family_id": family["entity_id"]})[0]
     svc.start_slice(slice_id=sl["entity_id"], actor_id="worker-a", plan_id=plan["entity_id"])
@@ -36,13 +37,10 @@ def make_ready_slice():
 
 
 def trusted_pass_evidence(svc, sl):
-    ev = svc.submit_evidence(
-        subject_id=sl["entity_id"], evidence_type="pytest", evidence_class="TEST_RESULT",
-        source="pytest", result="PASS", actor_id="verifier-b",
-    )
-    return svc.attest_evidence(
-        evidence_id=ev["entity_id"], attested_by="verifier-b",
-        capability_token=VERIFIER_TOKEN, authority="VERIFIER",
+    return svc.submit_verification_observation(
+        slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN,
+        claim="runtime check passes", observation_type="SPEC_CHECK", status="PASS",
+        evidence_type="verification-check", evidence_class="TEST_RESULT", source="verifier",
     )
 
 
@@ -150,11 +148,11 @@ def test_dedicated_runtime_role_can_verify_without_token(monkeypatch):
     monkeypatch.setenv("MANGOME_RUNTIME_ROLE", "VERIFIER")
     monkeypatch.setenv("MANGOME_RUNTIME_ACTOR", "verifier-b")
     svc, _, sl, _ = make_ready_slice()
-    ev = svc.submit_evidence(
-        subject_id=sl["entity_id"], evidence_type="pytest", evidence_class="TEST_RESULT",
-        source="pytest", result="PASS", actor_id="verifier-b",
+    ev = svc.submit_verification_observation(
+        slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=None,
+        claim="runtime check passes", observation_type="SPEC_CHECK", status="PASS",
+        evidence_type="verification-check", evidence_class="TEST_RESULT", source="runtime-verifier",
     )
-    ev = svc.attest_evidence(evidence_id=ev["entity_id"], attested_by="verifier-b", capability_token=None)
     gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
     svc.set_gate(slice_id=sl["entity_id"], gate_id=gate_id, status="PASS", actor_id="verifier-b", evidence_ids=[ev["entity_id"]])
     verified = svc.verify_slice(slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=None)
@@ -171,3 +169,123 @@ def test_worker_runtime_cannot_spoof_owner_without_capability(monkeypatch):
     )
     with pytest.raises(ApprovalRequired):
         svc.approve_override(approval_id=approval["entity_id"], decided_by="human-owner", approval_token=None)
+
+
+def test_attested_pass_without_independent_observation_cannot_verify(monkeypatch):
+    configure_caps(monkeypatch)
+    svc, _, sl, _ = make_ready_slice()
+    gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
+    ev = svc.submit_evidence(
+        subject_id=sl["entity_id"], evidence_type="pytest", evidence_class="TEST_RESULT",
+        source="worker-report", result="PASS", actor_id="worker-a",
+    )
+    ev = svc.attest_evidence(
+        evidence_id=ev["entity_id"], attested_by="verifier-b",
+        capability_token=VERIFIER_TOKEN, authority="VERIFIER",
+    )
+    svc.set_gate(
+        slice_id=sl["entity_id"], gate_id=gate_id, status="PASS",
+        actor_id="verifier-b", evidence_ids=[ev["entity_id"]],
+    )
+    with pytest.raises(InvalidTransition, match="independent AV/1 observed PASS"):
+        svc.verify_slice(
+            slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN
+        )
+
+
+def test_executor_cannot_submit_independent_verification_observation(monkeypatch):
+    configure_caps(monkeypatch)
+    monkeypatch.setenv("MANGOME_VERIFIER_ACTORS", "worker-a,verifier-b")
+    svc, _, sl, _ = make_ready_slice()
+    with pytest.raises(InvalidTransition, match="last executing actor"):
+        svc.submit_verification_observation(
+            slice_id=sl["entity_id"], verifier_actor_id="worker-a", verifier_token=VERIFIER_TOKEN,
+            claim="I am done", observation_type="SPEC_CHECK", status="PASS",
+            evidence_type="self-check", evidence_class="TEST_RESULT", source="worker",
+        )
+
+
+def test_completion_review_surfaces_scope_and_test_change_risks(monkeypatch):
+    configure_caps(monkeypatch)
+    svc, _, sl, _ = make_ready_slice()
+    review = svc.completion_review(
+        slice_id=sl["entity_id"],
+        changed_paths=["src/runtime.py", "tests/test_runtime.py", "docs/drive-by.md"],
+    )
+    assert review["execution_state"] == "DONE_CLAIMED"
+    assert review["expected_scope"] == ["src/"]
+    assert "NO_INDEPENDENT_OBSERVATION" in review["risk_flags"]
+    assert "SCOPE_DEVIATION" in review["risk_flags"]
+    assert "TEST_CHANGE_REVIEW_REQUIRED" in review["risk_flags"]
+    assert review["scope_review"]["test_change_paths"] == ["tests/test_runtime.py"]
+    assert set(review["scope_review"]["out_of_scope_paths"]) == {"tests/test_runtime.py", "docs/drive-by.md"}
+
+
+def test_replay_observation_requires_intact_rb1_binding(monkeypatch):
+    configure_caps(monkeypatch)
+    svc, _, sl, _ = make_ready_slice()
+    with pytest.raises(InvalidTransition, match="REPLAY observations require"):
+        svc.submit_verification_observation(
+            slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN,
+            claim="pytest passes", observation_type="REPLAY", status="PASS",
+            evidence_type="pytest", evidence_class="TEST_RESULT", source="pytest",
+        )
+    with pytest.raises(InvalidTransition, match="fingerprint mismatch"):
+        svc.submit_verification_observation(
+            slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN,
+            claim="pytest passes", observation_type="REPLAY", status="PASS",
+            evidence_type="pytest", evidence_class="TEST_RESULT", source="pytest",
+            reproduction={
+                "version": "RB/1", "command": "pytest -q", "cwd": ".", "exit_code": 0,
+                "git_commit": None, "input_bindings": [], "output_artifact_id": None,
+                "stdout_sha256": None, "stderr_sha256": None, "environment_names": [],
+                "fingerprint": "not-valid",
+            },
+        )
+
+
+def test_forged_generic_replay_payload_without_rb1_cannot_satisfy_av1(monkeypatch):
+    configure_caps(monkeypatch)
+    svc, _, sl, _ = make_ready_slice()
+    gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
+    ev = svc.submit_evidence(
+        subject_id=sl["entity_id"], evidence_type="pytest", evidence_class="TEST_RESULT",
+        source="generic-path", result="PASS", actor_id="verifier-b",
+        payload={"verification_observation": {
+            "version": "AV/1", "claim": "pytest passes", "observation_type": "REPLAY",
+            "status": "PASS", "observed_by": "verifier-b", "original_evidence_id": None,
+        }},
+    )
+    ev = svc.attest_evidence(
+        evidence_id=ev["entity_id"], attested_by="verifier-b",
+        capability_token=VERIFIER_TOKEN, authority="VERIFIER",
+    )
+    svc.set_gate(
+        slice_id=sl["entity_id"], gate_id=gate_id, status="PASS",
+        actor_id="verifier-b", evidence_ids=[ev["entity_id"]],
+    )
+    with pytest.raises(InvalidTransition, match="independent AV/1 observed PASS"):
+        svc.verify_slice(
+            slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN
+        )
+
+
+def test_approved_waiver_remains_explicit_gate_exception(monkeypatch):
+    configure_caps(monkeypatch)
+    svc, _, sl, _ = make_ready_slice()
+    gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
+    approval = svc.request_override(
+        action_type="WAIVE_GATE", subject_id=f"{sl['entity_id']}:{gate_id}",
+        requested_by="worker-a", reason="owner explicitly waives this gate",
+    )
+    approval = svc.approve_override(
+        approval_id=approval["entity_id"], decided_by="human-owner", approval_token=APPROVAL_TOKEN,
+    )
+    svc.set_gate(
+        slice_id=sl["entity_id"], gate_id=gate_id, status="WAIVED",
+        actor_id="human-owner", approval_id=approval["entity_id"],
+    )
+    verified = svc.verify_slice(
+        slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN
+    )
+    assert verified["assurance_state"] == "VERIFIED"

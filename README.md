@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.6-green">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.7-green">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -259,7 +259,7 @@ independent verifier
         ↓
 VERIFIED
         ↓
-optional owner acceptance
+optional authorized acceptance
         ↓
 ACCEPTED
 ```
@@ -276,6 +276,8 @@ Verification-grade PASS evidence must be:
 - from an admissible evidence class;
 - PASS-valued;
 - attested by a verifier/owner capability.
+
+From v0.1.7, final `verify_slice` also requires **independent AV/1 observed PASS Evidence** for every PASS gate, or for the explicit proof set of a gateless Slice. Merely attesting a worker-authored PASS claim is no longer enough to reach `VERIFIED`.
 
 A worker cannot simply store `{result: "PASS"}` and thereby verify itself.
 
@@ -710,9 +712,44 @@ See [`docs/filesystem-proof-reuse.md`](docs/filesystem-proof-reuse.md).
 
 ---
 
+# AV/1 adversarial completion verification
+
+v0.1.7 hardens the transition from `DONE_CLAIMED` to `VERIFIED` without adding a new assurance state machine. The design treats a completion report and worker-authored Evidence as claims to inspect, not as independent proof.
+
+```text
+DONE_CLAIMED
+    ↓
+completion_review
+    ↓
+persisted claims + plan/spec obligations + optional observed change set
+    ↓
+verifier/host reruns or inspects the load-bearing check
+    ↓
+submit_verification_observation (AV/1)
+    ↓
+attested observed Evidence
+    ↓
+existing gate + verify_slice rules
+    ↓
+VERIFIED
+```
+
+`completion_review` is deterministic. It returns the persisted DONE/other claims verbatim, the Plan's expected scope/artifacts, current Specification acceptance criteria and required Evidence, existing independent observations, and an optional scope review over verifier-supplied changed paths. Changed test files produce `TEST_CHANGE_REVIEW_REQUIRED`; out-of-scope files produce `SCOPE_DEVIATION`. These are review signals, not accusations or automatic failures.
+
+`submit_verification_observation` requires a verifier capability and rejects the last executing actor. AV/1 observation states are `PASS`, `FAIL`, and `UNVERIFIABLE`; the latter maps to `EvidenceVerdict.UNKNOWN`, never a guessed PASS. A `REPLAY` observation must carry an intact RB/1 reproduction binding. MangoMe still does **not** execute shell commands itself: the authorized verifier/host performs the check and records what was actually observed.
+
+Final `verify_slice` now requires at least one independent AV/1 observed PASS Evidence item for each PASS gate. Gateless Slices require an independent AV/1 observed PASS in the explicit proof set. Existing pre-v0.1.7 Evidence remains readable and auditable, but worker Evidence plus later attestation alone no longer satisfies this stronger final-verification rule.
+Explicitly `WAIVED` gates remain the governed exception: an approved `WAIVE_GATE` decision can remove that gate's Evidence requirement, exactly as before.
+
+This mechanism deliberately does not parse free-text DONE summaries into invented structured truth, infer misconduct from changed tests, or create Fable-style parallel verdict states. MangoMe keeps its existing `UNVERIFIED / PARTIAL / VERIFIED / ACCEPTED / REJECTED` assurance model.
+
+See [`docs/adversarial-verification.md`](docs/adversarial-verification.md).
+
+---
+
 # MCP tools
 
-The v0.1.6 MCP surface includes:
+The v0.1.7 MCP surface includes:
 
 ```text
 Intake / specification
@@ -739,6 +776,8 @@ Planning / execution
 Evidence / assurance
   submit_evidence
   attest_evidence
+  completion_review
+  submit_verification_observation
   set_gate
   set_gate_controlled
   verify_slice
@@ -983,7 +1022,7 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.6 adds RB/1 reproducible Evidence bindings on top of the v0.1.5 filesystem inventory. It can bind attested PASS Evidence to a declared command, caller-supplied exit code, Git commit, relevant input hashes, optional output Artifact and a deterministic reproduction fingerprint. MangoMe still does not execute the command itself during binding or freshness checks.
+v0.1.7 adds AV/1 adversarial completion verification on top of RB/1 reproducible Evidence bindings. It does not add a new Proof entity or a parallel verdict lifecycle. Instead, it strengthens the existing `DONE_CLAIMED → Evidence → VERIFIED` path so worker-authored PASS material cannot become final verification merely because a verifier later attests it.
 
 The current architecture is:
 
@@ -994,11 +1033,13 @@ MangoMe canonical operational memory
     ↓
 UAI/1 semantic transport
     ↓
-CogC / worker-specific context shaping
-    ↓
 Agent execution
     ↓
-Evidence + optional RB/1 binding
+DONE_CLAIMED + worker Evidence
+    ↓
+AV/1 independent observation
+    ↓
+RB/1 binding where replayable
     ↓
 Verification
     ↓
@@ -1007,17 +1048,24 @@ Authorized acceptance
 
 Important current limits:
 
-- UAI/1's published `80.91%` figure is a **character reduction in one representative demo**, not a universal provider-token saving.
-- RB/1 records reproduction metadata and hashes declared inputs; it does **not** execute or sandbox the declared command. The caller/verifier remains responsible for the truth of the recorded run.
-- `evidence_freshness=REUSABLE` does not create new Verification or Acceptance and does not prove requirement coverage.
-- A changed Git HEAD with unchanged bound inputs is conservatively `UNKNOWN`; MangoMe does not yet have a complete dependency graph proving that the declared input set is exhaustive.
-- MangoMe does not infer semantic equivalence between Evidence/requirements across Slices.
+- MangoMe does not execute verification commands itself. AV/1 records observations made by an authorized verifier/host; runtime isolation and command execution remain external responsibilities.
+- `completion_review` returns persisted free-text claims verbatim. It does not pretend to perform deterministic semantic claim extraction from prose.
+- Scope deviations and changed tests are adversarial review signals, not automatic evidence of fraud or incorrectness.
+- AV/1 strengthens provenance/independence of observed Evidence but still does not prove that every requirement is semantically covered unless the relevant gates/specification make that coverage explicit.
+- RB/1 freshness still does not create Verification or Acceptance and does not infer cross-Slice semantic proof equivalence.
+- UAI/1's published `80.91%` figure remains a **character reduction in one representative demo**, not a universal provider-token saving.
 - Filesystem scans require explicit roots and still walk the configured scope on each scan.
 - The public implementation does not reconstruct missing historical Slices or certify old AI audits as truth.
 - Execution-cost and token economics are only as complete as the Execution Receipts supplied by the surrounding runtime.
-- The v0.1.6 packaging test run records **45 passed, 3 skipped**. The skipped checks require optional MCP/MongoDB runtime dependencies or configuration, so this is not equivalent to full production validation.
+- The v0.1.7 packaging test result is recorded in `TEST_REPORT.md`; skipped optional integration checks are not represented as production validation.
 
-The next useful work is targeted legacy revalidation and runtime integration: use the shared inventory to find likely implementation/test evidence, issue present-day revalidation only where needed, and ensure governed execution paths actually pass through MangoMe. Provider-token/cost evaluation can then measure cost per verified outcome against a stronger Evidence model.
+The next phase is empirical evaluation: adversarial false-DONE fixtures, worker-vs-verifier separation tests, test-weakening/scope-deviation traps, and then RAW vs compiled vs UAI cost measurement per verified outcome.
+
+---
+
+# Acknowledgements
+
+The AV/1 adversarial-completion design was informed by [`Sahir619/fable-method`](https://github.com/Sahir619/fable-method), especially the `fable-judge` pattern of treating completion reports as claims, independently re-observing claimed checks, inspecting actual changes, and looking for weakened verification. MangoMe reimplements these ideas inside its own Evidence/Verification/Acceptance model; it does not incorporate Fable's verdict state machine or bundle its fixtures. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ---
 

@@ -17,11 +17,12 @@ MangoMe is the canonical operational-memory system for durable multi-agent proje
 11. **DONE is a claim.** `DONE_CLAIMED` is not `VERIFIED` or `ACCEPTED`.
 12. **Evidence is not automatically proof.** New evidence is `UNATTESTED`; verification-grade evidence must be attested by a trusted verifier/owner capability.
 13. **PASS requires attested PASS evidence.** Claims or un-attested evidence cannot satisfy a gate.
-14. **WAIVED requires owner approval.** Never waive a gate without an approved `WAIVE_GATE` decision.
-15. **No self-verification.** The last executing actor may not verify its own DONE claim.
-16. **ACCEPTED is explicit.** Authorized acceptance is separate from verification and requires approved `ACCEPT_SLICE` state.
-17. **Close obsolete plans.** Stale plans create stale collision traffic.
-18. **Do not invent missing truth.** Keep ambiguity `UNRESOLVED` / `SUGGESTED` until evidence or authorized confirmation exists.
+14. **Final verification requires independent observation.** Worker-authored Evidence plus later attestation is not enough for `VERIFIED`; use AV/1 verifier observations.
+15. **WAIVED requires owner approval.** Never waive a gate without an approved `WAIVE_GATE` decision.
+16. **No self-verification.** The last executing actor may not verify its own DONE claim or submit its own independent AV/1 observation.
+17. **ACCEPTED is explicit.** Authorized acceptance is separate from verification and requires approved `ACCEPT_SLICE` state.
+18. **Close obsolete plans.** Stale plans create stale collision traffic.
+19. **Do not invent missing truth.** Keep ambiguity `UNRESOLVED` / `SUGGESTED` until evidence or authorized confirmation exists.
 
 ## Start of work
 
@@ -120,17 +121,37 @@ build_reproduction_binding
 
 `build_reproduction_binding` never executes the command and never reads environment-variable values. It records names only and rejects sensitive-looking environment names. `evidence_freshness` may later classify the binding as `REUSABLE`, `STALE`, `UNKNOWN`, `UNBOUND` or `INADMISSIBLE`, but freshness never upgrades assurance and never proves cross-slice semantic coverage.
 
-Then a gate may become PASS:
+For substantive DONE verification, first build the deterministic review brief:
+
+```text
+completion_review(slice_id=..., changed_paths=[...])
+```
+
+Treat worker reports and worker-authored Evidence as claims to inspect. The verifier/host must rerun or otherwise observe each load-bearing check it relies on. Record the observation with the verifier capability:
+
+```text
+submit_verification_observation(
+  observation_type=REPLAY | DIFF | SCOPE | SPEC_CHECK | RUNTIME | ARTIFACT | OTHER,
+  status=PASS | FAIL | UNVERIFIABLE,
+  ...
+)
+```
+
+`UNVERIFIABLE` maps to `UNKNOWN`, never PASS. `REPLAY` requires an intact RB/1 reproduction binding. MangoMe records the observation but does not execute the command itself.
+
+A gate may then become PASS using Evidence that includes an independent AV/1 observed PASS:
 
 ```text
 set_gate(status=PASS, evidence_ids=[...])
 ```
 
-Verification is separate and requires an independent verifier capability:
+Final verification remains a separate transition:
 
 ```text
 verify_slice
 ```
+
+For v0.1.7, every PASS gate must contain at least one independent AV/1 observed PASS Evidence item. A gateless Slice requires one in the explicit proof set. Changed tests or scope deviations are review signals, not automatic findings of fraud.
 
 Never place capability tokens in contracts, project state, evidence payloads, chat summaries or source files. Runtime/host injection is preferred.
 

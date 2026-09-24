@@ -27,7 +27,7 @@ mcp = MCPServer(
         "Collision warnings are advisory and must never block work. UAI/1 is compact transport only: "
         "decode worker results and route them through normal MangoMe mutation/assurance tools."
     ),
-    version="0.1.6",
+    version="0.1.7",
 )
 
 
@@ -160,6 +160,46 @@ def attest_evidence(evidence_id: str, attested_by: str, capability_token: str | 
 
 
 @mcp.tool()
+def completion_review(slice_id: str, changed_paths: list[str] | None = None) -> dict[str, Any]:
+    """Build an AV/1 adversarial verification brief from persisted DONE claims, plan/spec obligations, Evidence and an optional observed change set."""
+    return get_service().completion_review(slice_id=slice_id, changed_paths=changed_paths)
+
+
+@mcp.tool()
+def submit_verification_observation(
+    slice_id: str,
+    verifier_actor_id: str,
+    verifier_token: str | None,
+    claim: str,
+    observation_type: str,
+    status: str,
+    evidence_type: str,
+    evidence_class: str,
+    source: str,
+    original_evidence_id: str | None = None,
+    artifact_id: str | None = None,
+    reproduction: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Persist an independent AV/1 verifier observation. REPLAY requires an intact RB/1 binding; MangoMe does not execute the check itself."""
+    return get_service().submit_verification_observation(
+        slice_id=slice_id,
+        verifier_actor_id=verifier_actor_id,
+        verifier_token=verifier_token,
+        claim=claim,
+        observation_type=observation_type,
+        status=status,
+        evidence_type=evidence_type,
+        evidence_class=evidence_class,
+        source=source,
+        original_evidence_id=original_evidence_id,
+        artifact_id=artifact_id,
+        reproduction=reproduction,
+        details=details,
+    )
+
+
+@mcp.tool()
 def set_gate(slice_id: str, gate_id: str, status: str, actor_id: str | None = None, evidence_ids: list[str] | None = None, approval_id: str | None = None) -> dict[str, Any]:
     """Set a gate. PASS requires attested PASS evidence; WAIVED requires approved owner decision."""
     return get_service().set_gate(slice_id=slice_id, gate_id=gate_id, status=status, actor_id=actor_id, evidence_ids=evidence_ids, approval_id=approval_id)
@@ -173,7 +213,7 @@ def set_gate_controlled(slice_id: str, gate_id: str, status: str, actor_id: str,
 
 @mcp.tool()
 def verify_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, evidence_ids: list[str] | None = None) -> dict[str, Any]:
-    """Verify DONE_CLAIMED using an independent runtime verifier capability and attested evidence."""
+    """Verify DONE_CLAIMED only when PASS gates (or gateless proof) include independent AV/1 observed PASS Evidence."""
     return get_service().verify_slice(slice_id=slice_id, verifier_actor_id=verifier_actor_id, verifier_token=verifier_token, evidence_ids=evidence_ids)
 
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.7 — 2026-09-24
+
+- Added AV/1 adversarial completion verification without introducing a new Proof entity or parallel assurance state machine.
+- Added `completion_review`, which deterministically exposes persisted completion claims, Plan scope/artifacts, Specification acceptance criteria/required Evidence, existing independent observations, and optional changed-path review signals.
+- Added deterministic `SCOPE_DEVIATION` and `TEST_CHANGE_REVIEW_REQUIRED` signals; these are review prompts, not automatic fraud/correctness judgments.
+- Added `submit_verification_observation`, a verifier-capability-backed path for independently observed `PASS`, `FAIL`, or `UNVERIFIABLE` Evidence. The last executor cannot submit its own independent observation.
+- `UNVERIFIABLE` observations persist as `EvidenceVerdict.UNKNOWN`; they never become guessed PASS results.
+- `REPLAY` observations require an intact RB/1 reproduction binding. MangoMe validates the binding but still does not execute the command itself.
+- Hardened `verify_slice`: every PASS gate must contain at least one independent AV/1 observed PASS Evidence item; gateless verification requires one in the explicit proof set. Attesting worker-authored PASS Evidence alone is no longer sufficient for final verification.
+- Existing already-VERIFIED historical Slices are not rewritten; the stronger rule applies to v0.1.7 verification calls.
+- Added `THIRD_PARTY_NOTICES.md` and explicit credit to `Sahir619/fable-method` / `fable-judge` (MIT) for methodological influence. MangoMe reimplements the concepts in its own assurance model and does not bundle Fable source or fixtures.
+- Added regression coverage for worker-evidence rejection at final verification, executor self-observation denial, deterministic scope/test-change review, and RB/1 requirements for replay observations.
+- Hardened AV/1 recognition on the generic Evidence path so malformed/forged REPLAY-shaped payloads without valid RB/1 bindings cannot satisfy independent-observation enforcement.
+- Preserved explicitly approved `WAIVE_GATE` as the owner-governed exception to a gate Evidence requirement.
+- Test result for this packaging run: 51 passed, 3 skipped (optional MCP/MongoDB runtime checks unavailable/unconfigured in the sandbox).
+
 ## 0.1.6 — 2026-09-24
 
 - Added RB/1 structured reproduction bindings inside existing `Evidence.payload`; no new Proof entity or parallel assurance lifecycle.
