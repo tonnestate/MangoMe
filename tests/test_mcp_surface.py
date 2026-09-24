@@ -24,6 +24,7 @@ def test_mcp_v2_surface_lists_core_tools(monkeypatch):
                 "claim_done", "attest_evidence", "verify_slice", "project_overview",
                 "effective_family_view", "bigbang_scan", "reconcile_bigbang", "migrate_schema",
                 "begin_work", "compile_uai_context", "expand_uai_context", "decode_uai_result", "render_uai_result",
+                "filesystem_scan", "filesystem_references", "evidence_freshness",
             }
             assert required.issubset(names)
 

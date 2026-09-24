@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.5 — 2026-09-24
+
+- Added a bounded deterministic filesystem inventory for source, tests, contracts, workflows, configuration, documentation and reports.
+- Added stable per-path filesystem entries with SHA-256, size/mtime, declared-ID references, nearest Git root/HEAD, presence state and per-root tree fingerprints.
+- Added incremental rescans: unchanged files are not rewritten; complete scans mark removed files without inventing semantic state.
+- Hidden work directories `.github`, `.gitlab` and `.devcontainer` can be indexed while secret/key/cache/build locations remain excluded.
+- Added `filesystem_scan` and `filesystem_references` MCP tools so many legacy contracts can share one deterministic repository inventory instead of triggering one repository audit per contract.
+- Added `evidence_freshness`: only verifier/owner-attested PASS evidence with reproducible filesystem hash bindings can be classified as reusable; changed bindings become STALE.
+- Explicitly kept AI/audit prose as non-reusable CLAIM material unless it already satisfies the normal MangoMe evidence/attestation rules.
+- Proof freshness never upgrades a slice to VERIFIED or ACCEPTED and does not fabricate historical slices or cross-slice semantic equivalence.
+
 ## 0.1.4 — 2026-09-24
 
 - Fixed MongoDB create operations that persisted successfully but failed as MCP tool responses because PyMongo injected a BSON `ObjectId` into the returned Python mapping. MongoDB storage documents and MangoMe wire/domain documents are now separated.

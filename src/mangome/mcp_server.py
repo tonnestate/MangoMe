@@ -14,6 +14,7 @@ from .importer import (
     serialize_git_discovery,
 )
 from .maintenance import MangoMaintainer
+from .filesystem import FilesystemScanner
 from .interlingua import UAICompiler, decode_uai_result as decode_result_packet, render_uai_result as render_result_packet
 from .runtime import get_service, health_snapshot
 
@@ -26,7 +27,7 @@ mcp = MCPServer(
         "Collision warnings are advisory and must never block work. UAI/1 is compact transport only: "
         "decode worker results and route them through normal MangoMe mutation/assurance tools."
     ),
-    version="0.1.4",
+    version="0.1.5",
 )
 
 
@@ -304,6 +305,26 @@ def bigbang_scan(roots: list[str], id_patterns: list[str] | None = None, include
 def reconcile_bigbang(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Match Big-Bang discovery against canonical state without performing semantic mutations."""
     return BigBangReconciler(get_service()).reconcile(records)  # type: ignore[return-value]
+
+
+@mcp.tool()
+def filesystem_scan(roots: list[str], max_files: int = 50000, max_depth: int = 16, max_hash_bytes: int = 67108864) -> dict[str, Any]:
+    """Build/update a bounded deterministic filesystem inventory. This discovers facts; it never verifies contracts or trusts audit prose."""
+    return FilesystemScanner(get_service()).scan(
+        roots, max_files=max_files, max_depth=max_depth, max_hash_bytes=max_hash_bytes
+    )
+
+
+@mcp.tool()
+def filesystem_references(declared_id: str, present_only: bool = True, limit: int = 200) -> dict[str, Any]:
+    """Find indexed source/test/contract/report files that lexically reference a declared contract/work id."""
+    return FilesystemScanner(get_service()).references(declared_id, present_only=present_only, limit=limit)
+
+
+@mcp.tool()
+def evidence_freshness(evidence_id: str, live_check: bool = True) -> dict[str, Any]:
+    """Check whether attested PASS evidence with filesystem hash bindings is still reusable. Never changes verification or acceptance state."""
+    return FilesystemScanner(get_service()).evidence_freshness(evidence_id, live_check=live_check)
 
 
 @mcp.tool()

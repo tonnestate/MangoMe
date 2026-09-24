@@ -641,6 +641,34 @@ It does **not** convert ambiguity into truth automatically.
 
 ---
 
+# Deterministic filesystem inventory and proof reuse
+
+MangoMe 0.1.5 adds a cheap filesystem substrate for legacy verification. The goal is not to reconstruct historical slices or trust old AI audits. Instead, one shared scan indexes what actually exists now, and later verification work can target only the relevant files.
+
+```text
+filesystem_scan
+    ↓
+SOURCE / TEST / CONTRACT / WORKFLOW / CONFIG / REPORT inventory
+    ↓
+filesystem_references(<declared-id>)
+    ↓
+small candidate set for targeted verification
+```
+
+Every indexed file receives a stable path identity, SHA-256 where bounded, size/mtime, lexical declared-ID references and nearest Git root/HEAD. Repeated scans are incremental and persist a per-root tree fingerprint.
+
+Existing Evidence can optionally carry reproducible bindings in `payload.filesystem_bindings` (`path` + `sha256`). `evidence_freshness` checks those bindings live and returns `REUSABLE`, `STALE`, `UNKNOWN`, `UNBOUND` or `INADMISSIBLE`.
+
+The rule is strict:
+
+> **Reuse reproducible proof, not previous AI conclusions.**
+
+An old audit saying “PASS” remains a claim/report. Freshness does not create verification or acceptance, and it does not invent historical slice provenance.
+
+See [`docs/filesystem-proof-reuse.md`](docs/filesystem-proof-reuse.md).
+
+---
+
 # MCP tools
 
 The v0.1.3 MCP surface includes:
@@ -701,6 +729,9 @@ Economics
 Discovery / maintenance
   bigbang_scan
   reconcile_bigbang
+  filesystem_scan
+  filesystem_references
+  evidence_freshness
   refresh_views
   maintenance_diagnose
   migrate_schema
@@ -909,7 +940,7 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.4 is an MCP/MongoDB operability hotfix on top of the v0.1.3 semantic transport release. It fixes BSON `_id` leakage in successful MongoDB create operations and makes health reporting survive backing-store bootstrap failures without exposing secrets.
+v0.1.5 adds deterministic filesystem inventory and strict proof-freshness checks on top of the v0.1.4 MCP/MongoDB operability hotfix. It fixes BSON `_id` leakage in successful MongoDB create operations and makes health reporting survive backing-store bootstrap failures without exposing secrets.
 
 The current architecture is now:
 

@@ -88,7 +88,8 @@ class MongoStore(Store):
     def ensure_indexes(self) -> None:
         for name in (
             "requests", "projects", "families", "contracts", "specs", "slices", "plans", "claims",
-            "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts"
+            "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts",
+            "filesystem_entries", "filesystem_roots"
         ):
             self.db[name].create_index([("entity_id", ASCENDING)], unique=True)
         self.db["projects"].create_index([("project_key", ASCENDING)])
@@ -102,6 +103,11 @@ class MongoStore(Store):
         self.db["artifacts"].create_index([("physical_location", ASCENDING)])
         self.db["models"].create_index([("model_key", ASCENDING)], unique=True)
         self.db["execution_receipts"].create_index([("model_id", ASCENDING), ("work_class", ASCENDING)])
+        self.db["filesystem_entries"].create_index([("path", ASCENDING)], unique=True)
+        self.db["filesystem_entries"].create_index([("root_path", ASCENDING), ("present", ASCENDING)])
+        self.db["filesystem_entries"].create_index([("declared_ids", ASCENDING)])
+        self.db["filesystem_entries"].create_index([("role", ASCENDING)])
+        self.db["filesystem_roots"].create_index([("root_path", ASCENDING)], unique=True)
         self.db["edges"].create_index([("from_id", ASCENDING), ("relation", ASCENDING), ("to_id", ASCENDING)])
 
     def health(self) -> dict[str, Any]:

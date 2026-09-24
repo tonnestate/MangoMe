@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mangome-mcp"
-version = "0.1.4"
+version = "0.1.5"
 description = "Canonical operational memory for multi-agent work: document store, work graph, state machine, evidence, verification, and compact semantic transport"
 readme = "README.md"
 requires-python = ">=3.10"
