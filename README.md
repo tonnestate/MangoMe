@@ -1,7 +1,7 @@
 # MangoMe
 
 <p align="center">
-  <img src="docs/assets/mangome-banner.png" alt="MangoMe — persistent multi-agent operational memory" width="100%">
+  <img src="docs/mangome-banner.png" alt="MangoMe — persistent multi-agent operational memory" width="100%">
 </p>
 
 <p align="center">
