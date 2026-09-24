@@ -20,7 +20,7 @@ from .enums import (
 )
 from .ids import new_id
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def utcnow() -> datetime:
@@ -307,6 +307,9 @@ class ExecutionReceipt(BaseEntity):
     outcome: str = "UNKNOWN"
     context_tokens_raw: int | None = None
     context_tokens_compiled: int | None = None
+    context_tokens_interlingua: int | None = None
+    output_tokens_interlingua: int | None = None
+    interlingua_version: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @property

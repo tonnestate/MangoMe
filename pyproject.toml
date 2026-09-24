@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mangome-mcp"
-version = "0.1.2"
-description = "Persistent multi-agent work state, contract families, evidence, verification, and project truth over MCP and MongoDB"
+version = "0.1.3"
+description = "Canonical operational memory for multi-agent work: document store, work graph, state machine, evidence, verification, and compact semantic transport"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
@@ -13,7 +13,7 @@ authors = [{name = "MangoMe contributors"}]
 keywords = [
   "mcp", "model-context-protocol", "mongodb", "multi-agent", "project-management",
   "agent-state", "contracts", "provenance", "work-graph", "ai-agents", "agent-handoff",
-  "context-engineering", "verification", "agentic-ai"
+  "context-engineering", "verification", "agentic-ai", "semantic-compression", "interlingua"
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",

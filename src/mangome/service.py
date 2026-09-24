@@ -384,6 +384,79 @@ class MangoMeService:
             self._project_family(from_doc["family_id"])
         return saved
 
+    def begin_work(
+        self,
+        *,
+        family_id: str,
+        actor_id: str,
+        request_text: str,
+        intent: str,
+        proposed_slice: dict[str, Any],
+        classification: str = "EXISTING_CONTRACT_WORK",
+        classification_source: str = "IntakeGov",
+        spec_id: str | None = None,
+        contract_ids: list[str] | None = None,
+        expected_artifacts: list[str] | None = None,
+        expected_scope: list[str] | None = None,
+        estimate: dict[str, Any] | None = None,
+        acceptance_expectations: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Compose the normal intake -> plan -> start path without bypassing invariants.
+
+        This is intentionally a convenience surface, not a lighter truth model. It
+        requires an existing effective specification and uses the same persisted
+        request, plan, slice, collision and plan-binding rules as the individual calls.
+        """
+        family = self._must_get("families", family_id)
+        resolved_spec_id = spec_id or family.get("current_spec_id")
+        if not resolved_spec_id:
+            raise PlanRequired("begin_work requires an existing effective specification")
+        spec = self._must_get("specs", resolved_spec_id)
+        if spec.get("family_id") != family_id or not spec.get("effective", True):
+            raise PlanRequired("begin_work requires an effective specification from the same family")
+        selected_contracts = contract_ids if contract_ids is not None else list(spec.get("contract_ids", []))
+        declared_id = proposed_slice.get("declared_id")
+        if not declared_id:
+            raise PlanRequired("begin_work requires proposed_slice.declared_id")
+        existing_slices = self.store.find("slices", {"family_id": family_id, "declared_id": declared_id})
+        if existing_slices:
+            existing = existing_slices[0]
+            if existing.get("active_plan_id"):
+                raise PlanRequired(f"slice is already active under plan {existing.get('active_plan_id')}")
+            if existing.get("execution_state") in {ExecutionState.DONE_CLAIMED.value, ExecutionState.CANCELLED.value}:
+                raise InvalidTransition("begin_work cannot restart a terminal slice; create a new slice or explicit follow-up plan")
+        request = self.intake_request(
+            request_text=request_text,
+            classification=classification,
+            classification_source=classification_source,
+            family_id=family_id,
+        )
+        plan = self.submit_plan(
+            family_id=family_id,
+            request_id=request["entity_id"],
+            spec_id=resolved_spec_id,
+            actor_id=actor_id,
+            intent=intent,
+            proposed_slices=[proposed_slice],
+            contract_ids=selected_contracts,
+            expected_artifacts=expected_artifacts,
+            expected_scope=expected_scope,
+            estimate=estimate,
+            acceptance_expectations=acceptance_expectations,
+        )
+        matches = self.store.find("slices", {"family_id": family_id, "declared_id": declared_id})
+        if not matches:
+            raise RuntimeError("begin_work failed to materialize/reuse the requested slice")
+        sl = matches[0]
+        started = self.start_slice(slice_id=sl["entity_id"], actor_id=actor_id, plan_id=plan["entity_id"])
+        return {
+            "request": request,
+            "plan": plan,
+            "slice": started["slice"],
+            "collision_warning": started["collision_warning"],
+            "note": "Convenience composition only; canonical entities and all normal invariants are preserved.",
+        }
+
     # ---------- planning / slices ----------
     def submit_plan(
         self,
@@ -747,7 +820,8 @@ class MangoMeService:
         input_tokens: int | None = None, output_tokens: int | None = None, execution_cost: float = 0.0,
         verification_cost: float = 0.0, repair_cost: float = 0.0, human_cost: float = 0.0, currency: str = "EUR",
         outcome: str = "UNKNOWN", context_tokens_raw: int | None = None, context_tokens_compiled: int | None = None,
-        metadata: dict[str, Any] | None = None,
+        context_tokens_interlingua: int | None = None, output_tokens_interlingua: int | None = None,
+        interlingua_version: str | None = None, metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._must_get("families", family_id)
         sl = self._must_get("slices", slice_id)
@@ -760,7 +834,9 @@ class MangoMeService:
             started_at=started_at, ended_at=ended_at, input_tokens=input_tokens, output_tokens=output_tokens,
             execution_cost=execution_cost, verification_cost=verification_cost, repair_cost=repair_cost, human_cost=human_cost,
             currency=currency, outcome=outcome, context_tokens_raw=context_tokens_raw,
-            context_tokens_compiled=context_tokens_compiled, metadata=metadata or {},
+            context_tokens_compiled=context_tokens_compiled, context_tokens_interlingua=context_tokens_interlingua,
+            output_tokens_interlingua=output_tokens_interlingua, interlingua_version=interlingua_version,
+            metadata=metadata or {},
         )
         payload = _dump(receipt)
         payload["durable_cost"] = receipt.durable_cost
@@ -784,6 +860,9 @@ class MangoMeService:
             "cost_per_verified_outcome": (total_cost / len(verified)) if verified else None,
             "context_tokens_raw": sum(int(r.get("context_tokens_raw") or 0) for r in receipts),
             "context_tokens_compiled": sum(int(r.get("context_tokens_compiled") or 0) for r in receipts),
+            "context_tokens_interlingua": sum(int(r.get("context_tokens_interlingua") or 0) for r in receipts),
+            "output_tokens_interlingua": sum(int(r.get("output_tokens_interlingua") or 0) for r in receipts),
+            "interlingua_versions": sorted({str(r.get("interlingua_version")) for r in receipts if r.get("interlingua_version")}),
         }
 
     # ---------- queries ----------
@@ -1058,7 +1137,7 @@ class MangoMeService:
         previous = self.store.find("project_views", {"family_id": family_id})
         payload = view.model_dump(mode="python")
         payload["entity_id"] = previous[0]["entity_id"] if previous else family_id
-        payload["schema_version"] = 2
+        payload["schema_version"] = 3
         payload["updated_at"] = now
         if previous:
             payload.pop("revision", None)

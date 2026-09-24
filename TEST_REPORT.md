@@ -1,68 +1,57 @@
-# MangoMe v0.1.2 test report
+# MangoMe v0.1.3 test report
 
 Date: 2026-09-24
 
 ## Local result
 
 ```text
-25 passed
-2 skipped
+33 passed, 2 skipped
 ```
 
-The two local skips are intentional integration checks that require external runtime dependencies unavailable in this sandbox:
+The two local skips are expected integration boundaries:
 
-- `tests/test_mcp_surface.py` — requires the installed MCP Python SDK v2 package;
-- `tests/test_mongo_integration.py` — requires `MANGOME_TEST_MONGO_URI` and a live MongoDB instance.
+- `tests/test_mcp_surface.py` — external `mcp>=2` package is not installed in the local sandbox;
+- `tests/test_mongo_integration.py` — no `MANGOME_TEST_MONGO_URI` is configured locally.
 
-GitHub Actions is configured to install the declared dependencies and run both checks against MongoDB 7.
+GitHub Actions installs the declared MCP dependency and runs MongoDB 7 as a service, so those two integration paths are exercised after the dot-prefixed `.github` workflow is present in the repository.
 
-## Covered behavior
+## v0.1.3 coverage added
 
-The test suite covers:
+- UAI/1 semantic execution projection;
+- exact projection round-trip through compact wire format;
+- SHA-256 semantic hash tampering detection;
+- UAI/1R stale-context rejection;
+- structured UAI result decoding without state mutation;
+- deterministic English/German result rendering;
+- `begin_work` composition while preserving persisted Request/Plan/Slice truth;
+- refusal of duplicate active-slice convenience starts before new Request/Plan side effects;
+- refusal of `begin_work` when no effective specification exists;
+- interlingua token telemetry in execution receipts/model statistics;
+- schema v3 migration behavior;
+- MCP surface expectations for UAI and convenience tools.
 
-- plan-before-mutate;
-- persistent plan binding after `start_slice`;
-- rejection of progress/DONE mutations outside the bound plan;
-- stable `DONE_CLAIMED / UNVERIFIED` state;
-- verifier capability enforcement;
-- dedicated VERIFIER runtime role without secrets in tool calls;
-- worker inability to spoof owner authority;
-- owner approval capability enforcement;
-- evidence classification, verdict and attestation;
-- PASS gates requiring attested PASS evidence;
-- WAIVED gates requiring approved owner decision;
-- self-verification denial;
-- VERIFIED → approved ACCEPT_SLICE → ACCEPTED;
-- gate audit metadata in the canonical schema;
-- advisory collision warnings;
-- closing plans after active slice bindings are released;
-- declared contract ID collision preservation;
-- effective family supersession/conflict view;
-- typed graph endpoint/relation validation;
-- project-level overview across multiple families;
-- multi-project / multi-scope family membership;
-- assurance-aware dependencies;
-- revision compare-and-swap conflict detection;
-- schema v1 → v2 lazy/persisted migration;
-- generic Big-Bang ID discovery;
-- non-destructive Big-Bang reconciliation;
-- context compilation;
-- durable model/cost receipts;
-- health/readiness state.
+## Additional validation
 
-## Build checks
+- Python bytecode compilation succeeded for `src`, `tests`, `examples` and `server.py`.
+- `examples/uai_roundtrip.py` executed successfully with the in-memory backend.
+- Local wheel build/install succeeded for `mangome-mcp==0.1.3` with `--no-deps --no-build-isolation`.
+- Canonical and GitHub Agent Skill copies are byte-identical in the package.
 
-- `python -m compileall -q src tests server.py` — PASS
-- canonical/GitHub skill mirror diff — PASS
-- wheel build with `--no-deps --no-build-isolation` — PASS
+## Demonstration compression measurement
 
-Built wheel:
+A representative local v0.1.3 demo context measured:
 
 ```text
-mangome_mcp-0.1.2-py3-none-any.whl
-SHA-256: 8392e85fc56c307aa6242b59f4a74e17b08a6cf93eeb03661ec6253dd491ce2f
+raw compiled context: 3,819 chars
+UAI/1 wire:             729 chars
+character reduction:    80.91%
 ```
 
-## CI expectation
+This is a serialization demonstration, not a provider tokenizer benchmark. v0.1.3 therefore stores actual provider-reported UAI input/output token counts separately in `ExecutionReceipt`.
 
-`.github/workflows/ci.yml` runs Python 3.10, 3.11 and 3.12 with MongoDB 7 and the real `mcp>=2,<3` dependency. CI additionally verifies MCP v2 tool discovery and the Agent Skill mirror.
+## Wheel artifact
+
+```text
+mangome_mcp-0.1.3-py3-none-any.whl
+SHA-256: c3620ec5495425e59db839671375d116d5fdd9069504cfdb7e8a430979c2ffc4
+```

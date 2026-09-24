@@ -14,6 +14,7 @@ from .importer import (
     serialize_git_discovery,
 )
 from .maintenance import MangoMaintainer
+from .interlingua import UAICompiler, decode_uai_result as decode_result_packet, render_uai_result as render_result_packet
 from .runtime import get_service
 
 mcp = MCPServer(
@@ -22,9 +23,10 @@ mcp = MCPServer(
     instructions=(
         "Read relevant state before acting. Productive mutation requires a persisted plan. "
         "DONE is a worker claim, not verification. Verification and approval use runtime capabilities. "
-        "Collision warnings are advisory and must never block work."
+        "Collision warnings are advisory and must never block work. UAI/1 is compact transport only: "
+        "decode worker results and route them through normal MangoMe mutation/assurance tools."
     ),
-    version="0.1.2",
+    version="0.1.3",
 )
 
 
@@ -101,6 +103,23 @@ def link_entities(from_type: str, from_id: str, relation: str, to_type: str, to_
 def submit_plan(family_id: str, request_id: str, spec_id: str, actor_id: str, intent: str, proposed_slices: list[dict[str, Any]], contract_ids: list[str] | None = None, expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None, estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None) -> dict[str, Any]:
     """Record the mandatory pre-execution plan and return advisory collision warnings."""
     return get_service().submit_plan(family_id=family_id, request_id=request_id, spec_id=spec_id, actor_id=actor_id, intent=intent, proposed_slices=proposed_slices, contract_ids=contract_ids, expected_artifacts=expected_artifacts, expected_scope=expected_scope, estimate=estimate, acceptance_expectations=acceptance_expectations)
+
+
+@mcp.tool()
+def begin_work(
+    family_id: str, actor_id: str, request_text: str, intent: str, proposed_slice: dict[str, Any],
+    classification: str = "EXISTING_CONTRACT_WORK", classification_source: str = "IntakeGov",
+    spec_id: str | None = None, contract_ids: list[str] | None = None,
+    expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None,
+    estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None,
+) -> dict[str, Any]:
+    """Convenience composition of intake -> plan -> start using an existing effective spec; no governance invariant is bypassed."""
+    return get_service().begin_work(
+        family_id=family_id, actor_id=actor_id, request_text=request_text, intent=intent,
+        proposed_slice=proposed_slice, classification=classification, classification_source=classification_source,
+        spec_id=spec_id, contract_ids=contract_ids, expected_artifacts=expected_artifacts,
+        expected_scope=expected_scope, estimate=estimate, acceptance_expectations=acceptance_expectations,
+    )
 
 
 @mcp.tool()
@@ -218,6 +237,30 @@ def compile_execution_context(family_id: str, slice_id: str | None = None) -> di
 
 
 @mcp.tool()
+def compile_uai_context(family_id: str, slice_id: str | None = None) -> dict[str, Any]:
+    """Compile canonical MangoMe truth into a versioned compact UAI/1 execution packet with semantic hash and savings metrics."""
+    return UAICompiler(get_service()).compile(family_id, slice_id)
+
+
+@mcp.tool()
+def expand_uai_context(wire: str) -> dict[str, Any]:
+    """Round-trip a UAI/1 context packet back into its canonical semantic execution projection and verify its hash."""
+    return UAICompiler.decode_context(wire)
+
+
+@mcp.tool()
+def decode_uai_result(result_json: str, expected_context_hash: str | None = None) -> dict[str, Any]:
+    """Validate and expand a compact UAI/1R worker result. This never mutates canonical state."""
+    return decode_result_packet(result_json, expected_context_hash=expected_context_hash)
+
+
+@mcp.tool()
+def render_uai_result(result_json: str, language: str = "en", expected_context_hash: str | None = None) -> str:
+    """Render a structured UAI/1R worker result into deterministic human-readable English or German."""
+    return render_result_packet(result_json, language=language, expected_context_hash=expected_context_hash)
+
+
+@mcp.tool()
 def graph(entity_id: str) -> dict[str, Any]:
     """Return validated confirmed/suggested incoming and outgoing graph edges for an entity."""
     return get_service().graph(entity_id)
@@ -230,9 +273,9 @@ def register_model(model_key: str, provider: str | None = None, access_path: str
 
 
 @mcp.tool()
-def record_execution_receipt(family_id: str, slice_id: str, actor_id: str, model_id: str | None = None, work_class: str = "UNCLASSIFIED", input_tokens: int | None = None, output_tokens: int | None = None, execution_cost: float = 0.0, verification_cost: float = 0.0, repair_cost: float = 0.0, human_cost: float = 0.0, currency: str = "EUR", outcome: str = "UNKNOWN", context_tokens_raw: int | None = None, context_tokens_compiled: int | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Record model/agent cost and durable outcome economics for a slice."""
-    return get_service().record_execution_receipt(family_id=family_id, slice_id=slice_id, actor_id=actor_id, model_id=model_id, work_class=work_class, input_tokens=input_tokens, output_tokens=output_tokens, execution_cost=execution_cost, verification_cost=verification_cost, repair_cost=repair_cost, human_cost=human_cost, currency=currency, outcome=outcome, context_tokens_raw=context_tokens_raw, context_tokens_compiled=context_tokens_compiled, metadata=metadata)
+def record_execution_receipt(family_id: str, slice_id: str, actor_id: str, model_id: str | None = None, work_class: str = "UNCLASSIFIED", input_tokens: int | None = None, output_tokens: int | None = None, execution_cost: float = 0.0, verification_cost: float = 0.0, repair_cost: float = 0.0, human_cost: float = 0.0, currency: str = "EUR", outcome: str = "UNKNOWN", context_tokens_raw: int | None = None, context_tokens_compiled: int | None = None, context_tokens_interlingua: int | None = None, output_tokens_interlingua: int | None = None, interlingua_version: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Record model/agent cost and durable outcome economics, including optional UAI/1 transport telemetry."""
+    return get_service().record_execution_receipt(family_id=family_id, slice_id=slice_id, actor_id=actor_id, model_id=model_id, work_class=work_class, input_tokens=input_tokens, output_tokens=output_tokens, execution_cost=execution_cost, verification_cost=verification_cost, repair_cost=repair_cost, human_cost=human_cost, currency=currency, outcome=outcome, context_tokens_raw=context_tokens_raw, context_tokens_compiled=context_tokens_compiled, context_tokens_interlingua=context_tokens_interlingua, output_tokens_interlingua=output_tokens_interlingua, interlingua_version=interlingua_version, metadata=metadata)
 
 
 @mcp.tool()

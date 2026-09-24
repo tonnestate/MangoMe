@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 def upgrade_document(collection: str, document: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -42,5 +42,14 @@ def upgrade_document(collection: str, document: dict[str, Any]) -> tuple[dict[st
             doc.setdefault("decision_ref", None)
         doc["schema_version"] = 2
         changes.append("schema 1 -> 2")
+        version = 2
+
+    if version < 3:
+        if collection == "execution_receipts":
+            doc.setdefault("context_tokens_interlingua", None)
+            doc.setdefault("output_tokens_interlingua", None)
+            doc.setdefault("interlingua_version", None)
+        doc["schema_version"] = 3
+        changes.append("schema 2 -> 3")
 
     return doc, changes

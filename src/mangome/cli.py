@@ -6,6 +6,7 @@ import os
 
 from .importer import BigBangScanner, serialize_discovery, serialize_git_discovery
 from .maintenance import MangoMaintainer
+from .interlingua import UAICompiler, render_uai_result
 from .runtime import get_service
 
 
@@ -62,6 +63,18 @@ def main() -> None:
     verify.add_argument("slice_id")
     verify.add_argument("--actor", required=True)
 
+    uai = sub.add_parser("uai-context", help="compile a compact UAI/1 execution packet")
+    uai.add_argument("family_id")
+    uai.add_argument("--slice", dest="slice_id", default=None)
+
+    uai_expand = sub.add_parser("uai-expand", help="expand and hash-verify a UAI/1 context packet")
+    uai_expand.add_argument("wire")
+
+    uai_render = sub.add_parser("uai-render", help="render a UAI/1R result into human-readable text")
+    uai_render.add_argument("result_json")
+    uai_render.add_argument("--language", choices=["en", "de"], default="en")
+    uai_render.add_argument("--context-hash", default=None)
+
     args = parser.parse_args()
     svc = get_service()
     if args.cmd == "scan":
@@ -97,6 +110,12 @@ def main() -> None:
     elif args.cmd == "verify":
         token = os.environ.get("MANGOME_VERIFIER_TOKEN")
         result = svc.verify_slice(slice_id=args.slice_id, verifier_actor_id=args.actor, verifier_token=token)
+    elif args.cmd == "uai-context":
+        result = UAICompiler(svc).compile(args.family_id, args.slice_id)
+    elif args.cmd == "uai-expand":
+        result = UAICompiler.decode_context(args.wire)
+    elif args.cmd == "uai-render":
+        result = {"rendered": render_uai_result(args.result_json, language=args.language, expected_context_hash=args.context_hash)}
     else:  # pragma: no cover
         raise SystemExit(2)
     _print(result)

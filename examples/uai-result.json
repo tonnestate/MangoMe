@@ -1,0 +1,11 @@
+{
+  "v": "UAI/1R",
+  "h": "replace-with-64-character-context-hash",
+  "st": "SUCCESS",
+  "a": [
+    ["P", 2, 3],
+    ["A", "interlingua.py", "SOURCE", "git", "src/mangome/interlingua.py"],
+    ["E", "ROUND_TRIP", "TEST_RESULT", "pytest", "PASS"],
+    ["D", "compact semantic transport complete"]
+  ]
+}

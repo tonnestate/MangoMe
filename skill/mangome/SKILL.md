@@ -1,6 +1,6 @@
 # MangoMe Agent Skill
 
-MangoMe is the canonical work-state system for durable multi-agent projects.
+MangoMe is the canonical operational-memory system for durable multi-agent projects: document store, work graph, state machine, evidence/provenance ledger and execution context source.
 
 ## Non-negotiable rules
 
@@ -37,6 +37,22 @@ intake_request
 ```
 
 The plan must state intended slices, expected scope/artifacts, acceptance expectations and an estimate when meaningful.
+
+For a bounded task in a family that already has an effective specification, `begin_work` may compose intake + plan + slice start. Treat it as a convenience surface only: it must still persist the normal Request, Plan and Slice and must never be used to bypass specification, plan binding, evidence or assurance rules.
+
+## Compact context / UAI/1
+
+When the host supports UAI/1, prefer `compile_uai_context` for expensive workers that do not need the verbose execution-context shape. UAI/1 is a disposable representation of MangoMe truth, not a replacement for canonical documents.
+
+Rules:
+
+1. Bind worker output to the supplied `semantic_hash`.
+2. Prefer structured `UAI/1R` actions over administrative prose when the worker can comply.
+3. Use `decode_uai_result` before interpreting a result.
+4. Use `render_uai_result` for deterministic English/German human output where useful.
+5. Never apply decoded actions directly. Route progress, artifacts, evidence and DONE claims through the normal MangoMe tools and invariants.
+6. A hash mismatch means stale/tampered context; do not silently accept it.
+7. Token estimates from the compiler are heuristic only. Record provider-reported token counts in `ExecutionReceipt` for real routing/economic decisions.
 
 ## Existing contract handoff
 
