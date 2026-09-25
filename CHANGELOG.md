@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.9rc1 — 2026-09-25 — Release Candidate
+
+- Promotes the evaluation-driven v0.1.8.1 repair line into the first v0.1.9 release candidate without weakening MangoMe's canonical truth model.
+- Restores the repository surface that must exist in the published tree: `.github/workflows/ci.yml`, `.github/skills/mangome/SKILL.md`, and `.gitignore`.
+- Adds GitHub Actions coverage across Python 3.10, 3.11, and 3.12 with a MongoDB 7 service so the canonical MongoDB backend is exercised instead of being silently skipped.
+- CI now fails if the dedicated MongoDB integration tests are skipped while the MongoDB service is available, and performs a real Mongo-backed health/readiness check.
+- Preserves the byte-identical Agent Skill mirror check and the existing deterministic test, compile, MCP-surface, and UAI round-trip checks.
+- Removes the obsolete `PATCH_MANIFEST.md` repository artifact from the release surface.
+- Keeps `CODE_OF_CONDUCT.md`, `SECURITY.md`, and the v0.1.8.1 integrity/zero-touch repairs as part of the release candidate baseline.
+- Version-sensitive operability regressions now bind to the package `__version__` instead of hard-coding the previous patch version, so release-candidate version bumps do not create false readiness failures.
+- No new assurance states or alternate truth store are introduced in this release candidate.
+
 ## 0.1.8.1 — 2026-09-25
 
 - Repairs the concrete defects found by the first Claude Code / direct-harness evaluation instead of expanding MangoMe with another parallel architecture.

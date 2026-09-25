@@ -1,10 +1,10 @@
-# Test Report — MangoMe v0.1.8.1
+# Test Report — MangoMe v0.1.9rc1
 
 Date: 2026-09-25
 
-Baseline: public `tonnestate/MangoMe` v0.1.8 (`8f34f334cb71d3e4c76b4b11f230f9c4ffec9eb2`) plus the v0.1.8.1 repair delta.
+Baseline: public `tonnestate/MangoMe` main after v0.1.8.1 and removal of the obsolete `PATCH_MANIFEST.md`, plus the v0.1.9rc1 release-candidate delta.
 
-## Deterministic suite
+## Local deterministic suite
 
 Command:
 
@@ -15,51 +15,50 @@ PYTHONPATH=src python -m pytest --disable-warnings
 Result in the packaging environment:
 
 ```text
-..........................................sss........................... [ 90%]
-........                                                                 [100%]
-77 passed, 3 skipped in 0.37s
+77 passed, 3 skipped in 0.46s
 ```
 
-Skipped checks:
+Skipped checks in this packaging environment:
 
-- MCP in-process surface integration: optional `mcp` dependency is not installed in this offline packaging sandbox.
+- MCP in-process surface integration: the optional/runtime `mcp` package is unavailable in this sandbox interpreter.
 - Two real MongoDB integration checks: `MANGOME_TEST_MONGO_URI` is not configured in this sandbox.
 
 These are environment skips, not PASS claims.
 
-## Additional deterministic checks
+## Additional checks
 
 ```text
-PYTHONPATH=src make check                                             PASS
 python -m compileall -q src tests server.py                         PASS
-skill/mangome/SKILL.md == src/mangome/skill/SKILL.md              PASS
-skill/mangome/SKILL.md == .github/skills/mangome/SKILL.md          PASS
 MANGOME_BACKEND=memory python examples/uai_roundtrip.py             PASS
 python -m pip wheel --no-deps --no-build-isolation .                PASS
 wheel contains mangome/operability.py                               PASS
 wheel contains mangome/skill/SKILL.md                               PASS
-CLI setup/attest argument parsing                                    PASS
+.github/workflows/ci.yml present                                    PASS
+.github/skills/mangome/SKILL.md present                             PASS
+.gitignore present                                                   PASS
+canonical/package/GitHub Skill copies byte-identical                PASS
 ```
 
-`python -m build` itself was unavailable because the sandbox does not have the optional `build` package installed; `pip wheel --no-build-isolation` successfully built `mangome_mcp-0.1.8.1-py3-none-any.whl` instead.
+The wheel produced by this check is normalized as `mangome_mcp-0.1.9rc1-...whl`.
 
-## v0.1.8.1 regression coverage
+## GitHub Actions release-candidate gate
 
-The repair suite now covers the concrete findings from the first direct-harness / Claude Code evaluation, including:
+The v0.1.9rc1 workflow is part of this delta and is intended to become the authoritative published-repository check after upload. It runs on Python 3.10, 3.11, and 3.12 and provisions MongoDB 7.
 
-- H1: imported `VERIFIED` / `ACCEPTED` assurance is preserved only as historical imported state and authoritative assurance starts `UNVERIFIED`;
-- H2: an already `VERIFIED` / `ACCEPTED` Slice cannot be re-verified and downgraded/duplicated;
-- H3: the authoritative `VERIFIED` Slice write carries verifier identity plus exact verification Evidence and AV/1 observation ids, while maintenance flags historical provenance gaps;
-- H4: supported UAI/1R decode/render paths require the expected semantic context hash;
-- F-OPS-001: managed client binding preserves the active virtual-environment interpreter path instead of resolving through a symlink to a base interpreter;
-- F-OPS-002 / scope: Claude Code defaults to private LOCAL scope and live attestation does not treat `Pending approval` or mere name visibility as an effective connection;
-- F-OPS-003: first attachment is not immediately overwritten by a second refresh that reports `first_attach=false`;
-- F-OPS-004: ordinary work can enter the full governed lifecycle through `enter_work` without a user-supplied MangoMe `declared_id`; deterministic `AUTO-*` ids are generated where required and worker-facing lifecycle errors are structured;
-- F-MAINT-001: maintenance diagnostics normalize naive Mongo/BSON-style datetimes before comparison;
-- F-ENV-001: Python 3.10 compatibility is restored with conditional `tomli` fallback/dependency;
-- zero-touch truth boundary: discovery remains candidate-only, while current client-relayed user intent can create new canonical operational work through the normal Specification → Plan → Slice path;
-- derived `truth_level` distinguishes canonical unverified work, worker claims, verified work and accepted work without introducing a second assurance state machine.
+The workflow:
 
-## Scope of this report
+- installs the package with development dependencies;
+- runs the full test suite;
+- runs `tests/test_mongo_integration.py` against the CI MongoDB service;
+- fails explicitly if those MongoDB integration tests are skipped while MongoDB is available;
+- runs a real Mongo-backed `health_snapshot()` readiness assertion;
+- runs the MCP in-process surface smoke test;
+- runs the UAI round-trip example;
+- verifies the three Agent Skill copies are byte-identical;
+- compiles `src`, `tests`, and `server.py`.
 
-This is a deterministic repair/packaging report. It does not repeat the earlier long-running Claude Code/Opus campaign and does not claim that every external client/runtime behavior was re-tested in this sandbox. The existing evaluation remains the pre-repair baseline; v0.1.8.1 is intended to rerun the already-known focused regression cases rather than launch another monolithic model evaluation.
+A local packaging PASS is not a substitute for the post-upload GitHub Actions result. The release candidate should not be promoted to final v0.1.9 until the published-tree workflow is green.
+
+## Release-candidate scope
+
+v0.1.9rc1 carries forward the v0.1.8.1 evaluation-driven integrity and zero-touch repairs and fixes the published repository surface/CI gap. It does not introduce a second truth store, new assurance states, or silently promote discovery candidates into canonical truth.

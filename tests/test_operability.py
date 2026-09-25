@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import mangome.runtime as runtime
+from mangome import __version__
 from mangome.operability import (
     OperabilityError,
     attach_workspace,
@@ -175,7 +176,7 @@ def test_runtime_auto_attach_uses_managed_workspace_without_user_bigbang_command
     monkeypatch.setenv("MANGOME_BACKEND", "memory")
     monkeypatch.setenv("MANGOME_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("MANGOME_AUTO_ATTACH", "1")
-    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", "0.1.8.1")
+    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", __version__)
 
     svc = runtime.get_service()
     attachment = runtime.workspace_attachment_snapshot()

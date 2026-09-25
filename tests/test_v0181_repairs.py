@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import mangome.operability as operability
+from mangome import __version__
 import mangome.runtime as runtime
 from mangome.integrity import IntegrityMangoMeService
 from mangome.interlingua import InterlinguaError, decode_uai_result
@@ -144,7 +145,7 @@ def test_refresh_preserves_first_attach_from_get_service(tmp_path: Path, monkeyp
     monkeypatch.setenv("MANGOME_BACKEND", "memory")
     monkeypatch.setenv("MANGOME_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("MANGOME_AUTO_ATTACH", "1")
-    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", "0.1.8.1")
+    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", __version__)
     result = runtime.refresh_workspace_attachment(str(tmp_path))
     assert result["first_attach"] is True
     runtime.reset_service_for_tests()
@@ -274,7 +275,7 @@ def test_explicit_workspace_refresh_rechecks_known_workspace(tmp_path: Path, mon
     monkeypatch.setenv("MANGOME_BACKEND", "memory")
     monkeypatch.setenv("MANGOME_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("MANGOME_AUTO_ATTACH", "1")
-    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", "0.1.8.1")
+    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", __version__)
     first = runtime.refresh_workspace_attachment(str(tmp_path))
     assert first["first_attach"] is True
     second = runtime.refresh_workspace_attachment(str(tmp_path), force=True)
