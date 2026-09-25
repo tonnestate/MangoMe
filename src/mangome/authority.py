@@ -53,3 +53,16 @@ def require_approver(actor_id: str, token: str | None = None) -> None:
         "MANGOME_APPROVAL_TOKEN", "MANGOME_APPROVER_ACTORS",
         actor_id, token, "approval", "OWNER",
     )
+
+
+def require_router(actor_id: str, token: str | None = None) -> None:
+    """Authorize host/router publication of runtime capability snapshots.
+
+    Workers must not be able to self-declare model cost, runtime mode, or
+    capabilities. The router/host observes those facts and publishes them through
+    a separate capability boundary.
+    """
+    _require(
+        "MANGOME_ROUTER_TOKEN", "MANGOME_ROUTER_ACTORS",
+        actor_id, token, "router", "ROUTER",
+    )

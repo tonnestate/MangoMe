@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.9rc3 — 2026-09-25 — Authoritative Recovery & Delegation Governance
+
+- Adds **Operational Language Inheritance** after a live recovery session emitted Japanese control-plane narration inside a German workflow: human-visible MangoMe/coordinator narration must inherit the current user/session language; persona/memory/runtime defaults may not silently switch it.
+- Records the measured delegation incident precisely: five high-cost agents were dispatched during one recovery session (four completed, one safely stopped/checkpointed), while MangoMe itself had no provider/model dispatch entrypoint. rc3 therefore exposes deterministic dispatch authorization without falsely claiming end-to-end enforcement.
+- Generalizes that live finding across parent-agent families: MangoMe task importance, difficulty, urgency, self-repair, or a capability gap never imply permission to spawn a stronger/high-cost subagent. `EXPENSIVE`/`PREMIUM` delegation is Owner-gated per exact bounded `family + worker + task_key`; one approval cannot authorize a sequence of premium tasks.
+- Closes the observed Luna recovery failure in which a parent agent ignored MangoMe state and reconstructed its own project view through broad `rg`/`sed`, filesystem, Git/worktree, contract and evidence-path archaeology.
+- Adds the hard invariant **Recovery follows identity. Discovery must never create or reconstruct admitted identity/state.**
+- Adds deterministic `recovery_context` derived from canonical Project/Family/Specification/Plan/Slice/Artifact/Evidence state so resumed/coordinator agents have a bounded recovery entry point.
+- Marks admitted work explicitly in `workspace_status` and disables discovery as a state-reconstruction path once canonical workspace work exists.
+- Makes MCP `bigbang_scan`, broad `filesystem_scan` and overlapping Big-Bang reconciliation fail closed for admitted work; `filesystem_references` becomes targeted validation for identities MangoMe already knows.
+- Strengthens the always-on Claude/Codex managed instruction and all four Skill surfaces so session death never authorizes path-derived state reconstruction.
+- Adds `docs/authoritative-recovery.md` and regression coverage for canonical recovery state and managed recovery instructions.
+- Clarifies that UAI/1 semantic hashes cover the compiled semantic projection, not the entire filesystem; unrelated filesystem changes do not automatically invalidate a worker result.
+- Documents the trust-boundary deployment rule more explicitly: high-assurance workers must not possess direct MongoDB credentials; datastore access belongs to the MangoMe service boundary.
+- Restores required dotfile release surfaces in the rc3 upload delta because public `main` still lacked `.github/workflows/ci.yml`, `.github/skills/...`, `.claude/skills/...` and `.gitignore` after the rc2 browser upload.
+- Does **not** replace MongoDB, introduce global repository locks, add new assurance states, or weaken agent reasoning freedom.
+
 ## 0.1.9rc2 — 2026-09-25 — Reconciliation Reasoning / Skill Surface Repair
 
 - Makes MangoMe's reconciliation reasoning doctrine explicit: **Externalize state. Localize uncertainty. Preserve agency. Verify independently.**

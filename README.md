@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.9rc2-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.9rc3-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -72,6 +72,10 @@ MangoMe can tell you:
 MangoMe also treats agent reasoning as a reconciliation problem: **normative truth** states what must be true, **observed truth** states what is actually present, and the worker spends its model capacity on the unresolved semantic delta instead of reconstructing those facts from chat history.
 
 > **Externalize state. Localize uncertainty. Preserve agency. Verify independently.**
+
+Recovery follows the same rule. Once work is admitted, MangoMe is the source for work identity and current operational state. Filesystem paths, Git/worktree history, contract directories, evidence folders and previous-agent prose may validate a bounded delta, but they must not be used to reconstruct a competing project state.
+
+> **Recovery follows identity. Discovery must never create or reconstruct admitted identity/state.**
 
 Sessions may disappear. Models may change. Agents may hand work to one another. The work does not have to reconstruct itself from chat history.
 
@@ -502,7 +506,7 @@ SHA-256
 UAI/1.h
 ```
 
-If the packet is altered, expansion fails.
+If the packet is altered, expansion fails. The hash covers the compiled semantic execution projection; it is **not** a hash of the entire filesystem. Unrelated filesystem changes do not by themselves invalidate a UAI/1 result. Relevant state changes matter when they alter the canonical projection or later Evidence/RB/1 bindings.
 
 A worker result is bound to the exact context hash it received. In v0.1.8.1 the supported decode/render surfaces require the expected context hash; an unbound result is rejected rather than being treated as current. Results produced against stale or different context are therefore rejected before they are considered.
 
@@ -674,6 +678,69 @@ project_overview
 effective_family_view
 graph
 ```
+
+---
+
+# Authoritative recovery — no path-derived state reconstruction
+
+For admitted work, use `recovery_context` as the compact recovery entry point. It derives state from MangoMe's canonical Project/Family/Spec/Plan/Slice/Artifact/Evidence records. Broad filesystem or repository discovery is not a valid way to recover current state once that work has been admitted.
+
+```text
+admitted workspace
+    ↓
+recovery_context
+    ↓
+canonical missing/active/verified state
+    ↓
+bounded artifact inspection only where needed
+```
+
+MangoMe's MCP surface rejects broad Big-Bang/filesystem discovery when it overlaps an admitted workspace. Lexical filesystem references remain available only as targeted validation for an identity already known to MangoMe. Internal inventory refresh and RB/1 freshness checks remain observations, not identity reconstruction.
+
+See [`docs/authoritative-recovery.md`](docs/authoritative-recovery.md).
+
+---
+
+
+# Delegation governance — capability and cost are runtime facts
+
+MangoMe does not treat a model name as an execution permission. A worker's identity, model, runtime mode, current capabilities, authority and cost class are separate facts. This matters when a provider changes a runtime into a restricted/reserve/degraded mode without changing the logical model name.
+
+```text
+WorkerIdentity != ModelIdentity != RuntimeMode != Capability != Authority != CostClass
+```
+
+The host/router publishes the current runtime snapshot. A normal worker cannot self-declare that it suddenly has `DEPLOY`, is cheaper, or is no longer restricted. Before a bounded delegation the coordinator asks for the capabilities it actually needs and supplies a cost ceiling:
+
+```text
+missing delta
+    ↓
+required capabilities + cost ceiling
+    ↓
+execution_eligibility
+    ↓
+authorize_delegation
+    ↓
+external orchestrator dispatches only if authorized=true
+    ↓
+complete_delegation
+```
+
+A runtime capability loss does not cause rediscovery or automatic model escalation. MangoMe returns `CURRENT_RUNTIME_CAPABILITY_MISSING` with `CHECKPOINT_AND_HANDOFF_MISSING_CAPABILITY_ONLY`; the completed delta is preserved and only the missing capability is routed onward.
+
+High-cost dispatch is deliberately conservative: `EXPENSIVE`/`PREMIUM` workers require explicit Owner approval bound to the exact `family + worker + task_key` delegation, and MangoMe authorizes at most one active high-cost delegation per Family. One approval cannot become a reusable license for a sequence of premium tasks. Difficulty, urgency, perceived importance, MangoMe self-repair, or a missing capability do not implicitly raise the cost ceiling. Mechanical recovery can still use bounded cheap parallelism when the workers are eligible.
+
+This closes the measured policy failure in which a coordinator turned bounded cheap/mechanical recovery into **five high-cost dispatches** in one session (four completed, one safely stopped/checkpointed), and generalizes the rule after the same high-tier escalation tendency was observed with more than one parent-agent family. It does **not** pretend MangoMe owns the provider spawn call. The current repository has no model-dispatch implementation. `execution_eligibility` and `authorize_delegation` are therefore a deterministic dispatch-authorization contract; the external orchestrator MUST consume that decision at its real dispatch boundary. Without that hook, end-to-end routing enforcement is not active and must not be claimed.
+
+`recovery_context` also includes persisted delegation checkpoints (`task`, worker, cost class, scope, artifact, status, missing delta and next dependency), so losing the parent coordinator does not require reconstructing orchestration from filesystem or chat history.
+
+See [`docs/delegation-governance.md`](docs/delegation-governance.md).
+
+## Operational language inheritance
+
+Human-visible MangoMe coordinator/recovery/control-plane narration inherits the current user/session working language. Persona, memory, provider/runtime defaults, or imported Skill text must not silently switch it. This rule was added after a live recovery run unexpectedly emitted Japanese narration inside an otherwise German workflow.
+
+The invariant applies to human-facing prose, not to machine semantics: state values, protocol names and reason codes remain stable language-neutral identifiers. `workspace_status` and `recovery_context` expose this communication policy explicitly.
 
 ---
 
@@ -1108,7 +1175,7 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.9rc2 is the current release candidate. It carries forward the v0.1.8.1 integrity/zero-touch repairs and the v0.1.9rc1 published-repository/CI hardening, then makes the reconciliation reasoning model explicit across the README and all Agent Skill surfaces.
+v0.1.9rc3 is the current release candidate. It carries forward the integrity/zero-touch and reconciliation-reasoning work, closes path-derived recovery reconstruction, adds runtime-capability/cost-aware delegation authorization with persisted coordinator checkpoints, and fixes operational-language drift in human-visible recovery/control-plane narration. MangoMe still does not own the external model dispatcher; hosts must bind the authorization result to their actual dispatch call for end-to-end enforcement.
 
 The runtime assurance model is intentionally unchanged: no second truth store, no new verification-state taxonomy, no graph-engine requirement, and no stronger action cage. The change is primarily epistemic and operational: workers should consume authoritative normative/observed state, spend reasoning capacity on the unresolved delta, expand context only when useful, and leave truth mutation/verification on the existing governed paths.
 

@@ -78,7 +78,10 @@ def test_claude_code_setup_defaults_to_local_scope_and_preserves_other_servers(t
     assert skill.is_file()
     rule = tmp_path / ".claude" / "rules" / "mangome.md"
     assert rule.is_file()
-    assert "Zero-touch applies to the user interface" in rule.read_text(encoding="utf-8")
+    rule_text = rule.read_text(encoding="utf-8")
+    assert "Zero-touch applies to the user interface" in rule_text
+    assert "AUTHORITATIVE RECOVERY RULE" in rule_text
+    assert "NEVER reconstruct current work state" in rule_text
 
     attested = attest_client(
         "claude-code", str(tmp_path), backend="memory", database="mangome_test",

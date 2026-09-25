@@ -109,3 +109,7 @@ The token-efficiency claim is a hypothesis to measure, not a guaranteed product 
 - cost per verified slice.
 
 The protocol claim remains narrower: durable state is externalized, worker agency is preserved, and final verification remains independent.
+
+## Recovery boundary
+
+Reconciliation reasoning assumes that admitted work identity and current state come from MangoMe, not from path archaeology after session loss. See [`authoritative-recovery.md`](authoritative-recovery.md). Context expansion `X` remains agent-controlled, but it is used to judge or validate a bounded delta; it must not become a second mechanism for reconstructing which admitted work exists or what state it is in.

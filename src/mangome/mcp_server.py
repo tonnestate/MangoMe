@@ -7,6 +7,7 @@ from typing import Any
 from mcp.server import MCPServer
 
 from .context import ContextCompiler
+from .authority import CapabilityDenied, require_router
 from .importer import (
     BigBangReconciler,
     BigBangScanner,
@@ -26,13 +27,23 @@ mcp = MCPServer(
     instructions=(
         "Zero-touch applies to the user interface, not to governance. Never ask the user to operate Big Bang, "
         "contracts, slices, plans, or other MangoMe internals. Before project-changing work, call workspace_status. "
-        "Discovery is candidate-only. For ordinary new work without admitted MangoMe identity, call enter_work with "
+        "Discovery is candidate-only and is only an onboarding mechanism for work that is not yet admitted. Once a "
+        "workspace/project is admitted, current work identity and recovery state MUST come from MangoMe canonical state, "
+        "never from broad filesystem/repository scans, Git/worktree archaeology, contract/evidence directories, or prior "
+        "agent prose. Use recovery_context/project_overview/status/read_context first and inspect physical artifacts only "
+        "for a bounded unresolved delta. For ordinary new work without admitted MangoMe identity, call enter_work with "
         "the user's request; it creates client-relayed user-intent operational state and the mandatory Plan/Slice binding "
-        "without promoting discovered history. For an existing admitted family/specification, use begin_work or the "
-        "lower-level lifecycle. Productive mutation requires a persisted plan. DONE is only a worker claim; "
-        "verification and acceptance remain separate privileged transitions."
+        "without promoting discovered history. Productive mutation requires a persisted plan. Delegation is also governed: "
+        "mechanical recovery should use bounded low-cost workers; current runtime capabilities must be checked before dispatch "
+        "and again before capability-sensitive actions. A capability downgrade means checkpoint and hand off only the missing "
+        "capability; never rediscover state or automatically escalate to a costly model swarm. MangoMe authorizes/checkpoints "
+        "delegation but does not own the external model dispatcher, so the host/orchestrator MUST enforce negative authorization "
+        "decisions at its actual dispatch boundary. Human-visible coordinator/recovery/control-plane narration MUST inherit the "
+        "current user/session working language unless the user explicitly changes it; persona, memory, runtime defaults, or Skill "
+        "text must not silently switch natural language. Stable machine identifiers/reason codes remain language-neutral. DONE is "
+        "only a worker claim; verification and acceptance remain separate privileged transitions."
     ),
-    version="0.1.8.1",
+    version="0.1.9rc3",
 )
 
 
@@ -56,6 +67,65 @@ def _domain_call(fn, /, *args: Any, **kwargs: Any) -> dict[str, Any]:
         }
 
 
+def _known_admitted_workspace_roots() -> list[Path]:
+    """Return known filesystem roots that already have canonical zero-touch Project state."""
+    svc = get_service()
+    roots: list[Path] = []
+    for row in svc.store.find("filesystem_roots"):
+        raw = str(row.get("root_path") or "").strip()
+        if not raw:
+            continue
+        try:
+            root = Path(raw).expanduser().resolve()
+            svc.project_overview(workspace_project_key(str(root)))
+        except (OSError, KeyError):
+            continue
+        roots.append(root)
+    current = workspace_attachment_snapshot()
+    raw_current = str((current or {}).get("workspace_root") or "").strip()
+    if raw_current:
+        try:
+            root = Path(raw_current).expanduser().resolve()
+            svc.project_overview(workspace_project_key(str(root)))
+            if root not in roots:
+                roots.append(root)
+        except (OSError, KeyError):
+            pass
+    return roots
+
+
+def _overlaps(left: Path, right: Path) -> bool:
+    return left == right or left in right.parents or right in left.parents
+
+
+def _discovery_block(roots: list[str] | None, operation: str) -> dict[str, Any] | None:
+    """Fail closed when broad discovery would reconstruct already-admitted work."""
+    admitted = _known_admitted_workspace_roots()
+    if not admitted:
+        return None
+    targets: list[Path] = []
+    for raw in roots or []:
+        try:
+            targets.append(Path(raw).expanduser().resolve())
+        except OSError:
+            continue
+    if targets and not any(_overlaps(target, root) for target in targets for root in admitted):
+        return None
+    return {
+        "ok": False,
+        "error": {
+            "code": "ADMITTED_WORK_DISCOVERY_FORBIDDEN",
+            "message": (
+                f"{operation} cannot be used to reconstruct state for admitted MangoMe work. "
+                "Read recovery_context/project_overview/status/read_context first; inspect only the bounded unresolved delta."
+            ),
+            "recoverable": True,
+        },
+        "authoritative_roots": [str(root) for root in admitted],
+        "rule": "Recovery follows identity. Discovery must never create or reconstruct admitted work identity/state.",
+    }
+
+
 @mcp.tool()
 def health() -> dict[str, Any]:
     """Return readiness even when backing-store initialization fails."""
@@ -74,19 +144,30 @@ def workspace_status(workspace_root: str | None = None, refresh: bool = False) -
         overview = get_service().project_overview(project_key)
     except KeyError:
         overview = None
+    admitted = overview is not None
     return {
         "attachment": current,
         "workspace_project_key": project_key,
         "project_overview": overview,
+        "state_source": "MANGOME_CANONICAL_STATE" if admitted else "UNADMITTED_DISCOVERY",
+        "discovery_allowed_for_state_reconstruction": not admitted,
+        "communication_policy": {
+            "human_visible_language": "INHERIT_CURRENT_USER_SESSION_LANGUAGE",
+            "silent_language_switch": "FORBIDDEN",
+            "machine_identifiers": "STABLE_LANGUAGE_NEUTRAL_TOKENS",
+        },
         "truth_boundary": {
-            "discovery": "CANDIDATE_ONLY",
+            "discovery": "FORBIDDEN_FOR_ADMITTED_STATE_RECONSTRUCTION" if admitted else "CANDIDATE_ONLY",
             "work_admission": "USER_INTENT_RELAYED_BY_CLIENT",
             "verification": "CAPABILITY_REQUIRED",
             "acceptance": "OWNER_CAPABILITY_REQUIRED",
         },
         "rule": (
-            "Discovery is automatic but candidate-only. Ordinary user intent may enter governed operational "
-            "work through enter_work; VERIFIED and ACCEPTED remain separate protected states."
+            "Admitted work must recover from MangoMe canonical state; filesystem/repository discovery may not reconstruct "
+            "its identity or current status. Unknown workspaces may use candidate-only discovery before admission."
+            if admitted else
+            "Discovery is automatic but candidate-only. Ordinary user intent may enter governed operational work through "
+            "enter_work; VERIFIED and ACCEPTED remain separate protected states."
         ),
     }
 
@@ -386,6 +467,23 @@ def project_overview(project_ref: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def recovery_context(workspace_root: str | None = None) -> dict[str, Any]:
+    """Return compact authoritative recovery state; never derive admitted work state from path discovery."""
+    current = workspace_attachment_snapshot()
+    root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
+    project_key = workspace_project_key(str(Path(root).expanduser().resolve()))
+    try:
+        return get_service().recovery_context(project_key)
+    except KeyError:
+        return {
+            "source": "UNADMITTED",
+            "workspace_project_key": project_key,
+            "discovery_allowed_for_state_reconstruction": True,
+            "rule": "No admitted workspace Project exists yet; candidate-only discovery may be used for onboarding, never as canonical truth.",
+        }
+
+
+@mcp.tool()
 def effective_family_view(family_id: str) -> dict[str, Any]:
     """Return the effective append-only contract-family view, supersession, relations, and conflicts."""
     return get_service().effective_family_view(family_id)
@@ -434,6 +532,115 @@ def graph(entity_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def publish_worker_runtime(
+    worker_key: str,
+    router_actor_id: str,
+    router_token: str | None = None,
+    model_id: str | None = None,
+    runtime_mode: str = "NORMAL",
+    capabilities: list[str] | None = None,
+    cost_class: str = "STANDARD",
+    owner_gated: bool = False,
+    max_parallel_tasks: int = 1,
+    active: bool = True,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Publish a host-observed worker runtime snapshot through the router capability.
+
+    This is not a worker self-report. Model identity, runtime mode, capabilities and
+    cost are separate facts; hosts should refresh the snapshot when provider/tool
+    availability changes (for example a degraded/reserve mode).
+    """
+    try:
+        require_router(router_actor_id, router_token)
+    except CapabilityDenied as exc:
+        return {
+            "ok": False,
+            "error": {"code": "ROUTER_CAPABILITY_REQUIRED", "message": str(exc), "recoverable": True},
+        }
+    return _domain_call(
+        get_service().register_worker_runtime,
+        worker_key=worker_key, model_id=model_id, runtime_mode=runtime_mode,
+        capabilities=capabilities, cost_class=cost_class, owner_gated=owner_gated,
+        max_parallel_tasks=max_parallel_tasks, active=active, metadata=metadata,
+    )
+
+
+@mcp.tool()
+def execution_eligibility(
+    worker_key: str,
+    required_capabilities: list[str] | None = None,
+    cost_ceiling: str = "STANDARD",
+    family_id: str | None = None,
+    delegation_key: str | None = None,
+    owner_approval_id: str | None = None,
+) -> dict[str, Any]:
+    """Evaluate the worker's CURRENT runtime capabilities/cost before dispatch or a protected action.
+
+    MangoMe returns an authorization decision but does not itself dispatch the model.
+    The external orchestrator must enforce a negative decision at its real dispatch
+    boundary and should re-check before capability-sensitive actions such as DEPLOY.
+    """
+    return _domain_call(
+        get_service().check_execution_eligibility,
+        worker_key=worker_key, required_capabilities=required_capabilities,
+        cost_ceiling=cost_ceiling, family_id=family_id, delegation_key=delegation_key,
+        owner_approval_id=owner_approval_id,
+    )
+
+
+@mcp.tool()
+def authorize_delegation(
+    family_id: str,
+    coordinator_actor_id: str,
+    worker_key: str,
+    task_key: str,
+    purpose: str,
+    required_capabilities: list[str] | None = None,
+    cost_ceiling: str = "STANDARD",
+    input_scope: list[str] | None = None,
+    owner_approval_id: str | None = None,
+) -> dict[str, Any]:
+    """Persist one bounded delegation authorization from current runtime/cost/concurrency state.
+
+    This is a policy/coordination record, not the model dispatch itself. The host must
+    refuse dispatch when `authorized` is false. High-cost workers require explicit
+    owner approval and only one high-cost delegation may be active per family.
+    """
+    return _domain_call(
+        get_service().authorize_delegation,
+        family_id=family_id, coordinator_actor_id=coordinator_actor_id,
+        worker_key=worker_key, task_key=task_key, purpose=purpose,
+        required_capabilities=required_capabilities, cost_ceiling=cost_ceiling,
+        input_scope=input_scope, owner_approval_id=owner_approval_id,
+    )
+
+
+@mcp.tool()
+def complete_delegation(
+    delegation_id: str,
+    coordinator_actor_id: str,
+    status: str = "COMPLETED",
+    artifact: str | None = None,
+    missing_delta: str | None = None,
+    next_dependency: str | None = None,
+) -> dict[str, Any]:
+    """Checkpoint/close a bounded delegation so recovery can continue without rediscovery."""
+    return _domain_call(
+        get_service().complete_delegation,
+        delegation_id=delegation_id, coordinator_actor_id=coordinator_actor_id,
+        status=status, artifact=artifact, missing_delta=missing_delta,
+        next_dependency=next_dependency,
+    )
+
+
+@mcp.tool()
+def delegation_status(family_id: str) -> dict[str, Any]:
+    """Return persisted delegation/checkpoint state for one family."""
+    return _domain_call(get_service().delegation_status, family_id=family_id)
+
+
+@mcp.tool()
 def register_model(model_key: str, provider: str | None = None, access_path: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Register a model/access-path identity for empirical execution comparisons."""
     return get_service().register_model(model_key=model_key, provider=provider, access_path=access_path, metadata=metadata)
@@ -453,7 +660,10 @@ def model_stats(model_id: str | None = None, work_class: str | None = None) -> d
 
 @mcp.tool()
 def bigbang_scan(roots: list[str], id_patterns: list[str] | None = None, include_git: bool = True) -> dict[str, Any]:
-    """Non-destructively inventory filesystem and optional Git state; never auto-canonicalizes semantic truth."""
+    """Candidate-only onboarding discovery. Forbidden as a recovery/state reconstruction path for admitted work."""
+    blocked = _discovery_block(roots, "bigbang_scan")
+    if blocked is not None:
+        return blocked
     patterns = id_patterns or load_id_patterns_json(os.environ.get("MANGOME_ID_PATTERNS_JSON"))
     scanner = BigBangScanner(get_service(), id_patterns=patterns)
     records = scanner.scan(roots)
@@ -469,13 +679,20 @@ def bigbang_scan(roots: list[str], id_patterns: list[str] | None = None, include
 
 @mcp.tool()
 def reconcile_bigbang(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Match Big-Bang discovery against canonical state without performing semantic mutations."""
+    """Reconcile candidate discovery only before work admission; never rebuild admitted state from discovered records."""
+    record_paths = [str(item.get("path") or "") for item in records if isinstance(item, dict) and item.get("path")]
+    blocked = _discovery_block(record_paths or None, "reconcile_bigbang")
+    if blocked is not None:
+        return blocked
     return BigBangReconciler(get_service()).reconcile(records)  # type: ignore[return-value]
 
 
 @mcp.tool()
 def filesystem_scan(roots: list[str], max_files: int = 50000, max_depth: int = 16, max_hash_bytes: int = 67108864) -> dict[str, Any]:
-    """Build/update a bounded deterministic filesystem inventory. This discovers facts; it never verifies contracts or trusts audit prose."""
+    """Broad inventory for onboarding/maintenance; forbidden as state reconstruction for admitted work."""
+    blocked = _discovery_block(roots, "filesystem_scan")
+    if blocked is not None:
+        return blocked
     return FilesystemScanner(get_service()).scan(
         roots, max_files=max_files, max_depth=max_depth, max_hash_bytes=max_hash_bytes
     )
@@ -483,8 +700,22 @@ def filesystem_scan(roots: list[str], max_files: int = 50000, max_depth: int = 1
 
 @mcp.tool()
 def filesystem_references(declared_id: str, present_only: bool = True, limit: int = 200) -> dict[str, Any]:
-    """Find indexed source/test/contract/report files that lexically reference a declared contract/work id."""
-    return FilesystemScanner(get_service()).references(declared_id, present_only=present_only, limit=limit)
+    """Targeted validation of an already-canonical identity; never use lexical references to invent recovery state."""
+    if _known_admitted_workspace_roots():
+        resolved = get_service().resolve(declared_id)
+        if not any(resolved.get(key) for key in ("families", "contracts", "slices")):
+            return {
+                "ok": False,
+                "error": {
+                    "code": "UNKNOWN_CANONICAL_IDENTITY",
+                    "message": "filesystem_references requires an identity already known to MangoMe when work is admitted.",
+                    "recoverable": True,
+                },
+                "rule": "Lexical/path references may validate canonical identity; they may not create or reconstruct it.",
+            }
+    result = FilesystemScanner(get_service()).references(declared_id, present_only=present_only, limit=limit)
+    result["mode"] = "TARGETED_CANONICAL_REFERENCE_VALIDATION"
+    return result
 
 
 @mcp.tool()

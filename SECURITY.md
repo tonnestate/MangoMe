@@ -13,6 +13,8 @@ Capability values are never persisted by MangoMe. Prefer host/runtime injection 
 
 A WORKER client must not receive verifier or owner credentials. If the worker can access those credentials through its process environment, shell, filesystem, or another host channel, the verifier boundary has already been defeated outside MangoMe.
 
+The same applies to the router capability. `MANGOME_ROUTER_TOKEN` authorizes publication of host-observed runtime mode, capability and cost facts; a normal worker must not possess it, otherwise the worker could attempt to self-promote its execution profile.
+
 ## Database boundary
 
 MangoMe can enforce its invariants only for writes that pass through MangoMe. A worker with direct write/admin access to the canonical MongoDB can bypass the service-level state machine.
@@ -20,11 +22,11 @@ MangoMe can enforce its invariants only for writes that pass through MangoMe. A 
 For production deployment:
 
 - do not launch an untrusted worker from a shell/session that exports a MongoDB administrator URI;
-- use a dedicated least-privilege database credential or a separately hosted MangoMe service boundary for worker clients;
+- use least-privilege database credentials and deployment controls appropriate to the host environment;
 - keep verifier/owner runtimes isolated from worker runtimes;
 - treat direct database writers as trusted infrastructure, not ordinary agents.
 
-The v0.1.8.1 managed client setup deliberately does not copy MongoDB credentials into generated client configuration. It cannot remove secrets that the parent client process already inherited.
+The managed client setup deliberately does not copy MongoDB credentials into generated client configuration. MangoMe does not require a separate service, container, or OS identity as part of its core architecture. Deployments that expose direct MongoDB write credentials to an unrestricted worker must, however, treat that worker as inside the trusted database boundary and must not claim that MangoMe's service-level transition checks protect against that worker bypassing the API.
 
 ## Discovery and admission
 

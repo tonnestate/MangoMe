@@ -299,6 +299,44 @@ class ModelProfile(BaseEntity):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkerRuntimeProfile(BaseEntity):
+    """Current host-observed execution capabilities for one worker identity.
+
+    Model identity is deliberately separate from runtime mode and capabilities.
+    A provider may degrade a model into a restricted mode without changing the
+    logical model name, so dispatch eligibility must use this current snapshot.
+    """
+
+    worker_key: str
+    model_id: str | None = None
+    runtime_mode: str = "NORMAL"
+    capabilities: list[str] = Field(default_factory=list)
+    cost_class: Literal["FREE", "CHEAP", "STANDARD", "EXPENSIVE", "PREMIUM"] = "STANDARD"
+    owner_gated: bool = False
+    max_parallel_tasks: int = 1
+    active: bool = True
+    observed_at: datetime = Field(default_factory=utcnow)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DelegationTask(BaseEntity):
+    family_id: str
+    coordinator_actor_id: str
+    worker_key: str
+    runtime_profile_id: str
+    task_key: str
+    purpose: str
+    required_capabilities: list[str] = Field(default_factory=list)
+    cost_ceiling: Literal["FREE", "CHEAP", "STANDARD", "EXPENSIVE", "PREMIUM"] = "STANDARD"
+    cost_class: str = "STANDARD"
+    input_scope: list[str] = Field(default_factory=list)
+    status: Literal["AUTHORIZED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"] = "AUTHORIZED"
+    artifact: str | None = None
+    missing_delta: str | None = None
+    next_dependency: str | None = None
+    owner_approval_id: str | None = None
+
+
 class ExecutionReceipt(BaseEntity):
     family_id: str
     slice_id: str

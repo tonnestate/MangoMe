@@ -33,6 +33,8 @@ from .models import (
     Gate,
     IntakeRequest,
     ModelProfile,
+    WorkerRuntimeProfile,
+    DelegationTask,
     Plan,
     Project,
     ProposedSlice,
@@ -988,6 +990,190 @@ class MangoMeService:
     def reject_override(self, **_: Any) -> dict[str, Any]:
         raise ApprovalRequired("approval decisions require the integrity runtime capability")
 
+    # ---------- runtime capability / delegation governance ----------
+    _COST_RANK = {"FREE": 0, "CHEAP": 1, "STANDARD": 2, "EXPENSIVE": 3, "PREMIUM": 4}
+
+    def register_worker_runtime(
+        self, *, worker_key: str, model_id: str | None = None, runtime_mode: str = "NORMAL",
+        capabilities: list[str] | None = None, cost_class: str = "STANDARD", owner_gated: bool = False,
+        max_parallel_tasks: int = 1, active: bool = True, metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Upsert the host-observed *current* runtime capability snapshot for a worker.
+
+        Model identity never implies capability. Hosts should refresh this record when
+        provider mode/tool availability changes (for example a reserve/degraded mode).
+        """
+        worker_key = worker_key.strip()
+        if not worker_key:
+            raise ValueError("worker_key is required")
+        if model_id is not None:
+            self._must_get("models", model_id)
+        cost = cost_class.upper()
+        if cost not in self._COST_RANK:
+            raise ValueError(f"unknown cost_class {cost_class}")
+        if max_parallel_tasks < 1:
+            raise ValueError("max_parallel_tasks must be >= 1")
+        caps = sorted({str(c).strip().upper() for c in (capabilities or []) if str(c).strip()})
+        now = utcnow()
+        existing = self.store.find("worker_runtime_profiles", {"worker_key": worker_key})
+        if existing:
+            current = sorted(existing, key=lambda r: int(r.get("revision", 0)), reverse=True)[0]
+            return self._update(
+                "worker_runtime_profiles", current["entity_id"],
+                {
+                    "model_id": model_id, "runtime_mode": runtime_mode.upper(), "capabilities": caps,
+                    "cost_class": cost, "owner_gated": bool(owner_gated),
+                    "max_parallel_tasks": int(max_parallel_tasks), "active": bool(active),
+                    "observed_at": now, "metadata": metadata or {}, "updated_at": now,
+                },
+                expected_revision=int(current.get("revision", 0)),
+            )
+        profile = WorkerRuntimeProfile(
+            worker_key=worker_key, model_id=model_id, runtime_mode=runtime_mode.upper(), capabilities=caps,
+            cost_class=cost, owner_gated=bool(owner_gated), max_parallel_tasks=int(max_parallel_tasks),
+            active=bool(active), observed_at=now, metadata=metadata or {},
+        )
+        return self.store.insert("worker_runtime_profiles", _dump(profile))
+
+    def _current_worker_runtime(self, worker_key: str) -> dict[str, Any] | None:
+        rows = self.store.find("worker_runtime_profiles", {"worker_key": worker_key})
+        if not rows:
+            return None
+        return sorted(rows, key=lambda r: (_dt_key(r.get("observed_at")), int(r.get("revision", 0))), reverse=True)[0]
+
+    def check_execution_eligibility(
+        self, *, worker_key: str, required_capabilities: list[str] | None = None,
+        cost_ceiling: str = "STANDARD", family_id: str | None = None,
+        delegation_key: str | None = None, owner_approval_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate current execution eligibility without dispatching anything.
+
+        This is intentionally re-evaluatable immediately before a protected action so
+        a mid-session capability downgrade does not inherit stale permissions.
+        """
+        ceiling = cost_ceiling.upper()
+        if ceiling not in self._COST_RANK:
+            raise ValueError(f"unknown cost_ceiling {cost_ceiling}")
+        profile = self._current_worker_runtime(worker_key)
+        if profile is None:
+            return {"eligible": False, "reason_codes": ["RUNTIME_PROFILE_REQUIRED"], "worker_key": worker_key}
+        reasons: list[str] = []
+        required = sorted({str(c).strip().upper() for c in (required_capabilities or []) if str(c).strip()})
+        available = set(profile.get("capabilities") or [])
+        missing = [c for c in required if c not in available]
+        if not profile.get("active", True):
+            reasons.append("RUNTIME_PROFILE_INACTIVE")
+        if missing:
+            reasons.append("CURRENT_RUNTIME_CAPABILITY_MISSING")
+        cost = str(profile.get("cost_class") or "STANDARD").upper()
+        if self._COST_RANK.get(cost, 99) > self._COST_RANK[ceiling]:
+            reasons.append("COST_CEILING_EXCEEDED")
+        # High-cost execution is owner-gated by default. A runtime profile may
+        # additionally mark any lower-cost worker as owner-gated. This prevents a
+        # coordinator from silently escalating a mechanical recovery task into an
+        # expensive model fan-out merely by raising its own cost ceiling.
+        requires_owner = bool(profile.get("owner_gated")) or cost in {"EXPENSIVE", "PREMIUM"}
+        if requires_owner:
+            subject = (
+                f"{family_id}:{worker_key}:{delegation_key}"
+                if family_id and delegation_key
+                else (f"{family_id}:{worker_key}" if family_id else worker_key)
+            )
+            approval = self.store.get("approvals", owner_approval_id) if owner_approval_id else None
+            if not approval or approval.get("status") != "APPROVED" or approval.get("action_type") != "AUTHORIZE_DELEGATION" or approval.get("subject_id") != subject:
+                reasons.append("OWNER_APPROVAL_REQUIRED")
+        return {
+            "eligible": not reasons, "reason_codes": reasons, "worker_key": worker_key,
+            "runtime_profile_id": profile["entity_id"], "runtime_mode": profile.get("runtime_mode"),
+            "model_id": profile.get("model_id"), "cost_class": cost,
+            "required_capabilities": required, "available_capabilities": sorted(available),
+            "missing_capabilities": missing, "cost_ceiling": ceiling,
+            "handoff_policy": "CHECKPOINT_AND_HANDOFF_MISSING_CAPABILITY_ONLY" if missing else None,
+        }
+
+    def authorize_delegation(
+        self, *, family_id: str, coordinator_actor_id: str, worker_key: str, task_key: str, purpose: str,
+        required_capabilities: list[str] | None = None, cost_ceiling: str = "STANDARD",
+        input_scope: list[str] | None = None, owner_approval_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Authorize one bounded delegation using current capability/cost/concurrency state."""
+        self._must_get("families", family_id)
+        existing = self.store.find("delegations", {"family_id": family_id, "coordinator_actor_id": coordinator_actor_id, "task_key": task_key})
+        for row in existing:
+            if row.get("status") in {"AUTHORIZED", "RUNNING"}:
+                return {"authorized": True, "idempotent": True, "delegation": row}
+        eligibility = self.check_execution_eligibility(
+            worker_key=worker_key, required_capabilities=required_capabilities, cost_ceiling=cost_ceiling,
+            family_id=family_id, delegation_key=task_key, owner_approval_id=owner_approval_id,
+        )
+        if not eligibility.get("eligible"):
+            return {"authorized": False, "eligibility": eligibility}
+        profile = self._current_worker_runtime(worker_key)
+        assert profile is not None
+        active = [d for d in self.store.find("delegations", {"worker_key": worker_key}) if d.get("status") in {"AUTHORIZED", "RUNNING"}]
+        limit = int(profile.get("max_parallel_tasks") or 1)
+        if len(active) >= limit:
+            return {
+                "authorized": False,
+                "eligibility": {**eligibility, "eligible": False, "reason_codes": ["PARALLELISM_LIMIT_REACHED"]},
+                "active_delegations": len(active), "max_parallel_tasks": limit,
+            }
+
+        # Expensive/Premium work is intentionally serialized per family. The
+        # coordinator can still run several cheap reconstruction workers in
+        # parallel, but it cannot create a costly swarm. Close/checkpoint the
+        # current high-cost delta before authorizing the next one.
+        if eligibility.get("cost_class") in {"EXPENSIVE", "PREMIUM"}:
+            expensive_active = [
+                d for d in self.store.find("delegations", {"family_id": family_id})
+                if d.get("status") in {"AUTHORIZED", "RUNNING"}
+                and str(d.get("cost_class") or "").upper() in {"EXPENSIVE", "PREMIUM"}
+            ]
+            if expensive_active:
+                return {
+                    "authorized": False,
+                    "eligibility": {
+                        **eligibility,
+                        "eligible": False,
+                        "reason_codes": ["EXPENSIVE_FANOUT_LIMIT_REACHED"],
+                    },
+                    "active_expensive_delegations": len(expensive_active),
+                    "max_parallel_expensive_delegations": 1,
+                }
+        task = DelegationTask(
+            family_id=family_id, coordinator_actor_id=coordinator_actor_id, worker_key=worker_key,
+            runtime_profile_id=profile["entity_id"], task_key=task_key, purpose=purpose,
+            required_capabilities=eligibility["required_capabilities"], cost_ceiling=cost_ceiling.upper(),
+            cost_class=eligibility["cost_class"], input_scope=input_scope or [], owner_approval_id=owner_approval_id,
+        )
+        row = self.store.insert("delegations", _dump(task))
+        return {"authorized": True, "idempotent": False, "delegation": row, "eligibility": eligibility}
+
+    def complete_delegation(
+        self, *, delegation_id: str, coordinator_actor_id: str, status: str = "COMPLETED",
+        artifact: str | None = None, missing_delta: str | None = None, next_dependency: str | None = None,
+    ) -> dict[str, Any]:
+        task = self._must_get("delegations", delegation_id)
+        if task.get("coordinator_actor_id") != coordinator_actor_id:
+            raise InvalidTransition("only the owning coordinator may close a delegation")
+        normalized = status.upper()
+        if normalized not in {"COMPLETED", "FAILED", "CANCELLED"}:
+            raise ValueError("status must be COMPLETED, FAILED, or CANCELLED")
+        return self._update(
+            "delegations", delegation_id,
+            {"status": normalized, "artifact": artifact, "missing_delta": missing_delta,
+             "next_dependency": next_dependency, "updated_at": utcnow()},
+            expected_revision=int(task.get("revision", 0)),
+        )
+
+    def delegation_status(self, *, family_id: str) -> dict[str, Any]:
+        self._must_get("families", family_id)
+        tasks = self.store.find("delegations", {"family_id": family_id})
+        return {
+            "family_id": family_id, "delegations": tasks,
+            "active_count": sum(1 for t in tasks if t.get("status") in {"AUTHORIZED", "RUNNING"}),
+        }
+
     # ---------- model / economics ledger ----------
     def register_model(self, *, model_key: str, provider: str | None = None, access_path: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         existing = self.store.find("models", {"model_key": model_key})
@@ -1194,6 +1380,168 @@ class MangoMeService:
             "open_approvals": approvals,
             "warnings": sorted({warning for status in statuses for warning in status.get("warnings", [])}),
             "last_activity_at": last_activity,
+        }
+
+    def recovery_context(self, project_ref: str) -> dict[str, Any]:
+        """Return a compact authoritative recovery projection for admitted work.
+
+        This is intentionally derived from canonical MangoMe state. It exists so a
+        resumed/coordinator agent does not reconstruct current work identity or status
+        from filesystem topology, Git history, worktrees, contract folders, or prior
+        agent prose. Physical artifacts remain inspectable, but only after canonical
+        identity/state has established the bounded delta to inspect.
+        """
+        overview = self.project_overview(project_ref)
+        project = overview["project"]
+        families: list[dict[str, Any]] = []
+
+        for status in overview.get("families", []):
+            family_id = status["family_id"]
+            family = self._must_get("families", family_id)
+            effective = self.effective_family_view(family_id)
+            current_spec = effective.get("current_spec")
+            slices = self.store.find("slices", {"family_id": family_id})
+            active_plans = [
+                p for p in self.store.find("plans", {"family_id": family_id})
+                if p.get("status") in {"RECORDED", "ACTIVE"}
+            ]
+
+            selected_ids = set(status.get("active_slice_ids") or [])
+            selected_ids.update(status.get("next_known_slice_ids") or [])
+            for key in ("last_started_slice_id", "last_done_claimed_slice_id", "last_verified_slice_id"):
+                value = status.get(key)
+                if value:
+                    selected_ids.add(value)
+            selected_ids.update(
+                s["entity_id"] for s in slices if s.get("execution_state") == ExecutionState.BLOCKED.value
+            )
+            selected = [s for s in slices if s.get("entity_id") in selected_ids]
+            if not selected and slices:
+                selected = sorted(
+                    slices,
+                    key=lambda s: _dt_key(s.get("last_activity_at") or s.get("updated_at")),
+                    reverse=True,
+                )[:3]
+
+            context_ids = {family_id}
+            context_ids.update(family.get("contract_ids") or [])
+            if current_spec and current_spec.get("entity_id"):
+                context_ids.add(current_spec["entity_id"])
+            context_ids.update(s["entity_id"] for s in selected)
+
+            artifacts = [
+                a for a in self.store.find("artifacts")
+                if context_ids.intersection(set(a.get("belongs_to") or []))
+            ]
+            evidence = [
+                e for e in self.store.find("evidence")
+                if e.get("subject_id") in context_ids
+            ]
+            delegations = sorted(
+                self.store.find("delegations", {"family_id": family_id}),
+                key=lambda d: _dt_key(d.get("updated_at") or d.get("created_at")),
+                reverse=True,
+            )[:20]
+
+            families.append({
+                "family_id": family_id,
+                "family_key": status.get("family_key"),
+                "title": status.get("title"),
+                "status": {
+                    "execution_state": status.get("execution_state"),
+                    "assurance_state": status.get("assurance_state"),
+                    "truth_level": status.get("truth_level"),
+                    "active_slice_ids": status.get("active_slice_ids") or [],
+                    "last_started_slice_id": status.get("last_started_slice_id"),
+                    "last_done_claimed_slice_id": status.get("last_done_claimed_slice_id"),
+                    "last_verified_slice_id": status.get("last_verified_slice_id"),
+                    "next_known_slice_ids": status.get("next_known_slice_ids") or [],
+                    "warnings": status.get("warnings") or [],
+                },
+                "current_spec": current_spec,
+                "active_plans": active_plans,
+                "recovery_slices": [
+                    {
+                        "entity_id": s.get("entity_id"),
+                        "declared_id": s.get("declared_id"),
+                        "title": s.get("title"),
+                        "objective": s.get("objective"),
+                        "execution_state": s.get("execution_state"),
+                        "assurance_state": s.get("assurance_state"),
+                        "active_plan_id": s.get("active_plan_id"),
+                        "depends_on": s.get("depends_on") or [],
+                        "dependency_requirements": s.get("dependency_requirements") or [],
+                        "gates": s.get("gates") or [],
+                    }
+                    for s in selected
+                ],
+                "known_artifacts": [
+                    {
+                        "entity_id": a.get("entity_id"),
+                        "logical_name": a.get("logical_name"),
+                        "artifact_type": a.get("artifact_type"),
+                        "storage_system": a.get("storage_system"),
+                        "physical_location": a.get("physical_location"),
+                        "checksum": a.get("checksum"),
+                        "belongs_to": a.get("belongs_to") or [],
+                    }
+                    for a in artifacts
+                ],
+                "known_evidence": [
+                    {
+                        "entity_id": e.get("entity_id"),
+                        "subject_id": e.get("subject_id"),
+                        "evidence_type": e.get("evidence_type"),
+                        "evidence_class": e.get("evidence_class"),
+                        "verdict": e.get("verdict"),
+                        "trust": e.get("trust"),
+                        "artifact_id": e.get("artifact_id"),
+                    }
+                    for e in evidence
+                ],
+                "delegations": [
+                    {
+                        "entity_id": d.get("entity_id"),
+                        "task_key": d.get("task_key"),
+                        "coordinator_actor_id": d.get("coordinator_actor_id"),
+                        "worker_key": d.get("worker_key"),
+                        "runtime_profile_id": d.get("runtime_profile_id"),
+                        "purpose": d.get("purpose"),
+                        "required_capabilities": d.get("required_capabilities") or [],
+                        "cost_class": d.get("cost_class"),
+                        "cost_ceiling": d.get("cost_ceiling"),
+                        "input_scope": d.get("input_scope") or [],
+                        "status": d.get("status"),
+                        "artifact": d.get("artifact"),
+                        "missing_delta": d.get("missing_delta"),
+                        "next_dependency": d.get("next_dependency"),
+                    }
+                    for d in delegations
+                ],
+            })
+
+        return {
+            "source": "MANGOME_CANONICAL_STATE",
+            "project": {
+                "entity_id": project.get("entity_id"),
+                "project_key": project.get("project_key"),
+                "title": project.get("title"),
+            },
+            "families": families,
+            "open_approvals": overview.get("open_approvals") or [],
+            "warnings": overview.get("warnings") or [],
+            "last_activity_at": overview.get("last_activity_at"),
+            "discovery_allowed_for_state_reconstruction": False,
+            "communication_policy": {
+                "human_visible_language": "INHERIT_CURRENT_USER_SESSION_LANGUAGE",
+                "silent_language_switch": "FORBIDDEN",
+                "machine_identifiers": "STABLE_LANGUAGE_NEUTRAL_TOKENS",
+            },
+            "rule": (
+                "Recovery follows canonical identity/state. Do not reconstruct admitted work from filesystem paths, "
+                "repository scans, Git/worktree history, contract/evidence directories, or prior agent prose. "
+                "Inspect a physical artifact only after MangoMe identifies the bounded unresolved delta."
+            ),
         }
 
     def health(self) -> dict[str, Any]:

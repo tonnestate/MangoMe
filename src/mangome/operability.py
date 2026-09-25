@@ -22,7 +22,15 @@ from .service import MangoMeService
 _MANGOME_INSTRUCTION_BEGIN = "<!-- BEGIN MANGOME ZERO-TOUCH -->"
 _MANGOME_INSTRUCTION_END = "<!-- END MANGOME ZERO-TOUCH -->"
 _MANGOME_ALWAYS_ON_INSTRUCTION = """<!-- BEGIN MANGOME ZERO-TOUCH -->
-MangoMe is governed project infrastructure for this workspace. Zero-touch applies to the user interface, not to governance. For substantive project work, call `workspace_status` first. Automatic filesystem/Big-Bang discovery is CANDIDATE_ONLY and must never be treated as canonical history. If no admitted MangoMe family/specification fits the current task, call `enter_work` with the user's actual request before productive mutation; it creates current-user-intent-backed canonical work plus the mandatory Plan/Slice binding without promoting discovered history. Reuse `begin_work` for already admitted work. If a managed binding/readiness problem is safely deterministic, run `mangome doctor --repair` yourself before asking the user. Never ask the user to operate Big Bang, contracts, slices, plans, or MangoMe vocabulary. `DONE_CLAIMED` is only a claim; verifier/owner authority remains separate and must never be fabricated.
+MangoMe is governed project infrastructure for this workspace. Zero-touch applies to the user interface, not to governance. For substantive project work, call `workspace_status` first.
+
+AUTHORITATIVE RECOVERY RULE: If MangoMe already has admitted Project/Family state for this workspace, NEVER reconstruct current work state from filesystem paths, broad repository search, Git history, worktrees, contract/evidence directories, filenames, or previous agent prose. Recovery MUST begin from `recovery_context`, `project_overview`, `status`, `effective_family_view`, and/or `read_context`. Physical repository/filesystem inspection is permitted only after MangoMe identifies the bounded unresolved delta or a known artifact that needs validation. Discovery may observe facts; it may not create or reconstruct admitted work identity/state.
+
+Unknown workspaces may use automatic filesystem/Big-Bang discovery for onboarding, but discovery remains `CANDIDATE_ONLY` and must never be mistaken for canonical history. If no admitted MangoMe family/specification fits the current task, call `enter_work` with the user's actual request before productive mutation; it creates current-user-intent-backed canonical work plus the mandatory Plan/Slice binding without promoting discovered history. Reuse `begin_work` for already admitted work.
+
+If acting as a parent/coordinator for delegated recovery, remain a coordinator: read canonical MangoMe recovery state, create bounded delegated tasks, consume concise result summaries, persist orchestration progress, and select the next delta. Do not perform broad repository archaeology or re-run worker reconstruction in the parent context.
+
+If a managed binding/readiness problem is safely deterministic, run `mangome doctor --repair` yourself before asking the user. Never ask the user to operate Big Bang, contracts, slices, plans, or MangoMe vocabulary. `DONE_CLAIMED` is only a claim; verifier/owner authority remains separate and must never be fabricated.
 <!-- END MANGOME ZERO-TOUCH -->"""
 
 class OperabilityError(RuntimeError):

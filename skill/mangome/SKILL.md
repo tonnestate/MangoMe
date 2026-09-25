@@ -37,6 +37,14 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 18. **Close obsolete plans.** Stale plans create stale collision traffic.
 19. **Do not invent missing truth.** Keep ambiguity `UNRESOLVED` / `SUGGESTED` until evidence or authorized confirmation exists.
 20. **Reconcile; do not reconstruct.** Start from MangoMe's authoritative normative and observed state, then spend model reasoning on the unresolved delta. Expand context on demand when the bounded view is insufficient.
+21. **Recovery follows identity.** For admitted work, NEVER reconstruct current state from filesystem paths, broad `rg`/`grep`, Git/worktree history, contract/evidence directories, filenames, or prior agent prose. Read MangoMe canonical state first.
+22. **Discovery never creates admitted truth.** Big-Bang/filesystem discovery is onboarding/observation only. Once work is admitted, broad discovery MUST NOT be used as a recovery mechanism.
+23. **Model identity is not execution capability.** Route from the worker's current runtime profile, not its model name or capabilities assumed earlier in the session.
+24. **Capability downgrade means bounded handoff.** If the current runtime loses a required capability such as `DEPLOY`, checkpoint completed work and hand off only that missing capability. Never restart discovery or reimplement completed work.
+25. **No automatic expensive escalation.** Failure, difficulty, urgency, importance, MangoMe self-repair, or a limited cheap worker never authorize spawning a stronger or more expensive model. High-cost delegation requires explicit Owner authorization bound to the exact bounded task, and MangoMe serializes high-cost delegation per family.
+26. **Delegation authorization is not dispatch.** MangoMe records eligibility/authorization/checkpoints; the actual external orchestrator MUST consume that decision at its real model-dispatch boundary. Do not claim routing enforcement when that integration is absent.
+27. **Runtime facts come from the host/router.** Workers must not self-declare their own cost class, runtime mode, or capabilities. `publish_worker_runtime` is a privileged host/router surface.
+28. **Operational language follows the user/session.** Human-visible coordinator, recovery and control-plane narration MUST remain in the current working language unless the user explicitly changes it. Persona, memory, model defaults, or imported Skill text MUST NOT silently switch the operational language. Stable machine fields, protocol identifiers and reason codes remain language-neutral.
 
 ## Start of work
 
@@ -124,6 +132,113 @@ What the worker may not do is silently mutate truth:
 If the worker believes the normative truth itself should change, persist that as a proposed/suggested contract contribution or amendment through the existing contract-evolution path. It remains non-effective until the authorized process promotes it into the effective specification.
 
 This is a reconciliation model, not a rigid controller loop. The state presented to the worker is authoritative; the judgment over that state may be non-deterministic. Verification remains independently derived from evidence, policy, authority, freshness and revision state after the worker acts.
+
+## Authoritative recovery — no path-derived reconstruction
+
+For an already admitted workspace, recovery is a canonical-state operation, not a repository archaeology exercise.
+
+Required order:
+
+```text
+workspace_status
+    ↓
+recovery_context / project_overview / status
+    ↓
+effective_family_view / read_context for the relevant family
+    ↓
+identify the unresolved delta and known artifact/evidence bindings
+    ↓
+only then inspect the bounded physical artifact(s) needed for that delta
+```
+
+Forbidden recovery pattern for admitted work:
+
+```text
+scan directories
+→ grep contracts/reports
+→ inspect worktrees/Git history
+→ infer what probably happened
+→ reconstruct a parallel project state
+```
+
+A filesystem path is an observation location, not work identity. Git history, worktree names, contract filenames, evidence folders and previous-agent summaries may corroborate or validate a MangoMe-bound delta, but they MUST NOT become the source from which current admitted state is rediscovered.
+
+`ABSENT`, `MISSING`, `UNRESOLVED`, `DONE_CLAIMED / UNVERIFIED`, and similar MangoMe states are valid recovery inputs. Do not replace an explicit missing/unknown state with speculative path discovery.
+
+When acting as a parent/coordinator for a recovery program, the parent remains orchestration-only: classify, delegate bounded tasks, consume concise summaries, persist progress/dependencies, and select the next delta. Broad repository exploration, evidence archaeology, test execution and implementation belong to bounded workers. A coordinator may make a narrowly targeted read when needed to resolve a handoff conflict, but it must not rebuild project state from paths.
+
+The governing invariant is:
+
+```text
+Recovery follows identity. Discovery must never create or reconstruct admitted identity/state.
+```
+
+MangoMe's `bigbang_scan`, broad `filesystem_scan`, and Big-Bang reconciliation surfaces may be rejected for an admitted workspace. `filesystem_references` is only a targeted validation aid for an identity MangoMe already knows.
+
+## Delegation, cost and runtime capability governance
+
+Every MangoMe coordinator must treat model dispatch as a governed resource. Live tests showed both Claude- and Luna-family parents escalating MangoMe work to their strongest/high-cost subagents. The failure mode is not merely "too many agents"; it is a coordinator converting bounded work into an expensive model swarm without a persisted routing decision.
+
+Keep these identities separate:
+
+```text
+Worker identity != model identity != runtime mode != capability != authority != cost class
+```
+
+A provider may leave the logical model name unchanged while moving the runtime into a restricted/reserve/degraded mode. Therefore eligibility is evaluated against the **current runtime profile**. Re-check before dispatch and again before a capability-sensitive action such as deployment.
+
+Required path:
+
+```text
+classify bounded delta
+    ↓
+choose required capabilities + cost ceiling
+    ↓
+execution_eligibility
+    ↓
+authorize_delegation
+    ↓
+EXTERNAL ORCHESTRATOR enforces authorized=true at its real dispatch point
+    ↓
+worker executes bounded scope
+    ↓
+complete_delegation(task/artifact/status/missing_delta/next_dependency)
+    ↓
+recovery_context can recover orchestration state after coordinator/session death
+```
+
+Mechanical reconstruction/recovery SHOULD use `CHEAP` workers when they satisfy the required capabilities. More generally, `EXPENSIVE` and `PREMIUM` workers require explicit Owner approval for the exact `family + worker + task_key` delegation, and MangoMe permits only one active high-cost delegation per Family. Task difficulty, urgency, importance, or MangoMe self-repair never imply that approval. This avoids a coordinator silently producing a costly swarm.
+
+If a worker is no longer eligible:
+
+```text
+CURRENT_RUNTIME_CAPABILITY_MISSING
+    ↓
+CHECKPOINT_AND_HANDOFF_MISSING_CAPABILITY_ONLY
+```
+
+Do **not** automatically select a substitute model. Do **not** reinterpret a missing `DEPLOY` capability as permission to launch a stronger model. Preserve the completed delta, Evidence and checkpoint, then route only the missing capability through the normal authorization path.
+
+MangoMe does not contain the provider/model spawn implementation. `execution_eligibility` and `authorize_delegation` are a deterministic policy/coordination contract. Hard routing enforcement exists only when the external orchestrator checks that contract immediately before its actual dispatch call. If that hook is not integrated, report routing enforcement as **NOT ACTIVE** rather than claiming success.
+
+`publish_worker_runtime` is reserved for the host/router capability. A worker must not be allowed to promote itself from a restricted runtime mode, add `DEPLOY`, lower its cost class, or disable owner gating by self-report.
+
+## Operational language inheritance
+
+MangoMe state is language-neutral, but human-visible control-plane narration is not allowed to drift arbitrarily. A worker/coordinator must inherit the current user/session working language for progress updates, recovery summaries, delegation summaries, and explanations.
+
+Do not switch to another natural language because of a persona, remembered preference, provider/runtime default, prompt fragment, imported Skill, or model behavior. A language change is valid only when the user explicitly requests it or the bounded task itself requires output in that language.
+
+Keep protocol tokens stable across languages:
+
+```text
+DONE_CLAIMED
+VERIFIED
+CURRENT_RUNTIME_CAPABILITY_MISSING
+ADMITTED_WORK_DISCOVERY_FORBIDDEN
+```
+
+These are machine semantics. Translate the surrounding explanation, not the canonical identifier.
 
 ## Existing contract handoff
 
@@ -273,7 +388,9 @@ Do not treat an execution-level completion dependency as equivalent to an assura
 
 ## Session/context loss
 
-Do not reconstruct project truth from your own memory. Read MangoMe again. `last_started_slice_id`, active slices, last DONE claim, last verified slice, active plan binding, gates, evidence and timestamps are the durable starting point for a new plan.
+Do not reconstruct project truth from your own memory **or from path/repository archaeology**. Read MangoMe again. Use `recovery_context` first for admitted work, then `last_started_slice_id`, active slices, last DONE claim, last verified slice, active plan binding, gates, evidence and timestamps as the durable starting point.
+
+A dead session does not authorize `rg /`, broad filesystem inventory, Git/worktree reconstruction, contract-directory mining or evidence-folder inference to recreate a second version of project state. Inspect only the bounded unresolved delta identified by MangoMe.
 
 MangoMe stores state; it does not replay or automatically recover a dead session.
 
