@@ -5,7 +5,10 @@ import os
 import shutil
 import subprocess
 import sys
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib  # type: ignore[no-redef]
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -19,7 +22,7 @@ from .service import MangoMeService
 _MANGOME_INSTRUCTION_BEGIN = "<!-- BEGIN MANGOME ZERO-TOUCH -->"
 _MANGOME_INSTRUCTION_END = "<!-- END MANGOME ZERO-TOUCH -->"
 _MANGOME_ALWAYS_ON_INSTRUCTION = """<!-- BEGIN MANGOME ZERO-TOUCH -->
-MangoMe is automatic project infrastructure for this workspace. For substantive project work, use the `mangome` MCP server without requiring the user to know or request MangoMe internals. At the start of work, call `workspace_status` to establish/refresh workspace state, then resolve and use the normal MangoMe work lifecycle internally. Never ask the user to say "start Big Bang", create a contract/slice manually, or call `begin_work`. Ask only when authoritative intent is genuinely ambiguous or protected approval/credentials are required. `DONE_CLAIMED` is not `VERIFIED` or `ACCEPTED`.
+MangoMe is governed project infrastructure for this workspace. Zero-touch applies to the user interface, not to governance. For substantive project work, call `workspace_status` first. Automatic filesystem/Big-Bang discovery is CANDIDATE_ONLY and must never be treated as canonical history. If no admitted MangoMe family/specification fits the current task, call `enter_work` with the user's actual request before productive mutation; it creates current-user-intent-backed canonical work plus the mandatory Plan/Slice binding without promoting discovered history. Reuse `begin_work` for already admitted work. If a managed binding/readiness problem is safely deterministic, run `mangome doctor --repair` yourself before asking the user. Never ask the user to operate Big Bang, contracts, slices, plans, or MangoMe vocabulary. `DONE_CLAIMED` is only a claim; verifier/owner authority remains separate and must never be fabricated.
 <!-- END MANGOME ZERO-TOUCH -->"""
 
 class OperabilityError(RuntimeError):
@@ -53,7 +56,7 @@ def installation_identity() -> dict[str, Any]:
     source_root = _git_root(package_dir)
     return {
         "version": __version__,
-        "python": str(Path(sys.executable).resolve()),
+        "python": os.path.abspath(sys.executable),
         "package_path": str(package_dir),
         "source_root": str(source_root) if source_root else None,
         "git_commit": _git(source_root, ["rev-parse", "HEAD"]) if source_root else None,
@@ -126,9 +129,10 @@ def attach_workspace(
         "first_attach": not known,
         "inventory": inventory,
         "discovery": discovery,
+        "discovery_truth_level": "CANDIDATE",
         "rule": (
             "Workspace attachment is automatic discovery only. Ambiguous discoveries remain candidates; "
-            "user intent does not have to mention Big Bang, contracts, slices, or other MangoMe internals."
+            "canonical operational work begins separately from explicit current user intent or explicit admission."
         ),
     }
 
@@ -310,20 +314,16 @@ def _managed_instruction_current(path: Path) -> bool:
     end += len(_MANGOME_INSTRUCTION_END)
     return text[start:end].strip() == _MANGOME_ALWAYS_ON_INSTRUCTION.strip()
 
-def configure_claude_code(
-    workspace_root: str,
-    *,
-    backend: str = "mongo",
-    database: str = "mangome",
-    dry_run: bool = False,
-    home: str | None = None,
-) -> dict[str, Any]:
-    workspace = resolve_workspace_root(workspace_root)
-    home_path = Path(home).expanduser().resolve() if home else Path.home().resolve()
-    removed_shadows = _remove_claude_mangome_shadows(home_path, workspace, dry_run=dry_run)
-    config_path = workspace / ".mcp.json"
-    skill_target = workspace / ".claude" / "skills" / "mangome" / "SKILL.md"
-    instruction_target = workspace / ".claude" / "rules" / "mangome.md"
+def _claude_server_config(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "stdio",
+        "command": entry["command"],
+        "args": entry["args"],
+        "env": entry["env"],
+    }
+
+
+def _clean_claude_project_config(config_path: Path, *, dry_run: bool) -> tuple[dict[str, Any], list[str], str | None]:
     data = _json_load(config_path)
     servers = data.get("mcpServers")
     if servers is None:
@@ -331,19 +331,100 @@ def configure_claude_code(
         data["mcpServers"] = servers
     if not isinstance(servers, dict):
         raise OperabilityError("CLIENT_CONFIGURATION_AMBIGUOUS", ".mcp.json mcpServers is not an object")
+    removed: list[str] = []
     for key in list(servers):
-        if str(key).lower().startswith("mangome") and key != "mangome":
-            removed_shadows.append(f"{config_path}:mcpServers.{key}")
+        if str(key).lower().startswith("mangome"):
+            removed.append(f"{config_path}:mcpServers.{key}")
             del servers[key]
-    entry = _server_identity(workspace, backend=backend, database=database)
-    servers["mangome"] = {"command": entry["command"], "args": entry["args"], "env": entry["env"]}
-    skill_source = _skill_source()
-    backups: list[str] = []
-    if not dry_run:
+    backup = None
+    if removed and not dry_run:
         backup = _backup_once(config_path)
+        _atomic_text(config_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return data, removed, backup
+
+
+def _write_claude_local_server(
+    home: Path, workspace: Path, server: dict[str, Any], *, dry_run: bool
+) -> tuple[str, str | None]:
+    path = home / ".claude.json"
+    data = _json_load(path)
+    projects = data.get("projects")
+    if projects is None:
+        projects = {}
+        data["projects"] = projects
+    if not isinstance(projects, dict):
+        raise OperabilityError("CLIENT_CONFIGURATION_AMBIGUOUS", f"projects is not an object in {path}")
+    project = projects.get(str(workspace))
+    if project is None:
+        project = {}
+        projects[str(workspace)] = project
+    if not isinstance(project, dict):
+        raise OperabilityError("CLIENT_CONFIGURATION_AMBIGUOUS", f"project entry is not an object in {path}")
+    servers = project.get("mcpServers")
+    if servers is None:
+        servers = {}
+        project["mcpServers"] = servers
+    if not isinstance(servers, dict):
+        raise OperabilityError("CLIENT_CONFIGURATION_AMBIGUOUS", f"project mcpServers is not an object in {path}")
+    servers["mangome"] = _claude_server_config(server)
+    backup = None
+    if not dry_run:
+        backup = _backup_once(path)
+        _atomic_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return str(path), backup
+
+
+def configure_claude_code(
+    workspace_root: str,
+    *,
+    backend: str = "mongo",
+    database: str = "mangome",
+    dry_run: bool = False,
+    home: str | None = None,
+    scope: str = "local",
+) -> dict[str, Any]:
+    """Configure Claude Code with zero-touch LOCAL scope by default.
+
+    LOCAL scope is private to the current workspace and does not trigger Claude Code's
+    project-MCP trust approval. PROJECT scope remains an explicit opt-in for teams that
+    intentionally commit `.mcp.json` and accept Claude Code's approval boundary.
+    """
+    workspace = resolve_workspace_root(workspace_root)
+    home_path = Path(home).expanduser().resolve() if home else Path.home().resolve()
+    normalized_scope = str(scope or "local").strip().lower()
+    if normalized_scope not in {"local", "project"}:
+        raise OperabilityError("UNSUPPORTED_SCOPE", "Claude Code scope must be 'local' or 'project'")
+
+    removed_shadows = _remove_claude_mangome_shadows(home_path, workspace, dry_run=dry_run)
+    config_path = workspace / ".mcp.json"
+    project_data, removed_project, project_backup = _clean_claude_project_config(config_path, dry_run=dry_run)
+    removed_shadows.extend(removed_project)
+
+    entry = _server_identity(workspace, backend=backend, database=database)
+    backups: list[str] = []
+    if project_backup:
+        backups.append(project_backup)
+
+    local_config_path: str | None = None
+    if normalized_scope == "project":
+        servers = project_data.setdefault("mcpServers", {})
+        servers["mangome"] = _claude_server_config(entry)
+        if not dry_run:
+            backup = _backup_once(config_path)
+            if backup and backup not in backups:
+                backups.append(backup)
+            _atomic_text(config_path, json.dumps(project_data, indent=2, ensure_ascii=False) + "\n")
+    else:
+        local_config_path, backup = _write_claude_local_server(
+            home_path, workspace, entry, dry_run=dry_run
+        )
         if backup:
             backups.append(backup)
-        _atomic_text(config_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+    skill_source = _skill_source()
+    skill_target = workspace / ".claude" / "skills" / "mangome" / "SKILL.md"
+    instruction_target = workspace / ".claude" / "rules" / "mangome.md"
+    if not dry_run:
         backup = _backup_once(skill_target)
         if backup:
             backups.append(backup)
@@ -352,17 +433,24 @@ def configure_claude_code(
     instruction = _merge_managed_instruction(instruction_target, dry_run=dry_run)
     if instruction.get("backup"):
         backups.append(str(instruction["backup"]))
+
     return {
         "client": "claude-code",
+        "scope": normalized_scope,
         "workspace_root": str(workspace),
         "changed": True,
         "dry_run": dry_run,
-        "config_path": str(config_path),
+        "config_path": str(config_path) if normalized_scope == "project" else local_config_path,
+        "project_config_path": str(config_path),
         "skill_path": str(skill_target),
         "instruction_path": str(instruction_target),
         "server": entry,
-        "backups": backups,
-        "removed_shadow_entries": removed_shadows,
+        "backups": list(dict.fromkeys(backups)),
+        "removed_shadow_entries": list(dict.fromkeys(removed_shadows)),
+        "note": (
+            "LOCAL scope is the default zero-touch path. PROJECT scope is opt-in and may require "
+            "Claude Code trust approval by design."
+        ),
     }
 
 
@@ -498,23 +586,60 @@ def _compare_server_entry(actual: dict[str, Any] | None, expected: dict[str, Any
     return list(dict.fromkeys(reasons))
 
 
-def _client_list_attestation(executable: str, workspace: Path) -> dict[str, Any]:
+def _client_list_attestation(executable: str, workspace: Path, *, client: str) -> dict[str, Any]:
     binary = shutil.which(executable)
     if binary is None:
-        return {"available": False, "checked": False, "server_visible": None, "returncode": None}
+        return {
+            "available": False, "checked": False, "server_visible": None,
+            "connection_state": "CLIENT_NOT_INSTALLED", "returncode": None,
+        }
     try:
         proc = subprocess.run(
             [binary, "mcp", "list"], cwd=str(workspace), capture_output=True, text=True, timeout=20, check=False
         )
     except (OSError, subprocess.SubprocessError):
-        return {"available": True, "checked": True, "server_visible": False, "returncode": None}
+        return {
+            "available": True, "checked": True, "server_visible": False,
+            "connection_state": "CHECK_FAILED", "returncode": None,
+        }
     combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    lines = [line.strip() for line in combined.splitlines() if "mangome" in line.lower()]
+    visible = bool(lines)
+    lower = "\n".join(lines).lower()
+    if not visible:
+        state = "NOT_REGISTERED"
+    elif "pending approval" in lower or "pending" in lower and "approval" in lower:
+        state = "PENDING_APPROVAL"
+    elif any(token in lower for token in ("connected", "✓", "ready")):
+        state = "CONNECTED"
+    elif any(token in lower for token in ("disconnected", "failed", "error", "unreachable")):
+        state = "DISCONNECTED"
+    else:
+        # A name appearing in `mcp list` is not proof of an effective connection.
+        state = "VISIBLE_UNCONFIRMED"
     return {
         "available": True,
         "checked": True,
-        "server_visible": "mangome" in combined.lower(),
+        "server_visible": visible,
+        "connection_state": state,
         "returncode": proc.returncode,
+        "matched_lines": lines[:5],
+        "client": client,
     }
+
+
+def _claude_static_entry(home: Path, workspace: Path, *, scope: str) -> tuple[dict[str, Any] | None, Path]:
+    if scope == "project":
+        path = workspace / ".mcp.json"
+        data = _json_load(path)
+        servers = data.get("mcpServers") or {}
+        return (servers.get("mangome") if isinstance(servers, dict) else None), path
+    path = home / ".claude.json"
+    data = _json_load(path)
+    projects = data.get("projects") or {}
+    project = projects.get(str(workspace)) if isinstance(projects, dict) else None
+    servers = project.get("mcpServers") if isinstance(project, dict) else None
+    return (servers.get("mangome") if isinstance(servers, dict) else None), path
 
 
 def attest_client(
@@ -525,6 +650,7 @@ def attest_client(
     database: str = "mangome",
     home: str | None = None,
     check_client: bool = True,
+    claude_scope: str = "local",
 ) -> dict[str, Any]:
     workspace = resolve_workspace_root(workspace_root)
     expected = _server_identity(workspace, backend=backend, database=database)
@@ -535,15 +661,27 @@ def attest_client(
     normalized = client.lower().replace("_", "-")
     if normalized in {"claude", "claude-code"}:
         normalized = "claude-code"
-        path = workspace / ".mcp.json"
-        data = _json_load(path)
-        project_servers = data.get("mcpServers") or {}
-        actual = project_servers.get("mangome") if isinstance(project_servers, dict) else None
+        scope = str(claude_scope or "local").strip().lower()
+        if scope not in {"local", "project"}:
+            raise OperabilityError("UNSUPPORTED_SCOPE", "Claude Code scope must be 'local' or 'project'")
+        actual, path = _claude_static_entry(home_path, workspace, scope=scope)
         reasons.extend(_compare_server_entry(actual, expected))
-        if isinstance(project_servers, dict):
-            for key in project_servers:
-                if str(key).lower().startswith("mangome") and key != "mangome":
-                    shadows.append(f"{path}:mcpServers.{key}")
+
+        # The non-selected scope may contain an old MangoMe entry. Report it as shadowing
+        # rather than pretending static configuration is unambiguous.
+        if scope == "local":
+            project_path = workspace / ".mcp.json"
+            project_data = _json_load(project_path)
+            project_servers = project_data.get("mcpServers") or {}
+            if isinstance(project_servers, dict):
+                for key in project_servers:
+                    if str(key).lower().startswith("mangome"):
+                        shadows.append(f"{project_path}:mcpServers.{key}")
+        else:
+            local_actual, local_path = _claude_static_entry(home_path, workspace, scope="local")
+            if isinstance(local_actual, dict):
+                shadows.append(f"{local_path}:projects.{workspace}.mcpServers.mangome")
+
         skill = workspace / ".claude" / "skills" / "mangome" / "SKILL.md"
         if not skill.is_file():
             reasons.append("SKILL_NOT_INSTALLED")
@@ -552,8 +690,13 @@ def attest_client(
         instruction = workspace / ".claude" / "rules" / "mangome.md"
         if not _managed_instruction_current(instruction):
             reasons.append("AUTOMATIC_INSTRUCTIONS_MISSING")
-        shadows.extend(_claude_shadow_candidates(home_path, workspace))
-        cli = _client_list_attestation("claude", workspace) if check_client else {"checked": False}
+        cli = _client_list_attestation("claude", workspace, client=normalized) if check_client else {"checked": False}
+        if check_client and cli.get("available"):
+            state = cli.get("connection_state")
+            if state != "CONNECTED":
+                reasons.append("CONFIGURATION_NOT_EFFECTIVE")
+                if state == "PENDING_APPROVAL":
+                    reasons.append("PROJECT_MCP_APPROVAL_REQUIRED")
     elif normalized == "codex":
         path = workspace / ".codex" / "config.toml"
         actual = None
@@ -579,23 +722,21 @@ def attest_client(
                     for key, value in servers.items():
                         if str(key).lower().startswith("mangome") and key != "mangome":
                             shadows.append(f"{user_config}:mcp_servers.{key}")
-                        elif key == "mangome" and isinstance(value, dict):
-                            # Same server id is an expected override candidate; report only if it points elsewhere.
-                            if _compare_server_entry(value, expected):
-                                shadows.append(f"{user_config}:mcp_servers.mangome")
+                        elif key == "mangome" and isinstance(value, dict) and _compare_server_entry(value, expected):
+                            shadows.append(f"{user_config}:mcp_servers.mangome")
             except tomllib.TOMLDecodeError:
                 shadows.append(str(user_config) + ":UNPARSEABLE")
         instruction = workspace / "AGENTS.md"
         if not _managed_instruction_current(instruction):
             reasons.append("AUTOMATIC_INSTRUCTIONS_MISSING")
-        cli = _client_list_attestation("codex", workspace) if check_client else {"checked": False}
+        cli = _client_list_attestation("codex", workspace, client=normalized) if check_client else {"checked": False}
+        if check_client and cli.get("available") and (cli.get("returncode") != 0 or not cli.get("server_visible")):
+            reasons.append("MCP_NOT_VISIBLE")
     else:
         raise OperabilityError("UNSUPPORTED_CLIENT", f"unsupported client: {client}")
 
     if shadows:
         reasons.append("CONFIGURATION_SHADOWING")
-    if check_client and cli.get("available") and (cli.get("returncode") != 0 or not cli.get("server_visible")):
-        reasons.append("MCP_NOT_VISIBLE")
     reasons = list(dict.fromkeys(reasons))
     if reasons:
         status = "CLIENT_READINESS_FAILED"
@@ -611,6 +752,7 @@ def attest_client(
         "expected_server": expected,
         "shadow_candidates": shadows,
         "client_check": cli,
+        "claude_scope": (str(claude_scope or "local").lower() if normalized == "claude-code" else None),
     }
 
 
@@ -622,6 +764,7 @@ def setup_clients(
     database: str = "mangome",
     dry_run: bool = False,
     home: str | None = None,
+    claude_scope: str = "local",
 ) -> dict[str, Any]:
     workspace = resolve_workspace_root(workspace_root)
     requested = list(clients or [])
@@ -643,7 +786,8 @@ def setup_clients(
     for client in expanded:
         if client in {"claude", "claude-code"}:
             change = configure_claude_code(
-                str(workspace), backend=backend, database=database, dry_run=dry_run, home=home
+                str(workspace), backend=backend, database=database, dry_run=dry_run, home=home,
+                scope=claude_scope,
             )
             normalized = "claude-code"
         elif client == "codex":
@@ -655,7 +799,8 @@ def setup_clients(
             results.append({"client": client, "status": "UNSUPPORTED_CLIENT"})
             continue
         attestation = None if dry_run else attest_client(
-            normalized, str(workspace), backend=backend, database=database, home=home, check_client=True
+            normalized, str(workspace), backend=backend, database=database, home=home, check_client=True,
+            claude_scope=claude_scope,
         )
         results.append({"client": normalized, "change": change, "attestation": attestation})
     return {
@@ -675,10 +820,14 @@ def doctor(
     database: str = "mangome",
     repair: bool = False,
     home: str | None = None,
+    claude_scope: str = "local",
 ) -> dict[str, Any]:
     workspace = resolve_workspace_root(workspace_root)
     before = [
-        attest_client(client, str(workspace), backend=backend, database=database, home=home, check_client=True)
+        attest_client(
+            client, str(workspace), backend=backend, database=database, home=home, check_client=True,
+            claude_scope=claude_scope,
+        )
         for client in clients
     ]
     repair_result = None
@@ -686,10 +835,14 @@ def doctor(
         failing = [row["client"] for row in before if row["status"] == "CLIENT_READINESS_FAILED"]
         if failing:
             repair_result = setup_clients(
-                str(workspace), clients=failing, backend=backend, database=database, dry_run=False, home=home
+                str(workspace), clients=failing, backend=backend, database=database, dry_run=False, home=home,
+                claude_scope=claude_scope,
             )
     after = [
-        attest_client(client, str(workspace), backend=backend, database=database, home=home, check_client=True)
+        attest_client(
+            client, str(workspace), backend=backend, database=database, home=home, check_client=True,
+            claude_scope=claude_scope,
+        )
         for client in clients
     ] if repair else before
     return {

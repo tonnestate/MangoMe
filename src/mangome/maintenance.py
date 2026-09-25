@@ -7,6 +7,14 @@ from .schema import CURRENT_SCHEMA_VERSION, upgrade_document
 from .service import MangoMeService
 
 
+def _utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 class MangoMaintainer:
     """Deterministic maintenance and diagnostics; no LLM is required."""
 
@@ -68,16 +76,29 @@ class MangoMaintainer:
         for plan in self.service.store.find("plans"):
             if plan.get("status") not in {"RECORDED", "ACTIVE"}:
                 continue
-            updated = plan.get("updated_at") or plan.get("created_at")
+            updated = _utc_datetime(plan.get("updated_at") or plan.get("created_at"))
             bound = [s for s in self.service.store.find("slices", {"family_id": plan["family_id"]}) if s.get("active_plan_id") == plan["entity_id"]]
             if updated and updated < threshold and not bound:
                 stale_plans.append({"plan_id": plan["entity_id"], "actor_id": plan["actor_id"], "updated_at": updated})
         open_approvals = [a for a in self.service.store.find("approvals") if a.get("status") == "REQUIRED"]
         suggested_edges = [e for e in self.service.store.find("edges") if e.get("status") == "SUGGESTED"]
+        provenance_gaps = []
+        for sl in self.service.store.find("slices"):
+            if sl.get("assurance_state") not in {"VERIFIED", "ACCEPTED"}:
+                continue
+            # Pre-v0.1.8.1 historical slices may legitimately lack the new atomic
+            # fields. Flag rather than rewrite them so operators can revalidate on demand.
+            if not sl.get("verification_evidence_ids") or not sl.get("verification_observation_ids"):
+                provenance_gaps.append({
+                    "slice_id": sl.get("entity_id"),
+                    "assurance_state": sl.get("assurance_state"),
+                    "verified_at": sl.get("verified_at"),
+                })
         return {
             "declared_id_collisions": self.detect_declared_id_collisions(),
             "stale_plan_candidates": stale_plans,
             "open_approval_count": len(open_approvals),
             "suggested_edge_count": len(suggested_edges),
-            "note": "Diagnostics never cancel plans or confirm semantic relations automatically.",
+            "verification_provenance_gaps": provenance_gaps,
+            "note": "Diagnostics never cancel plans, invent verification provenance, or confirm semantic relations automatically.",
         }

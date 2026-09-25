@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
@@ -17,19 +18,42 @@ from .maintenance import MangoMaintainer
 from .filesystem import FilesystemScanner
 from .interlingua import UAICompiler, decode_uai_result as decode_result_packet, render_uai_result as render_result_packet
 from .runtime import get_service, health_snapshot, refresh_workspace_attachment, workspace_attachment_snapshot
+from .service import MangoMeError, workspace_project_key
 
 mcp = MCPServer(
     "MangoMe",
     description="Canonical operational memory and verification substrate for multi-agent work.",
     instructions=(
-        "Ordinary user intent is sufficient: never require the user to invoke Big Bang, contracts, slices, "
-        "or other MangoMe internals. Before project-changing work, inspect workspace_status/read_context and "
-        "resolve existing durable state; unknown managed workspaces are attached/discovered automatically. "
-        "Productive mutation requires a persisted plan. DONE is a worker claim, not verification. "
-        "Verification and approval use runtime capabilities; collisions remain advisory."
+        "Zero-touch applies to the user interface, not to governance. Never ask the user to operate Big Bang, "
+        "contracts, slices, plans, or other MangoMe internals. Before project-changing work, call workspace_status. "
+        "Discovery is candidate-only. For ordinary new work without admitted MangoMe identity, call enter_work with "
+        "the user's request; it creates client-relayed user-intent operational state and the mandatory Plan/Slice binding "
+        "without promoting discovered history. For an existing admitted family/specification, use begin_work or the "
+        "lower-level lifecycle. Productive mutation requires a persisted plan. DONE is only a worker claim; "
+        "verification and acceptance remain separate privileged transitions."
     ),
-    version="0.1.8",
+    version="0.1.8.1",
 )
+
+
+def _domain_call(fn, /, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Return actionable domain failures instead of opaque MCP execution errors.
+
+    Successful calls keep their historical response shape. Expected MangoMe/user-input
+    failures are returned as structured data so an agent can repair its own tool call
+    without asking the user to understand MangoMe internals.
+    """
+    try:
+        return fn(*args, **kwargs)
+    except (MangoMeError, ValueError, KeyError) as exc:
+        return {
+            "ok": False,
+            "error": {
+                "code": type(exc).__name__,
+                "message": str(exc),
+                "recoverable": True,
+            },
+        }
 
 
 @mcp.tool()
@@ -40,13 +64,30 @@ def health() -> dict[str, Any]:
 
 @mcp.tool()
 def workspace_status(workspace_root: str | None = None, refresh: bool = False) -> dict[str, Any]:
-    """Return automatic workspace attachment/discovery state; users never need to request Big Bang explicitly."""
+    """Return attachment state plus any durable workspace project already known to MangoMe."""
     current = workspace_attachment_snapshot()
     if refresh or current is None or (workspace_root and current.get("workspace_root") != workspace_root):
-        current = refresh_workspace_attachment(workspace_root)
+        current = refresh_workspace_attachment(workspace_root, force=refresh)
+    root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
+    project_key = workspace_project_key(root)
+    try:
+        overview = get_service().project_overview(project_key)
+    except KeyError:
+        overview = None
     return {
         "attachment": current,
-        "rule": "User intent is sufficient; MangoMe workspace discovery is an internal operability concern.",
+        "workspace_project_key": project_key,
+        "project_overview": overview,
+        "truth_boundary": {
+            "discovery": "CANDIDATE_ONLY",
+            "work_admission": "USER_INTENT_RELAYED_BY_CLIENT",
+            "verification": "CAPABILITY_REQUIRED",
+            "acceptance": "OWNER_CAPABILITY_REQUIRED",
+        },
+        "rule": (
+            "Discovery is automatic but candidate-only. Ordinary user intent may enter governed operational "
+            "work through enter_work; VERIFIED and ACCEPTED remain separate protected states."
+        ),
     }
 
 
@@ -115,22 +156,89 @@ def link_entities(from_type: str, from_id: str, relation: str, to_type: str, to_
 
 @mcp.tool()
 def submit_plan(family_id: str, request_id: str, spec_id: str, actor_id: str, intent: str, proposed_slices: list[dict[str, Any]], contract_ids: list[str] | None = None, expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None, estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None) -> dict[str, Any]:
-    """Record the mandatory pre-execution plan and return advisory collision warnings."""
-    return get_service().submit_plan(family_id=family_id, request_id=request_id, spec_id=spec_id, actor_id=actor_id, intent=intent, proposed_slices=proposed_slices, contract_ids=contract_ids, expected_artifacts=expected_artifacts, expected_scope=expected_scope, estimate=estimate, acceptance_expectations=acceptance_expectations)
+    """Record the mandatory pre-execution plan.
+
+    Each proposed slice needs a title. `declared_id` is optional in v0.1.8.1;
+    MangoMe creates a stable AUTO-* id when an ordinary worker omits it.
+    Expected domain/input failures are returned as structured `error` data.
+    """
+    return _domain_call(
+        get_service().submit_plan,
+        family_id=family_id, request_id=request_id, spec_id=spec_id, actor_id=actor_id,
+        intent=intent, proposed_slices=proposed_slices, contract_ids=contract_ids,
+        expected_artifacts=expected_artifacts, expected_scope=expected_scope, estimate=estimate,
+        acceptance_expectations=acceptance_expectations,
+    )
+
+
+@mcp.tool()
+def enter_work(
+    actor_id: str,
+    request_text: str,
+    intent: str | None = None,
+    slice_title: str | None = None,
+    slice_objective: str | None = None,
+    acceptance_criteria: list[str] | None = None,
+    required_evidence: list[str] | None = None,
+    expected_artifacts: list[str] | None = None,
+    expected_scope: list[str] | None = None,
+    estimate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Enter governed work from ordinary user intent with no MangoMe identifiers required.
+
+    The managed workspace becomes a deterministic operational Project/Family. The current
+    user request becomes the authoritative Specification for this work. Discovery candidates
+    are never promoted automatically. The normal Request -> Plan -> Slice binding is preserved.
+    """
+    attachment = workspace_attachment_snapshot() or refresh_workspace_attachment()
+    root = str(attachment.get("workspace_root") or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
+    return _domain_call(
+        get_service().enter_work,
+        workspace_id=root,
+        workspace_title=Path(root).name or "Workspace",
+        actor_id=actor_id,
+        request_text=request_text,
+        intent=intent,
+        slice_title=slice_title,
+        slice_objective=slice_objective,
+        acceptance_criteria=acceptance_criteria,
+        required_evidence=required_evidence,
+        expected_artifacts=expected_artifacts,
+        expected_scope=expected_scope,
+        estimate=estimate,
+    )
 
 
 @mcp.tool()
 def begin_work(
-    family_id: str, actor_id: str, request_text: str, intent: str, proposed_slice: dict[str, Any],
-    classification: str = "EXISTING_CONTRACT_WORK", classification_source: str = "IntakeGov",
+    family_id: str, actor_id: str, request_text: str, intent: str,
+    proposed_slice: dict[str, Any] | None = None,
+    slice_title: str | None = None, slice_declared_id: str | None = None, slice_objective: str | None = None,
+    classification: str = "EXISTING_CONTRACT_WORK", classification_source: str = "MANGOME_ZERO_TOUCH",
     spec_id: str | None = None, contract_ids: list[str] | None = None,
     expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None,
     estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Convenience composition of intake -> plan -> start using an existing effective spec; no governance invariant is bypassed."""
-    return get_service().begin_work(
+    """Compose intake -> plan -> start for ordinary work without MangoMe jargon.
+
+    Existing callers may pass `proposed_slice`. Zero-touch callers can instead pass
+    `slice_title` and optionally `slice_objective`; `slice_declared_id` is optional and
+    MangoMe generates a stable AUTO-* id when omitted. Domain failures are returned
+    as structured error data so the worker can self-correct.
+    """
+    payload = dict(proposed_slice or {})
+    if slice_title and not payload.get("title"):
+        payload["title"] = slice_title
+    if slice_declared_id and not payload.get("declared_id"):
+        payload["declared_id"] = slice_declared_id
+    if slice_objective and not payload.get("objective"):
+        payload["objective"] = slice_objective
+    if not payload.get("title"):
+        payload["title"] = intent
+    return _domain_call(
+        get_service().begin_work,
         family_id=family_id, actor_id=actor_id, request_text=request_text, intent=intent,
-        proposed_slice=proposed_slice, classification=classification, classification_source=classification_source,
+        proposed_slice=payload, classification=classification, classification_source=classification_source,
         spec_id=spec_id, contract_ids=contract_ids, expected_artifacts=expected_artifacts,
         expected_scope=expected_scope, estimate=estimate, acceptance_expectations=acceptance_expectations,
     )
@@ -139,19 +247,24 @@ def begin_work(
 @mcp.tool()
 def start_slice(slice_id: str, actor_id: str, plan_id: str) -> dict[str, Any]:
     """Start a slice and bind it to the actor's persisted active plan."""
-    return get_service().start_slice(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id)
+    return _domain_call(get_service().start_slice, slice_id=slice_id, actor_id=actor_id, plan_id=plan_id)
 
 
 @mcp.tool()
 def update_slice_progress(slice_id: str, actor_id: str, plan_id: str, current_step: int | None = None, total_steps: int | None = None, blocker: str | None = None, execution_state: str | None = None) -> dict[str, Any]:
     """Persist slice progress; the same active plan that started the slice is mandatory."""
-    return get_service().update_slice_progress(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id, current_step=current_step, total_steps=total_steps, blocker=blocker, execution_state=execution_state)
+    return _domain_call(
+        get_service().update_slice_progress, slice_id=slice_id, actor_id=actor_id, plan_id=plan_id,
+        current_step=current_step, total_steps=total_steps, blocker=blocker, execution_state=execution_state,
+    )
 
 
 @mcp.tool()
 def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None = None) -> dict[str, Any]:
     """Record DONE_CLAIMED under the slice's active plan; this never implies verification."""
-    return get_service().claim_done(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id, summary=summary)
+    return _domain_call(
+        get_service().claim_done, slice_id=slice_id, actor_id=actor_id, plan_id=plan_id, summary=summary
+    )
 
 
 @mcp.tool()
@@ -303,13 +416,13 @@ def expand_uai_context(wire: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def decode_uai_result(result_json: str, expected_context_hash: str | None = None) -> dict[str, Any]:
+def decode_uai_result(result_json: str, expected_context_hash: str) -> dict[str, Any]:
     """Validate and expand a compact UAI/1R worker result. This never mutates canonical state."""
     return decode_result_packet(result_json, expected_context_hash=expected_context_hash)
 
 
 @mcp.tool()
-def render_uai_result(result_json: str, language: str = "en", expected_context_hash: str | None = None) -> str:
+def render_uai_result(result_json: str, expected_context_hash: str, language: str = "en") -> str:
     """Render a structured UAI/1R worker result into deterministic human-readable English or German."""
     return render_result_packet(result_json, language=language, expected_context_hash=expected_context_hash)
 

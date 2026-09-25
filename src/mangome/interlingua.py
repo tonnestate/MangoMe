@@ -303,6 +303,10 @@ class UAICompiler:
 
 
 def decode_uai_result(payload: str | dict[str, Any], *, expected_context_hash: str | None = None) -> dict[str, Any]:
+    if expected_context_hash is None:
+        raise InterlinguaError(
+            "expected_context_hash is required for UAI/1R decoding; unbound results may be stale"
+        )
     if isinstance(payload, str):
         try:
             data = json.loads(payload)

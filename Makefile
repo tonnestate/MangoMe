@@ -7,11 +7,14 @@ dev:
 	python -m pip install -e ".[dev]"
 
 test:
-	pytest -ra
+	python -m pytest -ra
 
 compile:
 	python -m compileall -q src tests server.py
 
 check: test compile
+	test -f .github/workflows/ci.yml
+	test -f .github/skills/mangome/SKILL.md
+	test -f .gitignore
 	diff -u skill/mangome/SKILL.md src/mangome/skill/SKILL.md
-	@if [ -f .github/skills/mangome/SKILL.md ]; then diff -u skill/mangome/SKILL.md .github/skills/mangome/SKILL.md; fi
+	diff -u skill/mangome/SKILL.md .github/skills/mangome/SKILL.md

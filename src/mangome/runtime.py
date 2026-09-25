@@ -37,9 +37,22 @@ def workspace_attachment_snapshot() -> dict[str, object] | None:
     return _workspace_attachment
 
 
-def refresh_workspace_attachment(workspace_root: str | None = None) -> dict[str, object]:
+def refresh_workspace_attachment(workspace_root: str | None = None, *, force: bool = False) -> dict[str, object]:
     global _workspace_attachment
+    # get_service() may perform the first automatic attachment. Reuse that result
+    # instead of immediately attaching a second time and misreporting first_attach=False.
     service = get_service()
+    if _workspace_attachment is not None and not force:
+        requested = workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT")
+        if requested is None:
+            return _workspace_attachment
+        try:
+            from pathlib import Path
+            current = _workspace_attachment.get("workspace_root")
+            if current and Path(str(current)).resolve() == Path(requested).expanduser().resolve():
+                return _workspace_attachment
+        except OSError:
+            pass
     _workspace_attachment = attach_workspace(service, workspace_root)
     return _workspace_attachment
 

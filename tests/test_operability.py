@@ -39,7 +39,7 @@ def test_unknown_workspace_auto_attaches_once_without_inventing_contract_truth(t
     assert svc.store.find("filesystem_roots")[0]["root_path"] == str(tmp_path.resolve())
 
 
-def test_claude_code_setup_is_project_scoped_preserves_other_servers_and_installs_skill(tmp_path: Path):
+def test_claude_code_setup_defaults_to_local_scope_and_preserves_other_servers(tmp_path: Path):
     existing = {
         "mcpServers": {
             "other": {"command": "other-mcp"},
@@ -57,27 +57,27 @@ def test_claude_code_setup_is_project_scoped_preserves_other_servers_and_install
     result = configure_claude_code(
         str(tmp_path), backend="memory", database="mangome_test", home=str(home)
     )
-    config = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
-    server = config["mcpServers"]["mangome"]
 
-    assert result["client"] == "claude-code"
-    assert set(result["removed_shadow_entries"]) == {
-        "mcpServers.mangome_old",
-        f"{tmp_path / '.mcp.json'}:mcpServers.mangome_old",
-    }
-    assert json.loads((home / ".claude.json").read_text(encoding="utf-8"))["mcpServers"] == {}
-    assert config["mcpServers"]["other"]["command"] == "other-mcp"
-    assert "mangome_old" not in config["mcpServers"]
-    assert config["keep"] is True
+    assert result["scope"] == "local"
+    project_config = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
+    assert project_config["mcpServers"]["other"]["command"] == "other-mcp"
+    assert "mangome" not in project_config["mcpServers"]
+    assert "mangome_old" not in project_config["mcpServers"]
+    assert project_config["keep"] is True
+
+    local_config = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
+    assert local_config.get("mcpServers", {}) == {}
+    server = local_config["projects"][str(tmp_path.resolve())]["mcpServers"]["mangome"]
+    assert server["type"] == "stdio"
     assert server["args"] == ["-m", "mangome.mcp_server"]
     assert server["env"]["MANGOME_AUTO_ATTACH"] == "1"
     assert server["env"]["MANGOME_WORKSPACE_ROOT"] == str(tmp_path.resolve())
+
     skill = tmp_path / ".claude" / "skills" / "mangome" / "SKILL.md"
     assert skill.is_file()
-    assert skill.read_text(encoding="utf-8").startswith("---\nname: mangome\n")
     rule = tmp_path / ".claude" / "rules" / "mangome.md"
     assert rule.is_file()
-    assert "MangoMe is automatic project infrastructure" in rule.read_text(encoding="utf-8")
+    assert "Zero-touch applies to the user interface" in rule.read_text(encoding="utf-8")
 
     attested = attest_client(
         "claude-code", str(tmp_path), backend="memory", database="mangome_test",
@@ -85,6 +85,22 @@ def test_claude_code_setup_is_project_scoped_preserves_other_servers_and_install
     )
     assert attested["status"] == "STATIC_PASS"
     assert attested["reasons"] == []
+
+
+def test_claude_code_project_scope_remains_explicit_opt_in(tmp_path: Path):
+    home = tmp_path / "home"
+    home.mkdir()
+    result = configure_claude_code(
+        str(tmp_path), backend="memory", database="mangome_test", home=str(home), scope="project"
+    )
+    config = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
+    assert result["scope"] == "project"
+    assert config["mcpServers"]["mangome"]["args"] == ["-m", "mangome.mcp_server"]
+    attested = attest_client(
+        "claude-code", str(tmp_path), backend="memory", database="mangome_test",
+        home=str(home), check_client=False, claude_scope="project",
+    )
+    assert attested["status"] == "STATIC_PASS"
 
 
 def test_codex_setup_is_project_scoped_idempotent_and_preserves_unrelated_toml(tmp_path: Path):
@@ -159,7 +175,7 @@ def test_runtime_auto_attach_uses_managed_workspace_without_user_bigbang_command
     monkeypatch.setenv("MANGOME_BACKEND", "memory")
     monkeypatch.setenv("MANGOME_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("MANGOME_AUTO_ATTACH", "1")
-    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", "0.1.8")
+    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", "0.1.8.1")
 
     svc = runtime.get_service()
     attachment = runtime.workspace_attachment_snapshot()

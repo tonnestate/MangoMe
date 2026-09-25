@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mangome-mcp"
-version = "0.1.8"
+version = "0.1.8.1"
 description = "Canonical operational memory for multi-agent work: document store, work graph, state machine, evidence, verification, and compact semantic transport"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,7 @@ dependencies = [
   "mcp>=2,<3",
   "pydantic>=2.7,<3",
   "pymongo>=4.10,<5",
+  "tomli>=2.0,<3; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

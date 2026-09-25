@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
 from datetime import datetime
 from typing import Any
 
@@ -70,6 +71,46 @@ def _dump(model: Any) -> dict[str, Any]:
 
 def _dt_key(value: datetime | None) -> float:
     return value.timestamp() if value else 0.0
+
+
+def workspace_project_key(workspace_id: str) -> str:
+    """Return the deterministic project key used by zero-touch workspace admission."""
+    normalized = str(workspace_id).strip()
+    if not normalized:
+        raise ValueError("workspace_id is required")
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12].upper()
+    return f"WS-{digest}"
+
+
+def _auto_slice_declared_id(
+    *, family_id: str, request_text: str, intent: str, title: str, index: int = 0
+) -> str:
+    """Create a stable internal declared id when a worker omits one.
+
+    `declared_id` is useful for human references, but zero-touch clients must not fail
+    merely because an ordinary user did not invent MangoMe vocabulary. The hash is
+    deterministic for the same bounded request and does not imply semantic identity
+    across different requests.
+    """
+    material = "\x1f".join([family_id, request_text.strip(), intent.strip(), title.strip(), str(index)])
+    return f"AUTO-{hashlib.sha256(material.encode('utf-8')).hexdigest()[:12].upper()}"
+
+
+def _truth_level(execution_state: str | ExecutionState, assurance_state: str | AssuranceState) -> str:
+    """Return an explicit human/agent-facing truth level without adding a second state machine."""
+    execution = execution_state.value if isinstance(execution_state, ExecutionState) else str(execution_state)
+    assurance = assurance_state.value if isinstance(assurance_state, AssuranceState) else str(assurance_state)
+    if assurance == AssuranceState.ACCEPTED.value:
+        return "ACCEPTED"
+    if assurance == AssuranceState.VERIFIED.value:
+        return "VERIFIED"
+    if assurance == AssuranceState.REJECTED.value:
+        return "REJECTED"
+    if assurance == AssuranceState.PARTIAL.value:
+        return "PARTIAL_VERIFIED"
+    if execution == ExecutionState.DONE_CLAIMED.value:
+        return "CLAIMED"
+    return "CANONICAL_UNVERIFIED"
 
 
 _ENTITY_COLLECTIONS = {
@@ -384,6 +425,114 @@ class MangoMeService:
             self._project_family(from_doc["family_id"])
         return saved
 
+    def enter_work(
+        self,
+        *,
+        workspace_id: str,
+        workspace_title: str,
+        actor_id: str,
+        request_text: str,
+        intent: str | None = None,
+        slice_title: str | None = None,
+        slice_objective: str | None = None,
+        acceptance_criteria: list[str] | None = None,
+        required_evidence: list[str] | None = None,
+        expected_artifacts: list[str] | None = None,
+        expected_scope: list[str] | None = None,
+        estimate: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Zero-touch bridge from ordinary user intent into canonical work.
+
+        Discovery remains non-canonical. This method creates/reuses a workspace Project plus a task-specific
+        Family and an append-only Specification whose authority is
+        the *current user request*. It never promotes discovered contracts/reports into
+        canonical truth. The normal plan/slice invariants are then used unchanged.
+        """
+        workspace_id = str(workspace_id).strip()
+        request_text = str(request_text).strip()
+        actor_id = str(actor_id).strip()
+        if not workspace_id:
+            raise ValueError("workspace_id is required")
+        if not request_text:
+            raise ValueError("request_text is required")
+        if not actor_id:
+            raise ValueError("actor_id is required")
+        work_intent = str(intent or request_text).strip() or request_text
+        title = str(workspace_title or "Workspace").strip() or "Workspace"
+        project_key = workspace_project_key(workspace_id)
+        task_digest = hashlib.sha256(request_text.encode("utf-8")).hexdigest()[:12].upper()
+        family_key = f"{project_key}-WORK-{task_digest}"
+
+        project = self.create_project(
+            project_key, title,
+            description="MangoMe zero-touch project bound to the managed workspace.",
+        )
+        family = self.create_family(
+            family_key, str(slice_title or work_intent).strip() or f"{title} work",
+            project_ids=[project["entity_id"]],
+            scope_ids=[f"workspace:{workspace_id}", f"user-intent:{task_digest}"],
+        )
+
+        current_spec = None
+        if family.get("current_spec_id"):
+            current_spec = self.store.get("specs", family["current_spec_id"])
+        criteria = list(acceptance_criteria or [])
+        evidence = list(required_evidence or [])
+        if (
+            current_spec
+            and current_spec.get("objective") == request_text
+            and list(current_spec.get("acceptance_criteria") or []) == criteria
+            and list(current_spec.get("required_evidence") or []) == evidence
+        ):
+            spec = current_spec
+        else:
+            spec = self.create_spec(
+                family_id=family["entity_id"],
+                objective=request_text,
+                acceptance_criteria=criteria,
+                required_evidence=evidence,
+                supersedes_spec_id=(current_spec.get("entity_id") if current_spec else None),
+            )
+
+        work = self.begin_work(
+            family_id=family["entity_id"],
+            actor_id=actor_id,
+            request_text=request_text,
+            intent=work_intent,
+            proposed_slice={
+                "title": str(slice_title or work_intent).strip() or "Work item",
+                "objective": slice_objective or request_text,
+                "acceptance": criteria,
+            },
+            classification="OPERATIONAL_TASK",
+            classification_source="MANGOME_ZERO_TOUCH",
+            spec_id=spec["entity_id"],
+            expected_artifacts=expected_artifacts,
+            expected_scope=expected_scope,
+            estimate=estimate,
+            acceptance_expectations=criteria,
+        )
+        return {
+            "project": project,
+            "family": self._must_get("families", family["entity_id"]),
+            "spec": spec,
+            "work": work,
+            "authority": "USER_INTENT_RELAYED_BY_CLIENT",
+            "truth_level": "CANONICAL_UNVERIFIED",
+            "discovery_promoted": False,
+            "truth_boundary": {
+                "discovery": "CANDIDATE_ONLY",
+                "work_admission": "USER_INTENT_RELAYED_BY_CLIENT",
+                "verification": "CAPABILITY_REQUIRED",
+                "acceptance": "OWNER_CAPABILITY_REQUIRED",
+            },
+            "rule": (
+                "Ordinary user intent may enter canonical operational state without MangoMe jargon. "
+                "Filesystem/Big-Bang discoveries remain non-canonical until explicitly admitted, and "
+                "verification/acceptance remain separate capability-protected decisions."
+            ),
+        }
+
     def begin_work(
         self,
         *,
@@ -415,9 +564,17 @@ class MangoMeService:
         if spec.get("family_id") != family_id or not spec.get("effective", True):
             raise PlanRequired("begin_work requires an effective specification from the same family")
         selected_contracts = contract_ids if contract_ids is not None else list(spec.get("contract_ids", []))
-        declared_id = proposed_slice.get("declared_id")
+        proposed_slice = dict(proposed_slice)
+        title = str(proposed_slice.get("title") or intent or "Work item").strip()
+        if not title:
+            title = "Work item"
+        proposed_slice["title"] = title
+        declared_id = str(proposed_slice.get("declared_id") or "").strip()
         if not declared_id:
-            raise PlanRequired("begin_work requires proposed_slice.declared_id")
+            declared_id = _auto_slice_declared_id(
+                family_id=family_id, request_text=request_text, intent=intent, title=title
+            )
+            proposed_slice["declared_id"] = declared_id
         existing_slices = self.store.find("slices", {"family_id": family_id, "declared_id": declared_id})
         if existing_slices:
             existing = existing_slices[0]
@@ -485,6 +642,24 @@ class MangoMeService:
             raise PlanRequired("request classification is not executable")
         contract_ids = contract_ids or []
         self._validate_contracts_in_family(family_id, contract_ids)
+        normalized_slices: list[dict[str, Any]] = []
+        for index, raw in enumerate(proposed_slices):
+            item = dict(raw)
+            title = str(item.get("title") or intent or f"Work item {index + 1}").strip()
+            if not title:
+                title = f"Work item {index + 1}"
+            item["title"] = title
+            if not str(item.get("declared_id") or "").strip():
+                item["declared_id"] = _auto_slice_declared_id(
+                    family_id=family_id,
+                    request_text=str(request.get("request_text") or ""),
+                    intent=intent,
+                    title=title,
+                    index=index,
+                )
+            normalized_slices.append(item)
+        if not normalized_slices:
+            raise PlanRequired("a productive plan requires at least one proposed slice")
         plan = Plan(
             family_id=family_id,
             request_id=request_id,
@@ -492,7 +667,7 @@ class MangoMeService:
             actor_id=actor_id,
             intent=intent,
             contract_ids=contract_ids,
-            proposed_slices=[ProposedSlice(**s) for s in proposed_slices],
+            proposed_slices=[ProposedSlice(**item) for item in normalized_slices],
             expected_artifacts=expected_artifacts or [],
             expected_scope=expected_scope or [],
             estimate=estimate or {},
@@ -582,6 +757,10 @@ class MangoMeService:
         if existing:
             return existing[0]
         deps = [SliceDependency(**d) for d in (dependency_requirements or [])]
+        imported_assurance = AssuranceState(assurance_state)
+        # Imported assurance is untrusted historical input. Preserve the claimed state
+        # for auditability, but never let import bypass AV/1 verification or acceptance.
+        authoritative_assurance = AssuranceState.UNVERIFIED
         slice_obj = Slice(
             declared_id=declared_id,
             family_id=family_id,
@@ -591,7 +770,10 @@ class MangoMeService:
             contract_ids=contract_ids,
             origin=SliceOrigin.IMPORTED,
             execution_state=ExecutionState(execution_state),
-            assurance_state=AssuranceState(assurance_state),
+            assurance_state=authoritative_assurance,
+            imported_assurance_state=(
+                imported_assurance if imported_assurance != AssuranceState.UNVERIFIED else None
+            ),
             started_at=started_at,
             last_activity_at=last_activity_at,
             last_actor_id=actor_id,
@@ -1124,6 +1306,7 @@ class MangoMeService:
             title=family["title"],
             execution_state=current.execution_state,
             assurance_state=current.assurance_state,
+            truth_level=_truth_level(current.execution_state, current.assurance_state),
             slice_counts={**dict(counts), **{f"ASSURANCE_{k}": v for k, v in assurance_counts.items()}},
             active_slice_ids=current.active_slice_ids,
             last_started_slice_id=current.last_started_slice_id,
@@ -1137,7 +1320,7 @@ class MangoMeService:
         previous = self.store.find("project_views", {"family_id": family_id})
         payload = view.model_dump(mode="python")
         payload["entity_id"] = previous[0]["entity_id"] if previous else family_id
-        payload["schema_version"] = 3
+        payload["schema_version"] = 4
         payload["updated_at"] = now
         if previous:
             payload.pop("revision", None)

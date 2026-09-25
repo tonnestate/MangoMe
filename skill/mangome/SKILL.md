@@ -9,9 +9,11 @@ MangoMe is the canonical operational-memory system for durable multi-agent proje
 
 ## Zero-touch user rule
 
-Ordinary user intent is sufficient to enter MangoMe. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, or otherwise operate MangoMe vocabulary manually. On project-changing work, inspect `workspace_status` and existing canonical state yourself. Unknown managed workspaces are automatically attached/discovered by the runtime. Translate user intent into the existing MangoMe flow; ask the user only when genuine semantic ambiguity, authorization, or a protected decision requires it.
+Zero-touch applies to the **user interface**, not to MangoMe's governance. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, or otherwise operate MangoMe vocabulary manually. On project-changing work, call `workspace_status` yourself. Unknown managed workspaces are attached/discovered automatically, but discovery remains `CANDIDATE_ONLY` and must never be mistaken for canonical project truth.
 
-Do not treat a missing prior Big-Bang command as a user error. Discovery/bootstrap is an operability responsibility, not a user workflow step.
+For ordinary new work without an already admitted MangoMe family/specification, call `enter_work` with the user's actual request before productive mutation. `enter_work` may create canonical operational state backed by the **user intent relayed by the client**; it does not promote discovered legacy contracts, reports, or audit prose. High-assurance hosts may bind that intake to a trusted user principal outside the worker process. For known admitted work, reuse the existing family/specification through `begin_work` or the lower-level lifecycle.
+
+Do not treat a missing prior Big-Bang command as a user error. If the managed MangoMe tools are missing, stale, or report a deterministic binding/readiness problem, run `mangome doctor --repair` yourself when safe before asking the user to edit configuration. Ask the user only when intent is genuinely ambiguous or a protected authorization/acceptance decision is required. Verification and acceptance remain separate privileged transitions; a worker reaching `DONE_CLAIMED` is a valid durable state, not a reason to fabricate verifier authority.
 
 ## Non-negotiable rules
 
@@ -37,20 +39,22 @@ Do not treat a missing prior Big-Bang command as a user error. Discovery/bootstr
 
 ## Start of work
 
+Default decision path:
+
 ```text
-intake_request
-→ resolve
-→ read_context
-→ inspect effective_family_view when contract evolution matters
-→ verify/create specification
-→ submit_plan
-→ inspect collision warning
-→ start_slice(plan_id=...)
+workspace_status
+   ↓
+relevant admitted family/spec exists?
+   ├─ no  → enter_work(actor_id, request_text, ...)
+   │          → client-relayed user-intent canonical spec
+   │          → Request → Plan → Slice → STARTED
+   └─ yes → read_context / effective_family_view as needed
+              → begin_work(...) or lower-level lifecycle
 ```
 
-The plan must state intended slices, expected scope/artifacts, acceptance expectations and an estimate when meaningful.
+`enter_work` is the zero-touch entry point for ordinary new work. It does not weaken governance and it does not admit discovery candidates. `begin_work` remains the convenience path for an already admitted family with an effective specification. Both paths must end with a persisted Plan before productive mutation.
 
-For a bounded task in a family that already has an effective specification, `begin_work` may compose intake + plan + slice start. Treat it as a convenience surface only: it must still persist the normal Request, Plan and Slice and must never be used to bypass specification, plan binding, evidence or assurance rules.
+Use lower-level `intake_request → submit_plan → start_slice` only when advanced control is needed. Plans should state expected scope/artifacts, acceptance expectations and an estimate when meaningful.
 
 ## Compact context / UAI/1
 

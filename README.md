@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.8-green">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.8.1-green">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -83,27 +83,43 @@ MangoMe moves that problem out of the prompt.
 
 # Zero-touch operation
 
-MangoMe v0.1.8 adds an operability/bootstrap layer so users do not need to know MangoMe's internal vocabulary. A normal user request is sufficient; the client integration is expected to attach the current workspace, discover an unknown workspace once, refresh known workspace state, and let the worker translate user intent into the normal MangoMe flow.
+MangoMe v0.1.8.1 keeps zero-touch as a **user-interface property**, not as a reason to weaken the truth model. A normal user request is sufficient; the client integration attaches the workspace, performs candidate-only discovery when needed, and enters governed work internally.
 
 ```text
-user opens a supported coding client
+user gives a normal task
         ↓
 managed MangoMe binding
         ↓
-workspace auto-attach
+workspace_status
         ↓
 unknown workspace?
-  yes → one Big-Bang discovery pass
-   no → inventory refresh
+  yes → filesystem inventory + non-destructive Big-Bang discovery
+   no → inventory refresh + existing project overview
         ↓
-canonical state remains conservative
+discovery remains CANDIDATE_ONLY
         ↓
-worker handles the ordinary user request
+new ordinary task? → enter_work
+existing admitted work? → reuse family/spec via begin_work / normal lifecycle
+        ↓
+Request → Spec → Plan → Slice
+        ↓
+productive mutation
 ```
 
-The user should not have to say “start Big Bang”, “create a Slice”, or “call begin_work”. Those are implementation details. Automatic discovery still does **not** invent semantic truth: ambiguous contracts/specifications remain candidates until they can be resolved safely.
+The user should not have to say “start Big Bang”, “create a Slice”, invent a `declared_id`, or manually call `begin_work`. `enter_work` is the zero-touch ingress for ordinary new work and creates only operational state derived from the user request relayed by the client. It never promotes discovered contracts, reports, or audit prose into canonical truth. High-assurance hosts can bind intake to a trusted user principal outside the worker process.
 
-`mangome setup` is an installer/administrator operation, not an end-user workflow step. It can configure supported local clients, install the MangoMe Skill for Claude Code, bind the client to the intended MangoMe runtime, and enable automatic workspace attachment. `mangome doctor --repair` detects and repairs managed configuration drift where doing so is deterministic and safe.
+This resolves the apparent tension between usability and governance without creating a second lightweight truth store:
+
+- discovery is automatic but candidate-only;
+- ordinary current work can be admitted through the zero-touch ingress;
+- productive mutation still requires a persisted Plan;
+- `DONE_CLAIMED` remains only a claim;
+- `VERIFIED` still requires independent verifier authority;
+- `ACCEPTED` still requires owner authority.
+
+Deterministic status/context surfaces expose a derived `truth_level` (`CANONICAL_UNVERIFIED`, `CLAIMED`, `PARTIAL_VERIFIED`, `VERIFIED`, `ACCEPTED`, or `REJECTED`) so clients do not collapse execution and assurance into one “done” flag. This is a projection of the existing state machine, not a second state machine.
+
+`mangome setup` is an installer/administrator operation, not an end-user workflow step. Claude Code now defaults to private LOCAL MCP scope for the current workspace; PROJECT `.mcp.json` scope remains explicit opt-in because Claude Code may require manual trust approval for project-scoped MCP servers. `mangome doctor --repair` diagnoses and repairs deterministic managed drift.
 
 ```text
 REQUEST
@@ -113,12 +129,6 @@ Intake / classification
    │
    ▼
 Project + Contract Family
-   │
-   ├── BASE
-   ├── ADDITION
-   ├── AMENDMENT
-   ├── REPAIR
-   └── ... append-only contributions
    │
    ▼
 Effective Specification
@@ -177,7 +187,7 @@ Materialized Status View
 
 Every first-class entity has an immutable internal `entity_id`.
 
-Human identifiers such as `AVCOS-OSEP-001` remain `declared_id` values. They can collide without silently overwriting history.
+Human identifiers such as `PROJECT-WORK-001` remain `declared_id` values. They can collide without silently overwriting history.
 
 The result is deliberately richer than a todo list.
 
@@ -373,7 +383,7 @@ The same Request, Plan and Slice are still persisted.
 simple interface ≠ simple data model
 ```
 
-Longer term, IntakeGov is the natural place to decide how much workflow ceremony a request deserves. MangoMe should remain the canonical operational record, while IntakeGov decides the proportional execution route.
+A surrounding intake/router may decide how much workflow ceremony a request deserves. MangoMe remains the canonical operational record while the host decides the proportional execution route.
 
 For a small bounded change, a worker can use a narrow surface.
 
@@ -422,7 +432,7 @@ The key rule is:
 The pipeline becomes:
 
 ```text
-IntakeGov
+optional intake/router
 "What kind of work is this?"
         │
         ▼
@@ -434,11 +444,11 @@ UAI/1
 "Represent that truth compactly and unambiguously."
         │
         ▼
-CogC
+optional context selector/router
 "How much of it does this particular worker need?"
         │
         ▼
-Claude / Codex / Luna / other worker
+worker
         │
         ▼
 UAI/1R structured result
@@ -490,7 +500,7 @@ UAI/1.h
 
 If the packet is altered, expansion fails.
 
-A worker result can also be bound to the exact context hash it received. Results produced against stale or different context can therefore be rejected before they are considered.
+A worker result is bound to the exact context hash it received. In v0.1.8.1 the supported decode/render surfaces require the expected context hash; an unbound result is rejected rather than being treated as current. Results produced against stale or different context are therefore rejected before they are considered.
 
 ## Round-trip
 
@@ -775,12 +785,13 @@ See [`docs/adversarial-verification.md`](docs/adversarial-verification.md).
 
 # MCP tools
 
-The v0.1.8 MCP surface includes:
+The v0.1.8.1 MCP surface includes:
 
 ```text
 Intake / specification
   intake_request
   create_spec
+  enter_work
   begin_work
 
 Identity / registry
@@ -863,9 +874,12 @@ pytest
 
 # one-time supported-client bootstrap for the current workspace
 mangome setup --client auto
+
+# Claude Code defaults to private LOCAL scope; team-shared project scope is explicit
+mangome setup --client claude-code --claude-scope project
 ```
 
-After managed setup, supported clients start MangoMe with automatic workspace attachment. The first attachment of an unknown workspace performs non-destructive Big-Bang discovery automatically; subsequent starts refresh the deterministic filesystem inventory. Use `mangome doctor --repair` for managed client drift.
+After managed setup, supported clients start MangoMe with automatic workspace attachment. The first attachment of an unknown workspace performs non-destructive Big-Bang discovery automatically; subsequent starts refresh the deterministic filesystem inventory and expose any known workspace project. Use `mangome doctor --repair` for managed client drift.
 
 For deterministic local tests:
 
@@ -920,6 +934,17 @@ The MCP owns state and enforces the invariants.
 ---
 
 # Typical lifecycle
+
+Zero-touch path for ordinary new work:
+
+```text
+workspace_status
+→ enter_work(user request)
+→ Plan-bound Slice becomes ACTIVE
+→ update progress / artifacts / Evidence
+→ claim_done
+→ separate verifier/acceptance path when available
+```
 
 Full explicit path:
 
@@ -978,7 +1003,7 @@ The project does not currently pursue interchangeable production persistence bac
 
 ## “Agents may not call every tool correctly.”
 
-That is why MangoMe increasingly provides composed surfaces (`begin_work`), Agent Skills and deterministic enforcement rather than relying only on prompt discipline.
+That is why MangoMe increasingly provides composed surfaces (`enter_work`, `begin_work`), Agent Skills and deterministic enforcement rather than relying only on prompt discipline.
 
 The intended integration is that the client/runtime invokes the appropriate MangoMe path automatically where possible; users should not operate MangoMe internals manually.
 
@@ -1052,18 +1077,22 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.8 adds zero-touch operability on top of the v0.1.7.1 assurance baseline: supported clients can be configured and attested, managed configuration drift can be diagnosed/repaired, unknown workspaces auto-attach with one non-destructive Big-Bang discovery pass, and known workspaces refresh without requiring the user to issue MangoMe-specific commands. The domain truth model is unchanged.
+v0.1.8.1 is the evaluation-driven repair release for v0.1.8. It keeps the product goal — ordinary users should not operate MangoMe vocabulary — while making the trust boundary explicit rather than weakening governance.
+
+The first direct-harness and Claude Code evaluation established that the core verification boundary is strong, but also exposed concrete operability and integrity defects. v0.1.8.1 repairs those measured defects: imported assurance can no longer bypass verification, accepted slices cannot be downgraded by re-verification, exact verification provenance is persisted on the authoritative Slice, stale UAI/1R results require context binding, MongoDB maintenance diagnostics handle BSON datetime behavior, and the first-attach/readiness paths are corrected.
 
 The current architecture is:
 
 ```text
 ordinary user intent / client runtime
     ↓
-zero-touch workspace attachment
+managed binding + workspace attachment
     ↓
-MangoMe canonical operational memory
+candidate-only discovery
     ↓
-UAI/1 semantic transport
+enter_work / admitted existing work
+    ↓
+Request → Spec → Plan → Slice
     ↓
 Agent execution
     ↓
@@ -1073,26 +1102,26 @@ AV/1 independent observation
     ↓
 RB/1 binding where replayable
     ↓
-Verification
+VERIFIED
     ↓
-Authorized acceptance
+Authorized ACCEPTED
 ```
 
 Important current limits:
 
-- MangoMe does not execute verification commands itself. AV/1 records observations made by an authorized verifier/host; runtime isolation and command execution remain external responsibilities. The final RB/1 freshness check is deliberately close to the database CAS write, but it is not a cross-storage atomic transaction over arbitrary external filesystems.
+- Zero-touch admission currently relies on the client faithfully relaying the user's current request. A high-assurance host should bind intake to an authenticated user principal outside the worker process. Discovery itself remains candidate-only.
+- MangoMe enforces only writes that pass through MangoMe. A worker with direct MongoDB write/admin credentials is outside the service trust boundary; production deployments should isolate the database/service credential from untrusted workers.
+- MangoMe does not execute verification commands itself. AV/1 records observations made by an authorized verifier/host; runtime isolation and command execution remain external responsibilities. The final RB/1 freshness check is deliberately close to the database CAS write, but it is not a distributed transaction across arbitrary external filesystems and MongoDB.
+- Historical Slices already marked VERIFIED/ACCEPTED are not rewritten. `maintenance_diagnose` surfaces missing v0.1.8.1 verification provenance so operators can revalidate on demand instead of inventing history.
 - `completion_review` returns persisted free-text claims verbatim. It does not pretend to perform deterministic semantic claim extraction from prose.
-- Scope deviations and changed tests are adversarial review signals, not automatic evidence of fraud or incorrectness.
-- AV/1 strengthens provenance/independence of observed Evidence but still does not prove that every requirement is semantically covered unless the relevant gates/specification make that coverage explicit.
-- RB/1 freshness still does not create Verification or Acceptance and does not infer cross-Slice semantic proof equivalence.
+- AV/1 strengthens provenance/independence of observed Evidence but does not prove that every requirement is semantically covered unless the relevant gates/specification make that coverage explicit.
+- RB/1 freshness does not create Verification or Acceptance and does not infer cross-Slice semantic proof equivalence.
 - UAI/1's published `80.91%` figure remains a **character reduction in one representative demo**, not a universal provider-token saving.
-- Managed clients can supply the workspace root automatically; the underlying filesystem inventory still walks the configured workspace scope on each refresh and does not perform host-wide discovery.
-- The public implementation does not reconstruct missing historical Slices or certify old AI audits as truth.
-- Execution-cost and token economics are only as complete as the Execution Receipts supplied by the surrounding runtime.
-- v0.1.8 only auto-repairs configuration that MangoMe can identify as managed and safe to change. Ambiguous third-party/global client configuration remains a stop condition rather than being silently overwritten.
-- The v0.1.8 packaging test result is recorded in `TEST_REPORT.md`; skipped optional integration checks are not represented as production validation.
+- The filesystem inventory still walks the configured workspace scope on refresh; it is not a host-wide discovery daemon or Git-delta watcher.
+- Managed drift repair is deterministic where MangoMe can identify its own configuration safely. Ambiguous third-party/global configuration remains fail-closed rather than being silently overwritten.
+- Execution-cost and token economics remain only as complete as the Execution Receipts supplied by the surrounding runtime.
 
-The next phase is empirical evaluation: adversarial false-DONE fixtures, worker-vs-verifier separation tests, test-weakening/scope-deviation traps, and then RAW vs compiled vs UAI cost measurement per verified outcome.
+The next work should be product hardening and focused regression, not another monolithic evaluation campaign.
 
 ---
 
@@ -1101,6 +1130,10 @@ The next phase is empirical evaluation: adversarial false-DONE fixtures, worker-
 The AV/1 adversarial-completion design was informed by [`Sahir619/fable-method`](https://github.com/Sahir619/fable-method), especially the `fable-judge` pattern of treating completion reports as claims, independently re-observing claimed checks, inspecting actual changes, and looking for weakened verification. MangoMe reimplements these ideas inside its own Evidence/Verification/Acceptance model; it does not incorporate Fable's verdict state machine or bundle its fixtures. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ---
+
+## Community
+
+Contributions are governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 

@@ -1,6 +1,10 @@
-# Test Report — MangoMe v0.1.8
+# Test Report — MangoMe v0.1.8.1
 
-Date: 2026-09-24
+Date: 2026-09-25
+
+Baseline: public `tonnestate/MangoMe` v0.1.8 (`8f34f334cb71d3e4c76b4b11f230f9c4ffec9eb2`) plus the v0.1.8.1 repair delta.
+
+## Deterministic suite
 
 Command:
 
@@ -11,33 +15,51 @@ PYTHONPATH=src python -m pytest --disable-warnings
 Result in the packaging environment:
 
 ```text
-..........................................sss...................         [100%]
-61 passed, 3 skipped in 0.57s
+..........................................sss........................... [ 90%]
+........                                                                 [100%]
+77 passed, 3 skipped in 0.37s
 ```
 
 Skipped checks:
 
-- MCP surface integration: optional `mcp` dependency unavailable in the packaging sandbox.
-- Two MongoDB integration checks: `MANGOME_TEST_MONGO_URI` not configured.
+- MCP in-process surface integration: optional `mcp` dependency is not installed in this offline packaging sandbox.
+- Two real MongoDB integration checks: `MANGOME_TEST_MONGO_URI` is not configured in this sandbox.
 
-Additional deterministic checks:
+These are environment skips, not PASS claims.
+
+## Additional deterministic checks
 
 ```text
-python -m compileall -q src tests server.py  PASS
-skill/mangome/SKILL.md == src/mangome/skill/SKILL.md  PASS
-skill/mangome/SKILL.md == .github/skills/mangome/SKILL.md  PASS when mirror is present
+PYTHONPATH=src make check                                             PASS
+python -m compileall -q src tests server.py                         PASS
+skill/mangome/SKILL.md == src/mangome/skill/SKILL.md              PASS
+skill/mangome/SKILL.md == .github/skills/mangome/SKILL.md          PASS
+MANGOME_BACKEND=memory python examples/uai_roundtrip.py             PASS
+python -m pip wheel --no-deps --no-build-isolation .                PASS
+wheel contains mangome/operability.py                               PASS
+wheel contains mangome/skill/SKILL.md                               PASS
+CLI setup/attest argument parsing                                    PASS
 ```
 
-New v0.1.8 regression coverage includes:
+`python -m build` itself was unavailable because the sandbox does not have the optional `build` package installed; `pip wheel --no-build-isolation` successfully built `mangome_mcp-0.1.8.1-py3-none-any.whl` instead.
 
-- first attachment of an unknown workspace performs deterministic inventory plus non-destructive Big-Bang discovery without creating canonical contracts;
-- a known workspace refresh does not repeat semantic discovery admission;
-- Claude Code managed setup preserves unrelated MCP configuration, removes stale MangoMe-named shadow entries, installs the current Agent Skill plus a short always-on project rule, and enables automatic workspace attachment;
-- Codex managed setup preserves unrelated TOML, removes stale user/project MangoMe MCP entries such as an old `mangome_eval` launcher, preserves existing `AGENTS.md` content while adding one idempotent managed zero-touch block, and remains idempotent;
-- managed runtime version mismatch fails closed before backing-store initialization;
-- `MANGOME_AUTO_ATTACH=1` attaches/discovers the configured workspace without requiring a user Big-Bang command;
-- health reports the sanitized managed-identity reason code without exposing the configured mismatch value.
+## v0.1.8.1 regression coverage
 
-A wheel build with build isolation disabled in the offline packaging environment also confirmed that `mangome/operability.py` and the packaged `mangome/skill/SKILL.md` are included in the `0.1.8` distribution.
+The repair suite now covers the concrete findings from the first direct-harness / Claude Code evaluation, including:
 
-This report is not a claim of full production validation. The real Claude Code/Codex client attestation paths are environment-dependent and require those clients to be installed; the three skipped optional MCP/MongoDB checks were not exercised in this packaging environment.
+- H1: imported `VERIFIED` / `ACCEPTED` assurance is preserved only as historical imported state and authoritative assurance starts `UNVERIFIED`;
+- H2: an already `VERIFIED` / `ACCEPTED` Slice cannot be re-verified and downgraded/duplicated;
+- H3: the authoritative `VERIFIED` Slice write carries verifier identity plus exact verification Evidence and AV/1 observation ids, while maintenance flags historical provenance gaps;
+- H4: supported UAI/1R decode/render paths require the expected semantic context hash;
+- F-OPS-001: managed client binding preserves the active virtual-environment interpreter path instead of resolving through a symlink to a base interpreter;
+- F-OPS-002 / scope: Claude Code defaults to private LOCAL scope and live attestation does not treat `Pending approval` or mere name visibility as an effective connection;
+- F-OPS-003: first attachment is not immediately overwritten by a second refresh that reports `first_attach=false`;
+- F-OPS-004: ordinary work can enter the full governed lifecycle through `enter_work` without a user-supplied MangoMe `declared_id`; deterministic `AUTO-*` ids are generated where required and worker-facing lifecycle errors are structured;
+- F-MAINT-001: maintenance diagnostics normalize naive Mongo/BSON-style datetimes before comparison;
+- F-ENV-001: Python 3.10 compatibility is restored with conditional `tomli` fallback/dependency;
+- zero-touch truth boundary: discovery remains candidate-only, while current client-relayed user intent can create new canonical operational work through the normal Specification → Plan → Slice path;
+- derived `truth_level` distinguishes canonical unverified work, worker claims, verified work and accepted work without introducing a second assurance state machine.
+
+## Scope of this report
+
+This is a deterministic repair/packaging report. It does not repeat the earlier long-running Claude Code/Opus campaign and does not claim that every external client/runtime behavior was re-tested in this sandbox. The existing evaluation remains the pre-repair baseline; v0.1.8.1 is intended to rerun the already-known focused regression cases rather than launch another monolithic model evaluation.

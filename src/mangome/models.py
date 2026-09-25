@@ -20,7 +20,7 @@ from .enums import (
 )
 from .ids import new_id
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def utcnow() -> datetime:
@@ -148,6 +148,15 @@ class Slice(BaseEntity):
     done_claimed_at: datetime | None = None
     verified_at: datetime | None = None
     accepted_at: datetime | None = None
+    # Imported assurance is a historical claim only; authoritative imported slices
+    # always start UNVERIFIED and must pass the normal verification/acceptance path.
+    imported_assurance_state: AssuranceState | None = None
+    # Verification provenance is persisted atomically with the VERIFIED slice write so
+    # a later claim/projection failure cannot erase which proof authorized assurance.
+    verification_evidence_ids: list[str] = Field(default_factory=list)
+    verification_observation_ids: list[str] = Field(default_factory=list)
+    verification_profile: str | None = None
+    verified_by: str | None = None
     last_actor_id: str | None = None
     active_plan_id: str | None = None
     last_plan_id: str | None = None
@@ -271,6 +280,7 @@ class FamilyStatusView(BaseModel):
     title: str
     execution_state: ExecutionState
     assurance_state: AssuranceState
+    truth_level: str
     slice_counts: dict[str, int]
     active_slice_ids: list[str]
     last_started_slice_id: str | None

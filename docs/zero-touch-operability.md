@@ -1,8 +1,74 @@
-# Zero-touch operability — MangoMe v0.1.8
+# Zero-touch operability — MangoMe v0.1.8.1
 
-MangoMe's governance vocabulary is an implementation detail. A user should be able to open a supported coding client, describe normal work, and receive governed project behavior without being expected to understand Big-Bang discovery, contract families, slices, plans, evidence classes, or verification commands.
+MangoMe's governance vocabulary is an implementation detail for the **user**, not something the runtime may ignore. v0.1.8.1 makes that boundary explicit.
 
-v0.1.8 therefore adds a thin operability layer around the existing truth model. It does not create a second state model and does not weaken the existing assurance path.
+The product goal is:
+
+```text
+ordinary user request
+    ↓
+client/runtime performs MangoMe lifecycle internally
+    ↓
+governed canonical work
+```
+
+It is **not**:
+
+```text
+ordinary user request
+    ↓
+skip planning / evidence / verification
+```
+
+## Three different kinds of truth
+
+MangoMe keeps three sources separate.
+
+### 1. Discovery candidates
+
+Automatic workspace attachment, filesystem inventory and Big-Bang discovery observe files, Git metadata and identifiers. They are `CANDIDATE_ONLY` and never become canonical contract/specification history merely because they were found.
+
+### 2. Current operational work
+
+For an ordinary new task, the current user request relayed by the client is sufficient to create **new operational state** through `enter_work`:
+
+```text
+workspace_status
+    ↓
+enter_work(actor_id, request_text, ...)
+    ↓
+workspace Project / task-specific Family
+    ↓
+current-request Specification
+    ↓
+Request → Plan → Slice → ACTIVE
+```
+
+`enter_work` is deliberately narrow. It does not promote discovered legacy contracts, reports or audits. It only admits the current task into the normal MangoMe state machine. The Plan-before-mutate invariant remains intact.
+
+For already admitted work, use `begin_work` or the lower-level lifecycle against the existing Family/Specification.
+
+### 3. Assurance
+
+Worker execution and assurance remain separate:
+
+```text
+ACTIVE
+  ↓
+DONE_CLAIMED
+  ↓
+independent AV/1 observation
+  ↓
+VERIFIED
+  ↓
+optional owner approval
+  ↓
+ACCEPTED
+```
+
+A worker can finish execution without possessing verifier/owner authority. `DONE_CLAIMED / UNVERIFIED` is therefore a valid durable state, not a failed workflow. A deployment that wants automatic verification must provide an isolated verifier runtime/capability channel; MangoMe does not silently grant that authority to the worker.
+
+Status/context surfaces expose a derived `truth_level` such as `CANONICAL_UNVERIFIED`, `CLAIMED`, `PARTIAL_VERIFIED`, `VERIFIED`, `ACCEPTED`, or `REJECTED`. This is only a projection of the existing execution/assurance state, not a second state machine.
 
 ## Managed setup
 
@@ -18,17 +84,27 @@ or explicitly:
 mangome setup --client claude-code --client codex
 ```
 
-Managed configuration binds the client to the current MangoMe Python runtime, selects the WORKER role, records the expected MangoMe version, and enables automatic workspace attachment. MongoDB connection secrets are not written into generated client configuration; the server continues to obtain sensitive connection material from the surrounding runtime environment.
+Managed configuration binds the client to the current MangoMe Python runtime, uses the WORKER role, records the expected MangoMe version/source root where available, and enables automatic workspace attachment.
 
-Claude Code setup also installs the current MangoMe Agent Skill at the supported project Skill location **and** a short always-on project rule at `.claude/rules/mangome.md`. The rule exists because Skills are contextual/on-demand; zero-touch behavior must not depend on a user explicitly invoking a Skill.
+### Claude Code
 
-Codex setup writes the project MCP binding in `.codex/config.toml` and adds a bounded MangoMe managed block to the repository `AGENTS.md`. Existing instructions are preserved. Codex loads repository `AGENTS.md` instructions automatically, so the user does not need to request MangoMe explicitly.
+v0.1.8.1 defaults Claude Code to private **LOCAL** MCP scope for the current workspace. This avoids treating a repository-provided `.mcp.json` server as implicitly trusted. Team-shared PROJECT scope remains explicit opt-in:
 
-These always-on instructions are intentionally short: they tell the client to establish `workspace_status` for substantive work and to use MangoMe internally, without copying the whole MangoMe Skill into every prompt.
+```bash
+mangome setup --client claude-code --claude-scope project
+```
+
+PROJECT scope may require Claude Code's own manual trust approval. MangoMe does not bypass that control.
+
+Managed setup also installs the current MangoMe Skill under `.claude/skills/mangome/` and a short always-on rule under `.claude/rules/mangome.md`.
+
+### Codex
+
+Codex setup writes the project MCP binding in `.codex/config.toml` and adds one bounded managed MangoMe block to `AGENTS.md`. Existing instructions are preserved.
 
 ## Automatic workspace attachment
 
-When a managed MCP server starts with `MANGOME_AUTO_ATTACH=1`, MangoMe resolves the configured workspace root (or the current Git/work directory when explicitly refreshed) and performs:
+With `MANGOME_AUTO_ATTACH=1`:
 
 ```text
 unknown workspace
@@ -40,9 +116,7 @@ known workspace
     → deterministic filesystem inventory refresh
 ```
 
-Big-Bang discovery is no longer a normal user command. `bigbang_scan` remains available for diagnostics and explicit maintenance.
-
-Automatic discovery does not admit contracts, specifications, slices, or assurance claims merely because matching text exists on disk. Ambiguity remains unresolved until the normal canonicalization path has enough authority/evidence.
+The user is never required to request Big Bang manually. Discovery remains candidate-only in both cases.
 
 ## Client attestation and drift repair
 
@@ -55,46 +129,25 @@ mangome doctor
 mangome doctor --repair
 ```
 
-The operability layer checks the managed MCP command, MangoMe version expectation, workspace binding, runtime role, backend/database name, the expected always-on client instruction, and the Claude Code Skill mirror. Where the client CLI is installed it also asks the client to list its MCP servers and confirms that MangoMe is visible.
+Static registration is not enough. For Claude Code, live attestation distinguishes an actually connected server from `Pending approval`, disconnected, failed, or merely visible/unconfirmed state. A pending project MCP server therefore cannot produce a readiness PASS.
 
-Managed files are backed up once before MangoMe changes them. Stale MCP entries explicitly named for MangoMe are treated as managed/legacy drift and can be removed during setup so an old launcher does not remain active in parallel. MangoMe does not silently rewrite unrelated or semantically ambiguous third-party configuration; ambiguous shadowing remains a fail-closed readiness result.
+Managed files are backed up once before deterministic changes. MangoMe removes/replaces only MangoMe-named managed/legacy bindings when the intended target is unambiguous. Unrelated or ambiguous third-party configuration remains fail-closed.
 
-## Runtime identity check
+A stale runtime cannot always repair itself before it is started; this is an unavoidable bootstrap boundary. Managed current runtimes can detect identity drift through `MANGOME_EXPECTED_VERSION` and optional source-root binding, and `doctor --repair` repairs the supported local configuration.
 
-Managed client configuration carries `MANGOME_EXPECTED_VERSION`. A v0.1.8 runtime compares that value with the package it actually loaded before creating the backing-store service. A mismatch fails closed.
+## Runtime and capability boundary
 
-Source-root identity can also be carried when setup is executed from a Git-backed editable installation. This prevents a client that was intentionally bound to one source checkout from silently executing a different checkout with the same command surface.
+Verifier and owner authority must remain outside ordinary worker identity. Supported options are dedicated runtime roles or runtime-injected capability tokens. Capability values must not be placed in prompts, project state, contracts, Evidence payloads, or generated client configuration.
 
-## Agent behavior
+A worker with direct MongoDB write/admin access is outside MangoMe's protection boundary. See `SECURITY.md`.
 
-The MangoMe Skill and MCP initialization instructions make the user-facing rule explicit:
+## Why there is no lightweight truth mode
 
-> Ordinary user intent is sufficient. Never require the user to invoke Big Bang, create a Slice, or call `begin_work` manually.
+v0.1.8.1 deliberately does **not** add a second lightweight/ephemeral state model. Two truth stores would make handoff and promotion semantics harder, not simpler.
 
-The worker still has to respect MangoMe's domain invariants internally:
+The product instead keeps one governed model with two different ingress paths:
 
-```text
-read / resolve
-→ specification
-→ plan-before-mutate
-→ execution
-→ DONE_CLAIMED
-→ independent verification
-→ optional authorized acceptance
-```
+- explicit admitted existing work; and
+- zero-touch admission of the current user request through `enter_work`.
 
-The simplification is in the interface, not in the durable truth model.
-
-## Boundaries
-
-v0.1.8 does not claim to be a universal package manager or client policy engine. It currently supports managed local configuration for Claude Code and Codex. It does not:
-
-- silently overwrite ambiguous global/managed organization configuration;
-- create credentials;
-- grant verifier/owner capability to worker clients;
-- scan every filesystem root on a host;
-- convert discovery candidates into semantic truth;
-- bypass client trust/approval mechanisms;
-- prove that a client actually used every MangoMe tool correctly merely because registration succeeded.
-
-Those boundaries are deliberate. Safe deterministic operability drift should self-heal; genuine authority or semantic ambiguity should not.
+Discovery remains separate until explicitly admitted. This keeps the user experience simple without weakening the canonical state machine.

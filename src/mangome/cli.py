@@ -25,6 +25,10 @@ def main() -> None:
     setup.add_argument("--backend", choices=["mongo", "memory"], default="mongo")
     setup.add_argument("--database", default="mangome")
     setup.add_argument("--dry-run", action="store_true")
+    setup.add_argument(
+        "--claude-scope", choices=["local", "project"], default="local",
+        help="Claude Code MCP scope; local is zero-touch default, project is explicit opt-in",
+    )
 
     doctor_cmd = sub.add_parser("doctor", help="inspect client binding drift and optionally repair managed configuration")
     doctor_cmd.add_argument("--workspace", default=None)
@@ -32,6 +36,7 @@ def main() -> None:
     doctor_cmd.add_argument("--backend", choices=["mongo", "memory"], default="mongo")
     doctor_cmd.add_argument("--database", default="mangome")
     doctor_cmd.add_argument("--repair", action="store_true")
+    doctor_cmd.add_argument("--claude-scope", choices=["local", "project"], default="local")
 
     client_attest = sub.add_parser("attest-client", help="prove static/effective MangoMe binding for a supported client")
     client_attest.add_argument("client", choices=["claude-code", "codex"])
@@ -39,6 +44,7 @@ def main() -> None:
     client_attest.add_argument("--backend", choices=["mongo", "memory"], default="mongo")
     client_attest.add_argument("--database", default="mangome")
     client_attest.add_argument("--static-only", action="store_true")
+    client_attest.add_argument("--claude-scope", choices=["local", "project"], default="local")
 
     attach = sub.add_parser("attach", help="explicitly refresh automatic workspace attachment/discovery")
     attach.add_argument("--workspace", default=None)
@@ -98,7 +104,7 @@ def main() -> None:
     uai_render = sub.add_parser("uai-render", help="render a UAI/1R result into human-readable text")
     uai_render.add_argument("result_json")
     uai_render.add_argument("--language", choices=["en", "de"], default="en")
-    uai_render.add_argument("--context-hash", default=None)
+    uai_render.add_argument("--context-hash", required=True)
 
     args = parser.parse_args()
 
@@ -107,20 +113,20 @@ def main() -> None:
         clients = args.client or ["auto"]
         _print(setup_clients(
             args.workspace or os.getcwd(), clients=clients, backend=args.backend,
-            database=args.database, dry_run=args.dry_run,
+            database=args.database, dry_run=args.dry_run, claude_scope=args.claude_scope,
         ))
         return
     if args.cmd == "doctor":
         clients = args.client or ["claude-code", "codex"]
         _print(doctor(
             args.workspace, clients=clients, backend=args.backend,
-            database=args.database, repair=args.repair,
+            database=args.database, repair=args.repair, claude_scope=args.claude_scope,
         ))
         return
     if args.cmd == "attest-client":
         _print(attest_client(
             args.client, args.workspace or os.getcwd(), backend=args.backend,
-            database=args.database, check_client=not args.static_only,
+            database=args.database, check_client=not args.static_only, claude_scope=args.claude_scope,
         ))
         return
     if args.cmd == "health":
@@ -129,7 +135,7 @@ def main() -> None:
 
     svc = get_service()
     if args.cmd == "attach":
-        result = refresh_workspace_attachment(args.workspace)
+        result = refresh_workspace_attachment(args.workspace, force=True)
     elif args.cmd == "scan":
         scanner = BigBangScanner(svc)
         records = scanner.scan(args.roots)

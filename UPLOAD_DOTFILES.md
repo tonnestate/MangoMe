@@ -1,8 +1,6 @@
 # MangoMe dotfile upload note
 
-The earlier browser-upload gap is resolved by the v0.1.7.1 hardening delta.
-
-The canonical repository tree should contain these paths:
+The canonical repository tree must contain:
 
 ```text
 .github/workflows/ci.yml
@@ -10,6 +8,6 @@ The canonical repository tree should contain these paths:
 .gitignore
 ```
 
-`skill/mangome/SKILL.md` and `.github/skills/mangome/SKILL.md` must remain byte-identical; CI and `make check` enforce that invariant.
+v0.1.8.1 makes these paths mandatory in `make check`; a package/repository check now fails if they are absent. The canonical Skill, packaged Skill, and GitHub mirror must remain byte-identical.
 
-If a browser or file manager hides dot-prefixed paths during a manual upload, create the missing path explicitly in GitHub rather than renaming `.github` or `.gitignore`.
+If a browser/file manager hides dot-prefixed paths during a manual ZIP upload, verify those three paths explicitly after upload. They are part of the release, not optional documentation.

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.8.1 — 2026-09-25
+
+- Repairs the concrete defects found by the first Claude Code / direct-harness evaluation instead of expanding MangoMe with another parallel architecture.
+- Claude Code managed setup now defaults to private LOCAL scope; PROJECT `.mcp.json` scope remains an explicit opt-in because it can require manual Claude trust approval. Live attestation no longer treats a merely visible or pending server as connected.
+- Preserves the active virtual-environment interpreter path instead of resolving its symlink to a base interpreter that may not contain MangoMe; restores declared Python 3.10 support with a conditional `tomli` dependency.
+- Adds `enter_work`, the zero-touch ingress for ordinary new work. It creates only current client-relayed user-intent operational state in a task-specific Family under the workspace Project and then uses the normal Request → Spec → Plan → Slice lifecycle; Big-Bang/filesystem discovery remains candidate-only and is never promoted implicitly.
+- Makes worker-facing planning recoverable: missing `declared_id` values receive deterministic `AUTO-*` identifiers, and expected MangoMe/input failures from `enter_work`, `begin_work`, planning, start/progress and DONE paths are returned as structured error data instead of opaque MCP failures.
+- Adds explicit derived `truth_level` to deterministic status/context surfaces without adding a second assurance state machine. Discovery stays candidate-only; `DONE_CLAIMED` maps to `CLAIMED`, while `VERIFIED` and `ACCEPTED` remain distinct protected states.
+- Closes H1 by forcing newly imported Slice assurance to `UNVERIFIED` while preserving the imported historical assurance claim separately.
+- Closes H2 by rejecting verification of already `VERIFIED` or `ACCEPTED` Slices, preventing assurance downgrade and duplicate verification claims.
+- Narrows H3 by persisting verifier identity and exact verification Evidence/AV/1 observation ids atomically with the Slice `VERIFIED` CAS write; maintenance diagnostics flag historical verified slices that lack this provenance.
+- Closes H4 on supported UAI/1R decode/render surfaces by requiring the expected semantic context hash rather than accepting unbound stale result packets.
+- Fixes first-attach reporting after runtime auto-attachment and MongoDB maintenance diagnostics with naive BSON datetimes.
+- Documents the direct-database/worker-process isolation boundary: MangoMe cannot protect canonical state from an agent that already has direct MongoDB write/admin access.
+- Adds `CODE_OF_CONDUCT.md` and links it from contribution guidance.
+- Makes `make check` fail if the CI workflow, public Agent-Skill mirror, or `.gitignore` dotfiles are missing, preventing the earlier browser-upload omission from silently passing packaging checks.
+- Schema version advances to 4 for imported-assurance and verification-provenance fields. Historical documents are upgraded non-destructively; MangoMe does not invent missing provenance.
+
 ## 0.1.8 — 2026-09-24
 
 - Added zero-touch operability/bootstrap without changing MangoMe's canonical domain model or assurance states.

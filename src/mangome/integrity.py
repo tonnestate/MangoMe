@@ -505,6 +505,10 @@ class IntegrityMangoMeService(MangoMeService):
         except CapabilityDenied as exc:
             raise ApprovalRequired(str(exc)) from exc
         sl = self._must_get("slices", slice_id)
+        if sl.get("assurance_state") in {AssuranceState.VERIFIED.value, AssuranceState.ACCEPTED.value}:
+            raise InvalidTransition(
+                f"verification requires an unverified slice; current assurance is {sl.get('assurance_state')}"
+            )
         if sl["execution_state"] != ExecutionState.DONE_CLAIMED.value:
             raise InvalidTransition("verification requires DONE_CLAIMED execution state")
         executor = sl.get("last_actor_id")
@@ -558,7 +562,16 @@ class IntegrityMangoMeService(MangoMeService):
         now = utcnow()
         updated = self._update(
             "slices", slice_id,
-            {"assurance_state": AssuranceState.VERIFIED.value, "verified_at": now, "last_activity_at": now, "updated_at": now},
+            {
+                "assurance_state": AssuranceState.VERIFIED.value,
+                "verified_at": now,
+                "verified_by": verifier_actor_id,
+                "verification_evidence_ids": proof_ids,
+                "verification_observation_ids": independent_observation_ids,
+                "verification_profile": "AV/1",
+                "last_activity_at": now,
+                "updated_at": now,
+            },
             expected_revision=int(sl.get("revision", 0)),
         )
         self._claim(
