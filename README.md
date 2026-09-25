@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.9rc1-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.9rc2-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -68,6 +68,10 @@ MangoMe can tell you:
 - and what bounded context MangoMe compiled for a worker.
 
 > **Workers are ephemeral executors. MangoMe is the canonical operational record within its governed scope.**
+
+MangoMe also treats agent reasoning as a reconciliation problem: **normative truth** states what must be true, **observed truth** states what is actually present, and the worker spends its model capacity on the unresolved semantic delta instead of reconstructing those facts from chat history.
+
+> **Externalize state. Localize uncertainty. Preserve agency. Verify independently.**
 
 Sessions may disappear. Models may change. Agents may hand work to one another. The work does not have to reconstruct itself from chat history.
 
@@ -601,33 +605,49 @@ This allows empirical comparison of cost per verified outcome rather than market
 
 ---
 
-# Context architecture
+# Context architecture and reconciliation reasoning
 
-MangoMe now has a clean separation between truth, representation and worker capacity:
+MangoMe separates durable truth, bounded representation and non-deterministic worker judgment:
 
 ```text
-MangoMe
-canonical documents + current operational truth
-        │
-        ▼
-ContextCompiler
-bounded execution semantics
-        │
-        ▼
-UAI/1
-compact versioned representation
-        │
-        ▼
-optional context selector/router
-capacity-aware selection / further compaction
-        │
-        ▼
-Worker
+N — normative truth
+    effective contract/specification, acceptance criteria, constraints, policy, scope
+              │
+              ├──────────────┐
+              │              │
+              ▼              ▼
+       ContextCompiler   O — observed truth
+       bounded N/O view      artifacts, paths, digests, runtime, tests, Evidence, ABSENT
+              │              │
+              └──────┬───────┘
+                     ▼
+              UAI/1 / bounded view
+                     │
+                     ▼
+                  Worker
+          J = f(N_scope, O_scope, X)
+                     │
+        explore X on demand when needed
+                     │
+                     ▼
+                 Action
+                     │
+                     ▼
+            new observed state
+                     │
+                     ▼
+          independent verification
 ```
 
-This architecture is intended to let expensive models avoid repeatedly consuming the full historical contract/document corpus merely to recover the current position.
+The worker should not repeatedly spend tokens discovering whether a known artifact exists, which revision is current, which requirement governs the work, or which Evidence is already recorded when MangoMe can provide those facts authoritatively. `ABSENT` is itself an observed state; it is not a reason to reconstruct history.
 
-The richer and better maintained MangoMe becomes as a document store, the **less reconstruction work a worker should usually have to perform**.
+The worker remains free to reason, criticize, inspect dependencies, request neighboring context, refactor and propose better solutions. Scope is a starting projection, not a cognitive prison. When the bounded `N/O` view is insufficient, the worker expands `X` deliberately through graph neighbors, requirements, artifacts, tests, Evidence or history.
+
+> **Do not constrain reasoning. Constrain truth mutation.**
+
+MangoMe therefore does not try to make agent reasoning deterministic. It makes the state over which the agent reasons durable and independently verifiable. This is intended to reduce both context dilution and repeated state reconstruction without creating the opposite failure mode of context starvation.
+
+See [`docs/reconciliation-reasoning.md`](docs/reconciliation-reasoning.md) for the complete doctrine and evaluation hypothesis.
 
 ---
 
@@ -919,17 +939,26 @@ mcp run server.py --transport streamable-http
 
 # Agent Skill
 
-Canonical skill:
+Canonical Skill source:
 
 ```text
 skill/mangome/SKILL.md
 ```
 
-The Skill now carries standard Agent-Skill frontmatter and is mirrored for packaging/Claude Code discovery. Managed Claude Code setup copies the current Skill into the workspace's `.claude/skills/mangome/` location so the worker can discover it without the user invoking it manually.
+The release keeps four byte-identical Skill surfaces:
 
-The Skill describes how a worker must behave.
+```text
+skill/mangome/SKILL.md             # canonical repository source
+src/mangome/skill/SKILL.md         # packaged Python distribution
+.github/skills/mangome/SKILL.md     # GitHub agent-skill mirror
+.claude/skills/mangome/SKILL.md     # native Claude Code discovery mirror
+```
 
-The MCP owns state and enforces the invariants.
+`make check` and GitHub Actions reject mirror drift. Managed Claude Code setup still copies the packaged current Skill into the target workspace so installed projects receive the same version automatically.
+
+The Skill now includes the reconciliation reasoning doctrine: start from authoritative normative/observed state, reason over the delta, expand context on demand, preserve agent agency, and never silently mutate truth.
+
+The Skill describes how a worker must behave. The MCP owns state and enforces the invariants.
 
 ---
 
@@ -1064,8 +1093,10 @@ MangoMe deliberately does not:
 │   ├── schema.py             # schema evolution
 │   ├── mcp_server.py         # MCP v2 surface
 │   └── storage/              # MongoDB + in-memory test backend
-├── skill/mangome/
-├── .claude/skills/mangome/  # Claude Code discovery mirror
+├── skill/mangome/          # canonical Skill
+├── src/mangome/skill/       # packaged Skill
+├── .github/skills/mangome/  # GitHub mirror
+├── .claude/skills/mangome/  # native Claude Code mirror
 ├── docs/
 ├── examples/
 ├── tests/
@@ -1077,9 +1108,9 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.8.1 is the evaluation-driven repair release for v0.1.8. It keeps the product goal — ordinary users should not operate MangoMe vocabulary — while making the trust boundary explicit rather than weakening governance.
+v0.1.9rc2 is the current release candidate. It carries forward the v0.1.8.1 integrity/zero-touch repairs and the v0.1.9rc1 published-repository/CI hardening, then makes the reconciliation reasoning model explicit across the README and all Agent Skill surfaces.
 
-The first direct-harness and Claude Code evaluation established that the core verification boundary is strong, but also exposed concrete operability and integrity defects. v0.1.8.1 repairs those measured defects: imported assurance can no longer bypass verification, accepted slices cannot be downgraded by re-verification, exact verification provenance is persisted on the authoritative Slice, stale UAI/1R results require context binding, MongoDB maintenance diagnostics handle BSON datetime behavior, and the first-attach/readiness paths are corrected.
+The runtime assurance model is intentionally unchanged: no second truth store, no new verification-state taxonomy, no graph-engine requirement, and no stronger action cage. The change is primarily epistemic and operational: workers should consume authoritative normative/observed state, spend reasoning capacity on the unresolved delta, expand context only when useful, and leave truth mutation/verification on the existing governed paths.
 
 The current architecture is:
 

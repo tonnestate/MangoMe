@@ -1,15 +1,25 @@
 # MangoMe dotfile upload note
 
-The canonical repository tree must contain:
+The canonical repository tree for v0.1.9rc2 must contain:
 
 ```text
 .github/workflows/ci.yml
 .github/skills/mangome/SKILL.md
+.claude/skills/mangome/SKILL.md
 .gitignore
 ```
 
-v0.1.9rc1 requires these paths in the published repository in `make check`; a package/repository check now fails if they are absent. The canonical Skill, packaged Skill, and GitHub mirror must remain byte-identical.
+The canonical Skill and all repository/package mirrors must remain byte-identical:
 
-If a browser/file manager hides dot-prefixed paths during a manual ZIP upload, verify those three paths explicitly after upload. They are part of the release, not optional documentation.
+```text
+skill/mangome/SKILL.md
+src/mangome/skill/SKILL.md
+.github/skills/mangome/SKILL.md
+.claude/skills/mangome/SKILL.md
+```
 
-For v0.1.9rc1, extract the delta into a Git working tree and commit with Git so dot-prefixed paths are preserved. After push, verify all three paths exist on `main` and confirm the GitHub Actions workflow actually starts.
+`make check` and GitHub Actions fail when any required Skill surface is missing or drifts. The `.claude` path is not merely documentation: it is the native Claude Code discovery surface in the repository, while managed setup continues to copy the packaged Skill into target workspaces.
+
+If a browser/file manager hides dot-prefixed paths during a manual ZIP upload, verify all four dot-prefixed paths explicitly after upload. They are part of the release.
+
+Extract the delta into a Git working tree and commit with Git so dot-prefixed paths are preserved. After push, verify the `.github` and `.claude` trees exist on `main`, run `make check`, and confirm GitHub Actions starts.

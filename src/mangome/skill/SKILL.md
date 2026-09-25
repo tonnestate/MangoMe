@@ -1,6 +1,6 @@
 ---
 name: mangome
-description: Use MangoMe automatically for durable multi-agent project work, including resuming existing work, planning mutations, evidence, verification, and handoff. Apply whenever work may change or continue a MangoMe-managed project; the user does not need to know MangoMe commands or vocabulary.
+description: Use MangoMe automatically for durable multi-agent project work, including resuming existing work, reconciling normative and observed truth, planning mutations, evidence, verification, and handoff. Apply whenever work may change or continue a MangoMe-managed project; the user does not need to know MangoMe commands or vocabulary.
 ---
 
 # MangoMe Agent Skill
@@ -36,6 +36,7 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 17. **ACCEPTED is explicit.** Authorized acceptance is separate from verification and requires approved `ACCEPT_SLICE` state.
 18. **Close obsolete plans.** Stale plans create stale collision traffic.
 19. **Do not invent missing truth.** Keep ambiguity `UNRESOLVED` / `SUGGESTED` until evidence or authorized confirmation exists.
+20. **Reconcile; do not reconstruct.** Start from MangoMe's authoritative normative and observed state, then spend model reasoning on the unresolved delta. Expand context on demand when the bounded view is insufficient.
 
 ## Start of work
 
@@ -69,6 +70,60 @@ Rules:
 5. Never apply decoded actions directly. Route progress, artifacts, evidence and DONE claims through the normal MangoMe tools and invariants.
 6. A hash mismatch means stale/tampered context; do not silently accept it.
 7. Token estimates from the compiler are heuristic only. Record provider-reported token counts in `ExecutionReceipt` for real routing/economic decisions.
+
+## Reconciliation reasoning model
+
+MangoMe externalizes project state so the worker can spend reasoning capacity on the unresolved delta instead of reconstructing facts the system already knows.
+
+The operating principle is:
+
+```text
+Externalize state. Localize uncertainty. Preserve agency. Verify independently.
+```
+
+And the corresponding agent rule is:
+
+```text
+Do not constrain reasoning. Constrain truth mutation.
+```
+
+For a bounded assignment, distinguish three inputs and one judgment:
+
+```text
+N = normative truth
+    What must be true?
+    Effective contract/specification, acceptance criteria, constraints, policy and scope.
+
+O = observed truth
+    What is actually present or observed?
+    Artifacts, paths, digests, revisions, runtime state, tests and evidence.
+
+X = explored context
+    Additional context the worker chooses to inspect when N and O are not sufficient.
+
+J = f(N_scope, O_scope, X)
+    The worker's non-deterministic judgment about the delta between N and O.
+```
+
+`O` is truth about observed state, **not** a declaration of correctness. A present artifact may still be wrong; an absent artifact is also a valid observed state. Do not spend tokens rediscovering whether an artifact, revision, gate, evidence item or accepted requirement exists when MangoMe already provides that fact authoritatively.
+
+The worker's primary job is to reason over the delta. It may conclude that the implementation is compliant, missing, contradictory, insufficient, unverified or improvable. It may explore dependencies, neighboring requirements, related artifacts, implementation detail, tests or history when that is needed for responsible judgment.
+
+Start with the smallest sufficient scope, but do not turn scope into a cognitive prison. Use `read_context`, `effective_family_view`, `graph`, artifact/evidence records and other deterministic MangoMe projections to expand context on demand. Prefer targeted expansion over loading broad project history. The objective is to avoid both context dilution and context starvation.
+
+The worker remains free to act within the admitted plan and scope: inspect, implement, refactor, test, criticize, propose alternatives and identify improvements. MangoMe must not make the reasoning process deterministic merely to make it controllable.
+
+What the worker may not do is silently mutate truth:
+
+- Do not reinterpret a requirement as changed merely because another solution appears better.
+- Do not infer an observed artifact or state that MangoMe has not actually recorded or observed.
+- Do not convert a worker claim into verification.
+- Do not treat self-authored evidence as independent observation of the same completion claim.
+- Do not rewrite effective normative truth through prose, memory or local interpretation.
+
+If the worker believes the normative truth itself should change, persist that as a proposed/suggested contract contribution or amendment through the existing contract-evolution path. It remains non-effective until the authorized process promotes it into the effective specification.
+
+This is a reconciliation model, not a rigid controller loop. The state presented to the worker is authoritative; the judgment over that state may be non-deterministic. Verification remains independently derived from evidence, policy, authority, freshness and revision state after the worker acts.
 
 ## Existing contract handoff
 

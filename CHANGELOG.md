@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.9rc2 — 2026-09-25 — Reconciliation Reasoning / Skill Surface Repair
+
+- Makes MangoMe's reconciliation reasoning doctrine explicit: **Externalize state. Localize uncertainty. Preserve agency. Verify independently.**
+- Adds the worker rule **Do not constrain reasoning. Constrain truth mutation.** and formalizes `J = f(N_scope, O_scope, X)` over normative truth, observed truth and agent-selected expansion context.
+- Treats `ABSENT` as a valid observed state and instructs workers not to spend model context rediscovering requirements, artifact existence, revisions, Evidence or assurance facts MangoMe already records authoritatively.
+- Keeps scope as a bounded starting projection rather than a hard cognitive boundary; workers may expand context on demand to avoid context starvation.
+- Preserves worker agency for inspection, implementation, refactoring, testing, criticism and improvement proposals while keeping normative truth mutation and final verification on existing governed paths.
+- Adds `docs/reconciliation-reasoning.md` with the design rationale and measurable evaluation hypothesis; no token-saving claim is promoted to an empirical result.
+- Repairs the repository Skill surface by adding the native Claude Code mirror at `.claude/skills/mangome/SKILL.md`.
+- Defines four byte-identical Skill surfaces: canonical repository Skill, packaged Skill, GitHub mirror and Claude Code mirror. `make check` and CI now reject drift across all four.
+- Adds regression coverage so the normal pytest suite also fails when any required Agent Skill surface is missing or diverges.
+- Updates README, release metadata, upload notes and test report to match the actual published surface.
+- Does **not** add a second truth store, new graph engine, new assurance states, or stronger action guardrails.
+
 ## 0.1.9rc1 — 2026-09-25 — Release Candidate
 
 - Promotes the evaluation-driven v0.1.8.1 repair line into the first v0.1.9 release candidate without weakening MangoMe's canonical truth model.
