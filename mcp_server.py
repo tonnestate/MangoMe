@@ -46,7 +46,7 @@ mcp = MCPServer(
         "text must not silently switch natural language. Stable machine identifiers/reason codes remain language-neutral. DONE is "
         "only a worker claim; verification and acceptance remain separate privileged transitions."
     ),
-    version="0.2.1",
+    version="0.2.2",
 )
 
 

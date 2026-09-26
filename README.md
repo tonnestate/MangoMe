@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.1-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.2-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -83,9 +83,9 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 ---
 
-# v0.2.1 — execution integrity hardening
+# v0.2.2 — execution integrity hardening
 
-v0.2.1 is a hardening release built on GitHub `main` commit:
+v0.2.2 is a hardening release built on GitHub `main` commit:
 
 ```text
 10c7859826a0fa379e99ffbcada0321eb1c36560
@@ -97,7 +97,7 @@ The release addresses an observed failure mode: an agent received an **audit ass
 
 MangoMe must allow agents to organize work internally without allowing planning to replace execution.
 
-The v0.2.1 execution rule is therefore:
+The v0.2.2 execution rule is therefore:
 
 ```text
 USER ASSIGNMENT
@@ -288,7 +288,7 @@ MongoDB remains MangoMe's production canonical store.
 Production canonical persistence = MongoDB
 ```
 
-v0.2.1 strengthens runtime binding because a correct state model is useless if different agents silently connect to different databases.
+v0.2.2 strengthens runtime binding because a correct state model is useless if different agents silently connect to different databases.
 
 Managed client configuration now carries the expected database identity:
 
@@ -335,7 +335,7 @@ MangoMe persists a `schema_version` on canonical documents.
 
 Older known schema versions can be upgraded deterministically by registered migrations.
 
-v0.2.1 adds the opposite boundary as well: an older reader must not silently interpret a **future** schema it does not understand.
+v0.2.2 adds the opposite boundary as well: an older reader must not silently interpret a **future** schema it does not understand.
 
 ```text
 persisted schema <= reader schema
@@ -355,7 +355,7 @@ Canonical truth is never truncated merely to fit an agent prompt.
 
 MangoMe instead compiles a **disposable execution projection**.
 
-v0.2.1 adds a deterministic hard byte envelope to `ContextCompiler`:
+v0.2.2 adds a deterministic hard byte envelope to `ContextCompiler`:
 
 ```python
 ContextCompiler(service).compile(
@@ -389,7 +389,7 @@ MangoMe uses a byte envelope rather than pretending it can guarantee provider-sp
 
 # Work Graph query hardening
 
-MangoMe does not introduce an in-memory graph truth store in v0.2.1.
+MangoMe does not introduce an in-memory graph truth store in v0.2.2.
 
 Before adding a Change-Stream-driven DAG cache, the repository first removes avoidable broad reads.
 
@@ -521,7 +521,7 @@ ACCEPTED
 
 Worker-authored Evidence can support work, but independent verification remains separately authorized.
 
-Audit/review work in v0.2.1 must at minimum persist real observational Evidence before claiming completion; prose planning alone is insufficient.
+Audit/review work in v0.2.2 must at minimum persist real observational Evidence before claiming completion; prose planning alone is insufficient.
 
 ## 8. Normative truth is not rewritten to fit implementation
 
@@ -623,7 +623,7 @@ Zero-touch admission for genuinely new ordinary work.
 
 ## `prepare_assignment`
 
-v0.2.1 execution-preparation surface for already admitted work.
+v0.2.2 execution-preparation surface for already admitted work.
 
 It:
 
@@ -645,7 +645,7 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The v0.2.1 MCP surface includes the existing MangoMe tools plus the hardened assignment path.
+The v0.2.2 MCP surface includes the existing MangoMe tools plus the hardened assignment path.
 
 ```text
 Session / recovery
@@ -794,7 +794,7 @@ skill/mangome/SKILL.md
 
 The project keeps mirrored Skill surfaces for packaging and supported clients. They must remain synchronized.
 
-The v0.2.1 Skill explicitly teaches the execution rule:
+The v0.2.2 Skill explicitly teaches the execution rule:
 
 - restore first;
 - resolve/reuse before creating;
@@ -883,9 +883,16 @@ restore
 
 ---
 
-# Deliberate v0.2.1 non-goals
 
-v0.2.1 does **not**:
+## Release-layout integrity
+
+v0.2.2 also hardens the repository/package boundary itself. The executable Python package lives under `src/mangome/`; package modules must not be duplicated into the repository root. Version metadata in `pyproject.toml`, `src/mangome/__init__.py`, and the MCP server must agree. Regression tests fail if shadow copies such as root-level `runtime.py`, `service.py`, `mcp_server.py`, `operability.py`, or duplicate root Skill files appear.
+
+MangoMe setup/doctor code is not a host-network manager. The release guard also rejects source changes that add direct management of resolver/network/firewall surfaces such as `/etc/resolv.conf`, `systemd-resolved`, Netplan, iptables/nftables, or UFW to the MangoMe runtime. Host-network repair is outside MangoMe's normal execution scope.
+
+# Deliberate v0.2.2 non-goals
+
+v0.2.2 does **not**:
 
 - replace MongoDB;
 - add an in-memory DAG as a second graph truth;
@@ -902,7 +909,7 @@ v0.2.1 does **not**:
 
 # Current status
 
-**v0.2.1** hardens execution integrity on top of the `v0.1.9rc4` recovery/governance foundation.
+**v0.2.2** hardens execution integrity on top of the `v0.1.9rc4` recovery/governance foundation.
 
 The most important changes are:
 
@@ -944,11 +951,10 @@ optional authorized ACCEPTED
 - External model dispatch remains external. The host/orchestrator must enforce MangoMe authorization decisions at the real dispatch boundary.
 - MangoMe does not execute verification commands itself; verifier/host execution remains external.
 - The hard context envelope is byte-based, not provider-tokenizer-specific.
-- The graph remains MongoDB-backed; v0.2.1 intentionally optimizes query access before considering an in-memory mirror.
+- The graph remains MongoDB-backed; v0.2.2 intentionally optimizes query access before considering an in-memory mirror.
 - Multi-document semantic operations still deserve further transaction/atomicity review where a logical mutation spans several documents.
 - Runtime/source/database identity must be enforced consistently on every actual agent path; configuration alone is not proof that every external launcher obeys it.
 
-See [`docs/v0.2.1-hardening.md`](docs/v0.2.1-hardening.md) for the focused release notes.
 
 ---
 
