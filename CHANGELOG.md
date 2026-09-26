@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.9rc4 — 2026-09-26 — Portable Discovery, Native Session Restore & Tiered Fan-Out
+
+- Adds provider-neutral `session_restore` plus `session_bootstrap` as a host-start alias. Restore is read-only with respect to Project/Family/Specification/Plan/Slice identity and returns exactly `STATE_FOUND`, `STATE_PARTIAL`, or `STATE_NOT_FOUND`.
+- Makes missing recovery state explicit: `STATE_NOT_FOUND` never creates replacement Project/Family/Specification state and never masquerades as recovery. Genuine new work uses explicit `enter_work`; historical migration/backfill remains a separate explicit onboarding operation.
+- Makes partial recovery fail closed: known state is preserved and missing recovery bindings are reported; productive mutation remains disabled until explicit backfill resolves the gap.
+- Adds MCP-side restore gating for canonical mutation paths so lower-level state creation cannot proceed before session restore. `enter_work` remains an explicit NEW-WORK admission path, not a recovery substitute.
+- Separates unfinished intent from execution permission: ACTIVE Project/Family/goal state does not authorize work when `next_executable_items` is empty; BLOCKED work cannot be bypassed by inventing a replacement Slice/Family.
+- Preserves `DONE_CLAIMED != VERIFIED`: recovery exposes pending verification/acceptance as assurance work instead of treating worker completion claims as finished truth.
+- Replaces the rc3 one-high-cost-per-family heuristic with tiered delegation budgets. Fan-out width, model tier, capability, cost and authority are independent; broad CHEAP/STANDARD parallelism is allowed while EXPENSIVE/PREMIUM escalation requires explicit authorization or an Owner-approved budget plus a concrete escalation reason.
+- Adds portable typed discovery scopes and a physical-location registry for scattered repositories, worktrees, contract sources, evidence sources and artifact roots without hard-coding `/root`, one user, one OS, one provider, or one repository layout.
+- Keeps repository/filesystem/DMS bodies in their source systems. MangoMe stores bounded metadata, hashes, references, relations and explicitly admitted domain state; generic changelog/context files are not copied into MongoDB merely because they are discovered.
+- Treats agent-private context (for example `.claude`/`.codex` memory/config areas) as non-authoritative and excluded from project truth.
+- Makes the infrastructure boundary explicit: agents may use MangoMe but may not modify MangoMe source/tests/configuration unless the assignment itself explicitly targets MangoMe; hard filesystem enforcement remains a host responsibility.
+- Minimizes recovery context loading: optional host skills, memories and broad guidance packs are not part of restore unless the bounded delta requires them.
+- Generalizes the product positioning: software engineering is the primary reference workload, not MangoMe's domain boundary. MangoMe is a persistent truth/work-state/evidence layer for durable multi-agent work.
+- Adds regression coverage for portable multi-root discovery, scattered-repository identity, agent-private context exclusion, missing/partial/found restore states, DONE-claim assurance recovery, BLOCKED-work execution denial, and MCP restore gating.
+
 ## 0.1.9rc3 — 2026-09-25 — Authoritative Recovery & Delegation Governance
 
 - Adds **Operational Language Inheritance** after a live recovery session emitted Japanese control-plane narration inside a German workflow: human-visible MangoMe/coordinator narration must inherit the current user/session language; persona/memory/runtime defaults may not silently switch it.

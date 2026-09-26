@@ -5,14 +5,14 @@
 </p>
 
 <p align="center">
-  <strong>Governed project state survives the agent.</strong><br>
-  Canonical operational memory for long-lived multi-agent work.
+  <strong>Governed work state survives the agent.</strong><br>
+  Persistent truth, work-state, evidence and reconciliation for long-lived multi-agent work.
 </p>
 
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.9rc3-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.9rc4-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -98,20 +98,20 @@ user gives a normal task
         ↓
 managed MangoMe binding
         ↓
-workspace_status
+session_restore / session_bootstrap
         ↓
-unknown workspace?
-  yes → filesystem inventory + non-destructive Big-Bang discovery
-   no → inventory refresh + existing project overview
+STATE_FOUND | STATE_PARTIAL | STATE_NOT_FOUND
         ↓
-discovery remains CANDIDATE_ONLY
+STATE_FOUND → use canonical next executable / assurance delta
+STATE_PARTIAL → preserve known state; explicit backfill; no productive mutation
+STATE_NOT_FOUND → never synthesize recovery state
         ↓
-new ordinary task? → enter_work
-existing admitted work? → reuse family/spec via begin_work / normal lifecycle
+genuinely new work? → enter_work (explicit NEW admission)
+historical/resume work? → explicit import/backfill, still distinct from recovery
         ↓
 Request → Spec → Plan → Slice
         ↓
-productive mutation
+productive mutation only after governed state is valid
 ```
 
 The user should not have to say “start Big Bang”, “create a Slice”, invent a `declared_id`, or manually call `begin_work`. `enter_work` is the zero-touch ingress for ordinary new work and creates only operational state derived from the user request relayed by the client. It never promotes discovered contracts, reports, or audit prose into canonical truth. High-assurance hosts can bind intake to a trusted user principal outside the worker process.
@@ -168,6 +168,14 @@ Claude Code / Codex / other agent clients
 ```
 
 MangoMe is not an autonomous project manager and not an agent framework. It is the durable substrate underneath them.
+
+**Software engineering is the primary reference workload, not MangoMe's domain boundary.** The same primitives apply to compliance, contracts, logistics, research, due diligence, operations, incident/case management and other durable work where state must outlive an individual agent session.
+
+### MangoMe is infrastructure
+
+Agents may **use** MangoMe as governance/state infrastructure, but they must not modify MangoMe source, tests, packaging or managed configuration unless the assignment explicitly targets MangoMe itself. A blocked application task, missing restore state, or failed verification is not implicit permission to self-edit the governance substrate. MangoMe exposes the policy; hard filesystem enforcement belongs to the host/runtime boundary.
+
+Generic source documents also remain in their source systems. MangoMe persists bounded references, hashes, relations and explicitly admitted semantic state rather than duplicating arbitrary changelog, context, repository or DMS file bodies into MongoDB.
 
 ---
 
@@ -728,7 +736,7 @@ complete_delegation
 
 A runtime capability loss does not cause rediscovery or automatic model escalation. MangoMe returns `CURRENT_RUNTIME_CAPABILITY_MISSING` with `CHECKPOINT_AND_HANDOFF_MISSING_CAPABILITY_ONLY`; the completed delta is preserved and only the missing capability is routed onward.
 
-High-cost dispatch is deliberately conservative: `EXPENSIVE`/`PREMIUM` workers require explicit Owner approval bound to the exact `family + worker + task_key` delegation, and MangoMe authorizes at most one active high-cost delegation per Family. One approval cannot become a reusable license for a sequence of premium tasks. Difficulty, urgency, perceived importance, MangoMe self-repair, or a missing capability do not implicitly raise the cost ceiling. Mechanical recovery can still use bounded cheap parallelism when the workers are eligible.
+High-cost dispatch is deliberately explicit: `EXPENSIVE`/`PREMIUM` workers require Owner approval bound to the exact `family + worker + task_key` delegation. Fan-out width and model tier are independent: multiple separately authorized high-cost tasks may coexist, while per-worker runtime concurrency limits still apply. One approval cannot become a reusable license for a sequence of premium tasks. Difficulty, urgency, perceived importance, MangoMe self-repair, or a missing capability do not implicitly raise the cost ceiling.
 
 This closes the measured policy failure in which a coordinator turned bounded cheap/mechanical recovery into **five high-cost dispatches** in one session (four completed, one safely stopped/checkpointed), and generalizes the rule after the same high-tier escalation tendency was observed with more than one parent-agent family. It does **not** pretend MangoMe owns the provider spawn call. The current repository has no model-dispatch implementation. `execution_eligibility` and `authorize_delegation` are therefore a deterministic dispatch-authorization contract; the external orchestrator MUST consume that decision at its real dispatch boundary. Without that hook, end-to-end routing enforcement is not active and must not be claimed.
 
@@ -1175,7 +1183,7 @@ MangoMe deliberately does not:
 
 # Current status
 
-v0.1.9rc3 is the current release candidate. It carries forward the integrity/zero-touch and reconciliation-reasoning work, closes path-derived recovery reconstruction, adds runtime-capability/cost-aware delegation authorization with persisted coordinator checkpoints, and fixes operational-language drift in human-visible recovery/control-plane narration. MangoMe still does not own the external model dispatcher; hosts must bind the authorization result to their actual dispatch call for end-to-end enforcement.
+v0.1.9rc4 is the current release candidate. It adds native three-state session restore (`STATE_FOUND`, `STATE_PARTIAL`, `STATE_NOT_FOUND`) without implicit state creation, MCP restore gating, portable typed multi-root discovery and physical repository/worktree identity, and tiered fan-out budgets that separate parallelism from premium-model escalation. It preserves authoritative recovery, evidence/verification separation and operational-language inheritance. MangoMe still does not own the external model dispatcher; hosts must bind authorization decisions to their actual dispatch call for end-to-end enforcement.
 
 The runtime assurance model is intentionally unchanged: no second truth store, no new verification-state taxonomy, no graph-engine requirement, and no stronger action cage. The change is primarily epistemic and operational: workers should consume authoritative normative/observed state, spend reasoning capacity on the unresolved delta, expand context only when useful, and leave truth mutation/verification on the existing governed paths.
 

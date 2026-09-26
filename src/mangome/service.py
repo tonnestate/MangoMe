@@ -35,6 +35,8 @@ from .models import (
     ModelProfile,
     WorkerRuntimeProfile,
     DelegationTask,
+    DiscoveryScope,
+    RepositoryLocation,
     Plan,
     Project,
     ProposedSlice,
@@ -990,6 +992,69 @@ class MangoMeService:
     def reject_override(self, **_: Any) -> dict[str, Any]:
         raise ApprovalRequired("approval decisions require the integrity runtime capability")
 
+    # ---------- portable discovery scope registry ----------
+    def register_discovery_scope(
+        self, *, workspace_root: str, role: str, location: str, source_kind: str = "FILESYSTEM",
+        discovery_policy: str = "CANDIDATE_ONLY", enabled: bool = True, metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from pathlib import Path
+
+        root = str(Path(workspace_root).expanduser().resolve())
+        loc = str(Path(location).expanduser().resolve()) if source_kind.upper() in {"FILESYSTEM", "GIT"} else str(location)
+        role = role.upper()
+        source_kind = source_kind.upper()
+        discovery_policy = discovery_policy.upper()
+        key = hashlib.sha256(f"{root}\x1f{role}\x1f{source_kind}\x1f{loc}".encode("utf-8")).hexdigest()[:20].upper()
+        entity_id = f"DSCOPE-{key}"
+        existing = self.store.get("discovery_scopes", entity_id)
+        if existing:
+            return self._update(
+                "discovery_scopes", entity_id,
+                {"enabled": bool(enabled), "discovery_policy": discovery_policy, "metadata": metadata or existing.get("metadata", {}), "updated_at": utcnow()},
+                expected_revision=int(existing.get("revision", 0)),
+            )
+        scope = DiscoveryScope(
+            entity_id=entity_id, workspace_root=root, role=role, source_kind=source_kind, location=loc,
+            discovery_policy=discovery_policy, enabled=bool(enabled), metadata=metadata or {},
+        )
+        return self.store.insert("discovery_scopes", _dump(scope))
+
+    def discovery_scopes(self, *, workspace_root: str, enabled_only: bool = True) -> list[dict[str, Any]]:
+        from pathlib import Path
+
+        root = str(Path(workspace_root).expanduser().resolve())
+        rows = self.store.find("discovery_scopes", {"workspace_root": root})
+        if enabled_only:
+            rows = [r for r in rows if r.get("enabled", True)]
+        return sorted(rows, key=lambda r: (str(r.get("role") or ""), str(r.get("location") or "")))
+
+    def record_repository_location(
+        self, *, workspace_root: str, path: str, repository: str | None = None, head: str | None = None,
+        branches: list[str] | None = None, worktrees: list[str] | None = None, metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from pathlib import Path
+
+        root = str(Path(workspace_root).expanduser().resolve())
+        resolved = str(Path(path).expanduser().resolve())
+        key = hashlib.sha256(f"{root}\x1f{resolved}".encode("utf-8")).hexdigest()[:20].upper()
+        entity_id = f"REPOLOC-{key}"
+        existing = self.store.get("repository_locations", entity_id)
+        payload = {
+            "workspace_root": root, "path": resolved, "repository": repository, "head": head,
+            "branches": branches or [], "worktrees": worktrees or [], "relation_state": "OBSERVED",
+            "metadata": metadata or {}, "updated_at": utcnow(),
+        }
+        if existing:
+            return self._update("repository_locations", entity_id, payload, expected_revision=int(existing.get("revision", 0)))
+        row = RepositoryLocation(entity_id=entity_id, **{k: v for k, v in payload.items() if k != "updated_at"})
+        return self.store.insert("repository_locations", _dump(row))
+
+    def repository_locations(self, *, workspace_root: str) -> list[dict[str, Any]]:
+        from pathlib import Path
+
+        root = str(Path(workspace_root).expanduser().resolve())
+        return sorted(self.store.find("repository_locations", {"workspace_root": root}), key=lambda r: str(r.get("path") or ""))
+
     # ---------- runtime capability / delegation governance ----------
     _COST_RANK = {"FREE": 0, "CHEAP": 1, "STANDARD": 2, "EXPENSIVE": 3, "PREMIUM": 4}
 
@@ -1119,27 +1184,11 @@ class MangoMeService:
                 "active_delegations": len(active), "max_parallel_tasks": limit,
             }
 
-        # Expensive/Premium work is intentionally serialized per family. The
-        # coordinator can still run several cheap reconstruction workers in
-        # parallel, but it cannot create a costly swarm. Close/checkpoint the
-        # current high-cost delta before authorizing the next one.
-        if eligibility.get("cost_class") in {"EXPENSIVE", "PREMIUM"}:
-            expensive_active = [
-                d for d in self.store.find("delegations", {"family_id": family_id})
-                if d.get("status") in {"AUTHORIZED", "RUNNING"}
-                and str(d.get("cost_class") or "").upper() in {"EXPENSIVE", "PREMIUM"}
-            ]
-            if expensive_active:
-                return {
-                    "authorized": False,
-                    "eligibility": {
-                        **eligibility,
-                        "eligible": False,
-                        "reason_codes": ["EXPENSIVE_FANOUT_LIMIT_REACHED"],
-                    },
-                    "active_expensive_delegations": len(expensive_active),
-                    "max_parallel_expensive_delegations": 1,
-                }
+        # Fan-out width and model tier are independent. High-cost work remains
+        # owner-gated per exact bounded task by check_execution_eligibility(), while
+        # per-worker max_parallel_tasks remains enforced above. MangoMe must not turn
+        # "important" or "complex" into an implicit premium-swarm prohibition or grant.
+        # Multiple explicitly authorized high-cost tasks may therefore coexist.
         task = DelegationTask(
             family_id=family_id, coordinator_actor_id=coordinator_actor_id, worker_key=worker_key,
             runtime_profile_id=profile["entity_id"], task_key=task_key, purpose=purpose,
@@ -1380,6 +1429,57 @@ class MangoMeService:
             "open_approvals": approvals,
             "warnings": sorted({warning for status in statuses for warning in status.get("warnings", [])}),
             "last_activity_at": last_activity,
+        }
+
+    def session_restore(self, project_ref: str) -> dict[str, Any]:
+        """Read-only three-state restore. Never creates replacement work state."""
+        try:
+            context = self.recovery_context(project_ref)
+        except KeyError:
+            return {
+                "restore_state": "STATE_NOT_FOUND",
+                "source": "MANGOME_CANONICAL_STATE",
+                "project_ref": project_ref,
+                "productive_execution_allowed": False,
+                "recovery_only_allowed": False,
+                "next_executable_items": [],
+                "reason_codes": ["RESTORE_STATE_NOT_FOUND"],
+                "rule": "Missing recovery state is evidence of a persistence/bootstrap gap; never create Project/Family/Specification state and call it restored.",
+            }
+
+        families = context.get("families") or []
+        partial_reasons: list[str] = []
+        next_items: list[dict[str, Any]] = []
+        pending_assurance: list[dict[str, Any]] = []
+        for family in families:
+            family_id = family.get("family_id")
+            if not family.get("current_spec"):
+                partial_reasons.append(f"{family_id}:CURRENT_SPEC_MISSING")
+            status = family.get("status") or {}
+            executable_ids = list(dict.fromkeys((status.get("active_slice_ids") or []) + (status.get("next_known_slice_ids") or [])))
+            by_id = {s.get("entity_id"): s for s in family.get("recovery_slices") or []}
+            for sid in executable_ids:
+                item = by_id.get(sid) or {"entity_id": sid}
+                if item.get("execution_state") == ExecutionState.BLOCKED.value:
+                    continue
+                next_items.append({"family_id": family_id, **item})
+            for item in family.get("recovery_slices") or []:
+                if item.get("execution_state") == ExecutionState.DONE_CLAIMED.value and item.get("assurance_state") not in {AssuranceState.VERIFIED.value, AssuranceState.ACCEPTED.value}:
+                    pending_assurance.append({"family_id": family_id, **item})
+        if not families:
+            partial_reasons.append("PROJECT_HAS_NO_FAMILIES")
+        restore_state = "STATE_PARTIAL" if partial_reasons else "STATE_FOUND"
+        productive = restore_state == "STATE_FOUND" and bool(next_items)
+        return {
+            **context,
+            "restore_state": restore_state,
+            "productive_execution_allowed": productive,
+            "recovery_only_allowed": restore_state in {"STATE_FOUND", "STATE_PARTIAL"},
+            "next_executable_items": next_items,
+            "pending_assurance_items": pending_assurance,
+            "reason_codes": sorted(set(partial_reasons)),
+            "execution_rule": "UNFINISHED_INTENT_DOES_NOT_GRANT_EXECUTION; only canonical next_executable_items grant productive execution.",
+            "restore_rule": "STATE_NOT_FOUND never becomes CREATE_NEW_STATE. Historical backfill/import is a separate explicit operation.",
         }
 
     def recovery_context(self, project_ref: str) -> dict[str, Any]:

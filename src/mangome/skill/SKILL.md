@@ -9,15 +9,15 @@ MangoMe is the canonical operational-memory system for durable multi-agent proje
 
 ## Zero-touch user rule
 
-Zero-touch applies to the **user interface**, not to MangoMe's governance. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, or otherwise operate MangoMe vocabulary manually. On project-changing work, call `workspace_status` yourself. Unknown managed workspaces are attached/discovered automatically, but discovery remains `CANDIDATE_ONLY` and must never be mistaken for canonical project truth.
+Zero-touch applies to the **user interface**, not to MangoMe's governance. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, or otherwise operate MangoMe vocabulary manually. On every new or recovered session, call `session_restore` (or `session_bootstrap`) before project-changing work; use `workspace_status` as a status surface, not as a restore substitute. Unknown managed workspaces are attached/discovered automatically, but discovery remains `CANDIDATE_ONLY` and must never be mistaken for canonical project truth.
 
-For ordinary new work without an already admitted MangoMe family/specification, call `enter_work` with the user's actual request before productive mutation. `enter_work` may create canonical operational state backed by the **user intent relayed by the client**; it does not promote discovered legacy contracts, reports, or audit prose. High-assurance hosts may bind that intake to a trusted user principal outside the worker process. For known admitted work, reuse the existing family/specification through `begin_work` or the lower-level lifecycle.
+If restore returns `STATE_NOT_FOUND`, preserve that fact. Never create Project/Family/Specification state and call it recovered. Only genuinely new work may use `enter_work` with the user's actual request before productive mutation; historical/resume work requires explicit import/backfill distinct from restore. `enter_work` may create canonical operational state backed by the **user intent relayed by the client**; it does not promote discovered legacy contracts, reports, or audit prose. High-assurance hosts may bind that intake to a trusted user principal outside the worker process. For known admitted work, reuse the existing family/specification through `begin_work` or the lower-level lifecycle.
 
 Do not treat a missing prior Big-Bang command as a user error. If the managed MangoMe tools are missing, stale, or report a deterministic binding/readiness problem, run `mangome doctor --repair` yourself when safe before asking the user to edit configuration. Ask the user only when intent is genuinely ambiguous or a protected authorization/acceptance decision is required. Verification and acceptance remain separate privileged transitions; a worker reaching `DONE_CLAIMED` is a valid durable state, not a reason to fabricate verifier authority.
 
 ## Non-negotiable rules
 
-1. **Read first.** Read the relevant MangoMe project/family state before acting.
+1. **Restore first.** On a new/recovered session, call `session_restore`/`session_bootstrap` before repository exploration, planning or execution. `STATE_NOT_FOUND` is not permission to synthesize recovery state.
 2. **Categorize every assignment.** Call `intake_request`; reuse IntakeGov classification when available.
 3. **Resolve before creating.** Search existing project/family/contract/slice identity before creating a new one.
 4. **A prompt is not a contract.** Register only durable contract contributions.
@@ -41,24 +41,29 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 22. **Discovery never creates admitted truth.** Big-Bang/filesystem discovery is onboarding/observation only. Once work is admitted, broad discovery MUST NOT be used as a recovery mechanism.
 23. **Model identity is not execution capability.** Route from the worker's current runtime profile, not its model name or capabilities assumed earlier in the session.
 24. **Capability downgrade means bounded handoff.** If the current runtime loses a required capability such as `DEPLOY`, checkpoint completed work and hand off only that missing capability. Never restart discovery or reimplement completed work.
-25. **No automatic expensive escalation.** Failure, difficulty, urgency, importance, MangoMe self-repair, or a limited cheap worker never authorize spawning a stronger or more expensive model. High-cost delegation requires explicit Owner authorization bound to the exact bounded task, and MangoMe serializes high-cost delegation per family.
+25. **Fan-out freely; escalate deliberately.** Fan-out width, model tier, capability, cost and authority are independent. Failure, difficulty, urgency, importance, MangoMe self-repair, or a limited cheap worker never authorize stronger/more expensive models. High-cost delegation requires explicit Owner authorization bound to the exact bounded task; multiple separately authorized tasks may run in parallel subject to runtime concurrency limits.
 26. **Delegation authorization is not dispatch.** MangoMe records eligibility/authorization/checkpoints; the actual external orchestrator MUST consume that decision at its real model-dispatch boundary. Do not claim routing enforcement when that integration is absent.
 27. **Runtime facts come from the host/router.** Workers must not self-declare their own cost class, runtime mode, or capabilities. `publish_worker_runtime` is a privileged host/router surface.
 28. **Operational language follows the user/session.** Human-visible coordinator, recovery and control-plane narration MUST remain in the current working language unless the user explicitly changes it. Persona, memory, model defaults, or imported Skill text MUST NOT silently switch the operational language. Stable machine fields, protocol identifiers and reason codes remain language-neutral.
+29. **MangoMe is infrastructure.** Agents may use MangoMe but MUST NOT modify MangoMe source, tests, packaging or configuration unless the explicit assignment targets MangoMe itself. A project failure is never implicit permission to self-edit the governance substrate. Hard filesystem enforcement belongs at the host boundary.
+30. **Unfinished intent is not execution permission.** ACTIVE Project/Family/goal state does not authorize productive work. Execute only canonical `next_executable_items`; BLOCKED work must not be bypassed by inventing a replacement Slice/Family.
+31. **Use typed discovery scopes.** Physical repositories, worktrees, contract/evidence/artifact roots may be scattered across users, hosts and operating systems. Use persisted/configured typed locations; never assume `/root`, `$HOME`, one repository root or one provider layout.
+32. **References, not file-body duplication.** Generic repository/filesystem/DMS files remain in their source systems. MangoMe stores bounded metadata, hashes, references, relations and explicitly admitted domain state; do not copy changelogs, context files or arbitrary documents into MongoDB merely because they were discovered.
+33. **Do not load optional context gratuitously.** Use the smallest sufficient MangoMe projection first. Do not read unrelated optional host skills, memories, broad guidance packs or repository trees unless the bounded delta actually requires them. Host-mandated instructions remain authoritative.
 
 ## Start of work
 
 Default decision path:
 
 ```text
-workspace_status
+session_restore / session_bootstrap
    ↓
-relevant admitted family/spec exists?
-   ├─ no  → enter_work(actor_id, request_text, ...)
-   │          → client-relayed user-intent canonical spec
-   │          → Request → Plan → Slice → STARTED
-   └─ yes → read_context / effective_family_view as needed
-              → begin_work(...) or lower-level lifecycle
+STATE_FOUND?
+   ├─ yes → use canonical next_executable_items / pending assurance delta
+   ├─ partial → bounded validation/backfill only; no productive mutation
+   └─ not found → preserve RESTORE_STATE_NOT_FOUND
+                 ├─ genuinely NEW work → enter_work(...)
+                 └─ historical/resume work → explicit import/backfill, not fake restore
 ```
 
 `enter_work` is the zero-touch entry point for ordinary new work. It does not weaken governance and it does not admit discovery candidates. `begin_work` remains the convenience path for an already admitted family with an effective specification. Both paths must end with a persisted Plan before productive mutation.
@@ -207,7 +212,7 @@ complete_delegation(task/artifact/status/missing_delta/next_dependency)
 recovery_context can recover orchestration state after coordinator/session death
 ```
 
-Mechanical reconstruction/recovery SHOULD use `CHEAP` workers when they satisfy the required capabilities. More generally, `EXPENSIVE` and `PREMIUM` workers require explicit Owner approval for the exact `family + worker + task_key` delegation, and MangoMe permits only one active high-cost delegation per Family. Task difficulty, urgency, importance, or MangoMe self-repair never imply that approval. This avoids a coordinator silently producing a costly swarm.
+Mechanical reconstruction/recovery SHOULD use `CHEAP` workers when they satisfy the required capabilities. More generally, `EXPENSIVE` and `PREMIUM` workers require explicit Owner approval for the exact `family + worker + task_key` delegation, and multiple separately Owner-authorized high-cost tasks may coexist; per-worker runtime concurrency limits still apply. Task difficulty, urgency, importance, or MangoMe self-repair never imply that approval. This avoids a coordinator silently producing a costly swarm.
 
 If a worker is no longer eligible:
 

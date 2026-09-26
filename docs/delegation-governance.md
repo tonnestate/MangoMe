@@ -9,7 +9,7 @@ The motivating failures were concrete:
 
 The incident also established an important boundary: the inspected MangoMe repository did not contain the provider/model spawn call. A disconnected guard inside MangoMe would therefore be policy theater rather than dispatch enforcement.
 
-The second failure requires a different control surface from authoritative recovery. Recovery determines **where state comes from**. Delegation governance determines **which runtime is eligible to act on any bounded delta**. Live tests showed the same escalation tendency across different parent agents, so model prestige, task importance, difficulty, urgency, or a capability gap must never imply permission to spawn a stronger/high-cost worker.
+The second failure requires a different control surface from authoritative recovery. Fan-out width and model tier are independent: broad cheap/standard fan-out can be valid while premium escalation remains explicitly authorized. Recovery determines **where state comes from**. Delegation governance determines **which runtime is eligible to act on any bounded delta**. Live tests showed the same escalation tendency across different parent agents, so model prestige, task importance, difficulty, urgency, or a capability gap must never imply permission to spawn a stronger/high-cost worker.
 
 ## Separate identity from capability
 
@@ -74,7 +74,7 @@ The caller declares a `cost_ceiling` for each bounded delegation. A worker above
 Additionally:
 
 - `EXPENSIVE` and `PREMIUM` runtime profiles require explicit Owner approval bound to that exact `family + worker + task_key` delegation;
-- only one high-cost delegation may be active per Family at a time;
+- multiple separately authorized high-cost delegations may coexist; per-worker `max_parallel_tasks` and host/orchestrator budgets govern concurrency;
 - cheap/mechanical reconstruction may still use bounded parallel workers subject to each runtime's configured `max_parallel_tasks`;
 - a cheap worker becoming ineligible does not authorize automatic escalation to a high-cost worker.
 

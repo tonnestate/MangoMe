@@ -10,10 +10,11 @@ from .operability import OperabilityError, attach_workspace, enforce_expected_id
 
 _service: MangoMeService | None = None
 _workspace_attachment: dict[str, object] | None = None
+_session_restore: dict[str, object] | None = None
 
 
 def get_service() -> MangoMeService:
-    global _service, _workspace_attachment
+    global _service, _workspace_attachment, _session_restore
     if _service is not None:
         return _service
     enforce_expected_identity()
@@ -30,8 +31,21 @@ def get_service() -> MangoMeService:
         _workspace_attachment = attach_workspace(
             _service, os.environ.get("MANGOME_WORKSPACE_ROOT"), max_files=max_files
         )
+        root = str((_workspace_attachment or {}).get("workspace_root") or os.environ.get("MANGOME_WORKSPACE_ROOT") or "").strip()
+        if root:
+            from .service import workspace_project_key
+            _session_restore = _service.session_restore(workspace_project_key(root))
     return _service
 
+
+
+def set_session_restore_snapshot(value: dict[str, object] | None) -> None:
+    global _session_restore
+    _session_restore = value
+
+
+def session_restore_snapshot() -> dict[str, object] | None:
+    return _session_restore
 
 def workspace_attachment_snapshot() -> dict[str, object] | None:
     return _workspace_attachment
@@ -114,6 +128,7 @@ def health_snapshot() -> dict[str, object]:
 
 def reset_service_for_tests() -> None:
     """Reset process-global service/bootstrap state. Intended for tests only."""
-    global _service, _workspace_attachment
+    global _service, _workspace_attachment, _session_restore
     _service = None
     _workspace_attachment = None
+    _session_restore = None

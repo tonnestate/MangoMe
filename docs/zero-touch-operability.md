@@ -33,7 +33,9 @@ Automatic workspace attachment, filesystem inventory and Big-Bang discovery obse
 For an ordinary new task, the current user request relayed by the client is sufficient to create **new operational state** through `enter_work`:
 
 ```text
-workspace_status
+session_restore / session_bootstrap
+    ↓
+STATE_NOT_FOUND + genuinely new work
     ↓
 enter_work(actor_id, request_text, ...)
     ↓
@@ -151,3 +153,8 @@ The product instead keeps one governed model with two different ingress paths:
 - zero-touch admission of the current user request through `enter_work`.
 
 Discovery remains separate until explicitly admitted. This keeps the user experience simple without weakening the canonical state machine.
+
+
+## Infrastructure boundary
+
+MangoMe is infrastructure. Agents may use it but must not modify MangoMe source/tests/configuration unless the assignment explicitly targets MangoMe. Managed hosts enable restore gating with `MANGOME_REQUIRE_SESSION_RESTORE=1`; hard filesystem enforcement remains a host responsibility.

@@ -18,7 +18,10 @@ from .importer import (
 from .maintenance import MangoMaintainer
 from .filesystem import FilesystemScanner
 from .interlingua import UAICompiler, decode_uai_result as decode_result_packet, render_uai_result as render_result_packet
-from .runtime import get_service, health_snapshot, refresh_workspace_attachment, workspace_attachment_snapshot
+from .runtime import (
+    get_service, health_snapshot, refresh_workspace_attachment, workspace_attachment_snapshot,
+    set_session_restore_snapshot, session_restore_snapshot,
+)
 from .service import MangoMeError, workspace_project_key
 
 mcp = MCPServer(
@@ -26,14 +29,14 @@ mcp = MCPServer(
     description="Canonical operational memory and verification substrate for multi-agent work.",
     instructions=(
         "Zero-touch applies to the user interface, not to governance. Never ask the user to operate Big Bang, "
-        "contracts, slices, plans, or other MangoMe internals. Before project-changing work, call workspace_status. "
+        "contracts, slices, plans, or other MangoMe internals. Before project-changing work, call session_restore (or session_bootstrap) first. "
         "Discovery is candidate-only and is only an onboarding mechanism for work that is not yet admitted. Once a "
         "workspace/project is admitted, current work identity and recovery state MUST come from MangoMe canonical state, "
         "never from broad filesystem/repository scans, Git/worktree archaeology, contract/evidence directories, or prior "
         "agent prose. Use recovery_context/project_overview/status/read_context first and inspect physical artifacts only "
-        "for a bounded unresolved delta. For ordinary new work without admitted MangoMe identity, call enter_work with "
+        "for a bounded unresolved delta. A missing restore state is RESTORE_STATE_NOT_FOUND and MUST NOT be replaced by newly created Project/Family/Specification state. For genuinely new work without admitted MangoMe identity, call enter_work with "
         "the user's request; it creates client-relayed user-intent operational state and the mandatory Plan/Slice binding "
-        "without promoting discovered history. Productive mutation requires a persisted plan. Delegation is also governed: "
+        "without promoting discovered history. Productive mutation requires a persisted plan and canonical next_executable_items. Unfinished intent or an ACTIVE goal does not itself grant execution. MangoMe is infrastructure: agents may use it, but must not modify MangoMe source unless the explicit assignment is to change MangoMe itself. Delegation is also governed: "
         "mechanical recovery should use bounded low-cost workers; current runtime capabilities must be checked before dispatch "
         "and again before capability-sensitive actions. A capability downgrade means checkpoint and hand off only the missing "
         "capability; never rediscover state or automatically escalate to a costly model swarm. MangoMe authorizes/checkpoints "
@@ -43,7 +46,7 @@ mcp = MCPServer(
         "text must not silently switch natural language. Stable machine identifiers/reason codes remain language-neutral. DONE is "
         "only a worker claim; verification and acceptance remain separate privileged transitions."
     ),
-    version="0.1.9rc3",
+    version="0.1.9rc4",
 )
 
 
@@ -65,6 +68,41 @@ def _domain_call(fn, /, *args: Any, **kwargs: Any) -> dict[str, Any]:
                 "recoverable": True,
             },
         }
+
+
+def _restore_gate(operation: str, *, allow_new_work: bool = False) -> dict[str, Any] | None:
+    """Managed clients fail closed until a three-state restore decision exists.
+
+    This gate is opt-in for unmanaged/API callers but enabled by `mangome setup`.
+    It never creates state. `enter_work` is the sole explicit new-work exception when
+    restore returned STATE_NOT_FOUND.
+    """
+    if str(os.environ.get("MANGOME_REQUIRE_SESSION_RESTORE", "")).strip().lower() not in {"1", "true", "yes", "on"}:
+        return None
+    restored = session_restore_snapshot()
+    if restored is None:
+        return {
+            "ok": False,
+            "error": {
+                "code": "SESSION_RESTORE_REQUIRED",
+                "message": f"{operation} is blocked until session_restore/session_bootstrap runs.",
+                "recoverable": True,
+            },
+        }
+    state = str(restored.get("restore_state") or "")
+    if state == "STATE_NOT_FOUND" and allow_new_work:
+        return None
+    if state != "STATE_FOUND":
+        return {
+            "ok": False,
+            "error": {
+                "code": "RESTORE_NOT_EXECUTABLE",
+                "message": f"{operation} is blocked because restore_state={state or 'UNKNOWN'}; use explicit backfill/import or NEW-WORK admission rather than synthesizing recovery state.",
+                "recoverable": True,
+            },
+            "restore": restored,
+        }
+    return None
 
 
 def _known_admitted_workspace_roots() -> list[Path]:
@@ -151,6 +189,11 @@ def workspace_status(workspace_root: str | None = None, refresh: bool = False) -
         "project_overview": overview,
         "state_source": "MANGOME_CANONICAL_STATE" if admitted else "UNADMITTED_DISCOVERY",
         "discovery_allowed_for_state_reconstruction": not admitted,
+        "session_restore": session_restore_snapshot(),
+        "infrastructure_policy": {
+            "mangome_source_mutation": "FORBIDDEN_UNLESS_EXPLICIT_ASSIGNMENT_TARGETS_MANGOME",
+            "host_enforcement": "REQUIRED_FOR_HARD_FILESYSTEM_ENFORCEMENT",
+        },
         "communication_policy": {
             "human_visible_language": "INHERIT_CURRENT_USER_SESSION_LANGUAGE",
             "silent_language_switch": "FORBIDDEN",
@@ -175,12 +218,18 @@ def workspace_status(workspace_root: str | None = None, refresh: bool = False) -
 @mcp.tool()
 def intake_request(request_text: str, classification: str | None = None, classification_source: str | None = None, source_ref: str | None = None, family_id: str | None = None) -> dict[str, Any]:
     """Persist and categorize a new assignment before execution."""
+    blocked = _restore_gate("intake_request")
+    if blocked:
+        return blocked
     return get_service().intake_request(request_text=request_text, classification=classification, classification_source=classification_source, source_ref=source_ref, family_id=family_id)
 
 
 @mcp.tool()
 def create_spec(family_id: str, objective: str, contract_ids: list[str] | None = None, deliverables: list[str] | None = None, constraints: list[str] | None = None, acceptance_criteria: list[str] | None = None, out_of_scope: list[str] | None = None, required_evidence: list[str] | None = None, supersedes_spec_id: str | None = None) -> dict[str, Any]:
     """Append an immutable specification version for a family."""
+    blocked = _restore_gate("create_spec")
+    if blocked:
+        return blocked
     return get_service().create_spec(family_id=family_id, objective=objective, contract_ids=contract_ids, deliverables=deliverables, constraints=constraints, acceptance_criteria=acceptance_criteria, out_of_scope=out_of_scope, required_evidence=required_evidence, supersedes_spec_id=supersedes_spec_id)
 
 
@@ -193,18 +242,27 @@ def resolve(query: str) -> dict[str, Any]:
 @mcp.tool()
 def create_project(project_key: str, title: str, description: str | None = None) -> dict[str, Any]:
     """Create or return a project container."""
+    blocked = _restore_gate("create_project")
+    if blocked:
+        return blocked
     return get_service().create_project(project_key, title, description)
 
 
 @mcp.tool()
 def create_family(family_key: str, title: str, project_ids: list[str] | None = None, scope_ids: list[str] | None = None) -> dict[str, Any]:
     """Create or return a durable contract/work family."""
+    blocked = _restore_gate("create_family")
+    if blocked:
+        return blocked
     return get_service().create_family(family_key, title, project_ids, scope_ids)
 
 
 @mcp.tool()
 def register_contract(declared_id: str, family_id: str, title: str, kind: str = "BASE", actor_id: str | None = None, storage_system: str | None = None, physical_location: str | None = None, checksum: str | None = None) -> dict[str, Any]:
     """Append a contract contribution; declared-id collisions are preserved and warned."""
+    blocked = _restore_gate("register_contract")
+    if blocked:
+        return blocked
     return get_service().register_contract(declared_id=declared_id, family_id=family_id, title=title, kind=kind, actor_id=actor_id, storage_system=storage_system, physical_location=physical_location, checksum=checksum)
 
 
@@ -226,12 +284,18 @@ def import_contract_bundle(family_key: str, family_title: str, declared_id: str,
 @mcp.tool()
 def attach_artifact(logical_name: str, artifact_type: str, storage_system: str, physical_location: str, belongs_to: list[str] | None = None, checksum: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Register a physical artifact/reference without changing its external storage."""
+    blocked = _restore_gate("attach_artifact")
+    if blocked:
+        return blocked
     return get_service().attach_artifact(logical_name=logical_name, artifact_type=artifact_type, storage_system=storage_system, physical_location=physical_location, belongs_to=belongs_to, checksum=checksum, metadata=metadata)
 
 
 @mcp.tool()
 def link_entities(from_type: str, from_id: str, relation: str, to_type: str, to_id: str, status: str = "CONFIRMED", source_actor_id: str | None = None, confidence: float | None = None) -> dict[str, Any]:
     """Create a validated typed relation such as ADDS_TO, AMENDS, EXTENDS, REPAIRS or SUPERSEDES."""
+    blocked = _restore_gate("link_entities")
+    if blocked:
+        return blocked
     return get_service().link(from_type=from_type, from_id=from_id, relation=relation, to_type=to_type, to_id=to_id, status=status, source_actor_id=source_actor_id, confidence=confidence)
 
 
@@ -243,6 +307,9 @@ def submit_plan(family_id: str, request_id: str, spec_id: str, actor_id: str, in
     MangoMe creates a stable AUTO-* id when an ordinary worker omits it.
     Expected domain/input failures are returned as structured `error` data.
     """
+    blocked = _restore_gate("submit_plan")
+    if blocked:
+        return blocked
     return _domain_call(
         get_service().submit_plan,
         family_id=family_id, request_id=request_id, spec_id=spec_id, actor_id=actor_id,
@@ -271,9 +338,12 @@ def enter_work(
     user request becomes the authoritative Specification for this work. Discovery candidates
     are never promoted automatically. The normal Request -> Plan -> Slice binding is preserved.
     """
+    blocked = _restore_gate("enter_work", allow_new_work=True)
+    if blocked:
+        return blocked
     attachment = workspace_attachment_snapshot() or refresh_workspace_attachment()
     root = str(attachment.get("workspace_root") or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
-    return _domain_call(
+    result = _domain_call(
         get_service().enter_work,
         workspace_id=root,
         workspace_title=Path(root).name or "Workspace",
@@ -288,6 +358,9 @@ def enter_work(
         expected_scope=expected_scope,
         estimate=estimate,
     )
+    if result.get("ok") is not False:
+        set_session_restore_snapshot({"restore_state": "STATE_FOUND", "mode": "NEW_WORK_ADMITTED"})
+    return result
 
 
 @mcp.tool()
@@ -316,6 +389,9 @@ def begin_work(
         payload["objective"] = slice_objective
     if not payload.get("title"):
         payload["title"] = intent
+    blocked = _restore_gate("begin_work")
+    if blocked:
+        return blocked
     return _domain_call(
         get_service().begin_work,
         family_id=family_id, actor_id=actor_id, request_text=request_text, intent=intent,
@@ -328,12 +404,18 @@ def begin_work(
 @mcp.tool()
 def start_slice(slice_id: str, actor_id: str, plan_id: str) -> dict[str, Any]:
     """Start a slice and bind it to the actor's persisted active plan."""
+    blocked = _restore_gate("start_slice")
+    if blocked:
+        return blocked
     return _domain_call(get_service().start_slice, slice_id=slice_id, actor_id=actor_id, plan_id=plan_id)
 
 
 @mcp.tool()
 def update_slice_progress(slice_id: str, actor_id: str, plan_id: str, current_step: int | None = None, total_steps: int | None = None, blocker: str | None = None, execution_state: str | None = None) -> dict[str, Any]:
     """Persist slice progress; the same active plan that started the slice is mandatory."""
+    blocked = _restore_gate("update_slice_progress")
+    if blocked:
+        return blocked
     return _domain_call(
         get_service().update_slice_progress, slice_id=slice_id, actor_id=actor_id, plan_id=plan_id,
         current_step=current_step, total_steps=total_steps, blocker=blocker, execution_state=execution_state,
@@ -343,6 +425,9 @@ def update_slice_progress(slice_id: str, actor_id: str, plan_id: str, current_st
 @mcp.tool()
 def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None = None) -> dict[str, Any]:
     """Record DONE_CLAIMED under the slice's active plan; this never implies verification."""
+    blocked = _restore_gate("claim_done")
+    if blocked:
+        return blocked
     return _domain_call(
         get_service().claim_done, slice_id=slice_id, actor_id=actor_id, plan_id=plan_id, summary=summary
     )
@@ -351,6 +436,9 @@ def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None =
 @mcp.tool()
 def close_plan(plan_id: str, actor_id: str) -> dict[str, Any]:
     """Close an unbound plan so it stops generating collision traffic."""
+    blocked = _restore_gate("close_plan")
+    if blocked:
+        return blocked
     return get_service().close_plan(plan_id, actor_id)
 
 
@@ -464,6 +552,23 @@ def status(family_id: str) -> dict[str, Any]:
 def project_overview(project_ref: str) -> dict[str, Any]:
     """Explain a complete project's current state across all known families."""
     return get_service().project_overview(project_ref)
+
+
+@mcp.tool()
+def session_restore(workspace_root: str | None = None) -> dict[str, Any]:
+    """Restore canonical session/work state without creating Project/Family/Spec state."""
+    current = workspace_attachment_snapshot() or refresh_workspace_attachment(workspace_root)
+    root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
+    project_key = workspace_project_key(str(Path(root).expanduser().resolve()))
+    result = get_service().session_restore(project_key)
+    set_session_restore_snapshot(result)
+    return result
+
+
+@mcp.tool()
+def session_bootstrap(workspace_root: str | None = None) -> dict[str, Any]:
+    """Host-start alias for session_restore; same read-only semantics."""
+    return session_restore(workspace_root)
 
 
 @mcp.tool()
@@ -656,6 +761,22 @@ def record_execution_receipt(family_id: str, slice_id: str, actor_id: str, model
 def model_stats(model_id: str | None = None, work_class: str | None = None) -> dict[str, Any]:
     """Return empirical cost/verified-outcome statistics."""
     return get_service().model_stats(model_id=model_id, work_class=work_class)
+
+
+@mcp.tool()
+def discovery_scopes(workspace_root: str | None = None) -> dict[str, Any]:
+    """Return portable typed discovery scopes; this does not scan or admit content."""
+    current = workspace_attachment_snapshot() or refresh_workspace_attachment(workspace_root)
+    root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
+    return {"workspace_root": root, "scopes": get_service().discovery_scopes(workspace_root=root)}
+
+
+@mcp.tool()
+def repository_locations(workspace_root: str | None = None) -> dict[str, Any]:
+    """Return observed physical Git checkout/worktree locations without inferring project truth."""
+    current = workspace_attachment_snapshot() or refresh_workspace_attachment(workspace_root)
+    root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
+    return {"workspace_root": root, "repositories": get_service().repository_locations(workspace_root=root)}
 
 
 @mcp.tool()

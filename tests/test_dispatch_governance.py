@@ -95,7 +95,7 @@ def test_expensive_worker_cannot_be_silently_escalated_without_owner_approval(mo
     assert allowed["eligible"] is True
 
 
-def test_high_cost_fanout_is_serialized_per_family(monkeypatch):
+def test_high_cost_fanout_allows_multiple_explicitly_authorized_tasks(monkeypatch):
     svc = IntegrityMangoMeService(InMemoryStore())
     family_id = _family(svc)
     monkeypatch.setenv("MANGOME_APPROVAL_TOKEN", "owner-secret")
@@ -103,65 +103,33 @@ def test_high_cost_fanout_is_serialized_per_family(monkeypatch):
     approvals = {}
     for worker in ("expensive-a", "expensive-b"):
         svc.register_worker_runtime(
-            worker_key=worker,
-            runtime_mode="NORMAL",
-            capabilities=["REASON", "MUTATE", "TEST"],
-            cost_class="EXPENSIVE",
+            worker_key=worker, runtime_mode="NORMAL", capabilities=["REASON", "MUTATE", "TEST"],
+            cost_class="EXPENSIVE", max_parallel_tasks=2,
         )
         approval = svc.request_override(
             action_type="AUTHORIZE_DELEGATION",
             subject_id=f"{family_id}:{worker}:delta-{worker[-1]}",
-            requested_by="coordinator",
-            reason="bounded high-cost work",
+            requested_by="coordinator", reason="bounded high-cost work",
         )
         approvals[worker] = svc.approve_override(
             approval_id=approval["entity_id"], decided_by="owner", approval_token="owner-secret"
         )["entity_id"]
 
     first = svc.authorize_delegation(
-        family_id=family_id,
-        coordinator_actor_id="coordinator",
-        worker_key="expensive-a",
-        task_key="delta-a",
-        purpose="Implement one bounded delta",
-        required_capabilities=["MUTATE"],
-        cost_ceiling="EXPENSIVE",
-        owner_approval_id=approvals["expensive-a"],
+        family_id=family_id, coordinator_actor_id="coordinator", worker_key="expensive-a",
+        task_key="delta-a", purpose="Implement one bounded delta", required_capabilities=["MUTATE"],
+        cost_ceiling="EXPENSIVE", owner_approval_id=approvals["expensive-a"],
+    )
+    second = svc.authorize_delegation(
+        family_id=family_id, coordinator_actor_id="coordinator", worker_key="expensive-b",
+        task_key="delta-b", purpose="Implement another bounded delta", required_capabilities=["MUTATE"],
+        cost_ceiling="EXPENSIVE", owner_approval_id=approvals["expensive-b"],
     )
     assert first["authorized"] is True
+    assert second["authorized"] is True
+    status = svc.delegation_status(family_id=family_id)
+    assert status["active_count"] == 2
 
-    second = svc.authorize_delegation(
-        family_id=family_id,
-        coordinator_actor_id="coordinator",
-        worker_key="expensive-b",
-        task_key="delta-b",
-        purpose="Implement another bounded delta",
-        required_capabilities=["MUTATE"],
-        cost_ceiling="EXPENSIVE",
-        owner_approval_id=approvals["expensive-b"],
-    )
-    assert second["authorized"] is False
-    assert second["eligibility"]["reason_codes"] == ["EXPENSIVE_FANOUT_LIMIT_REACHED"]
-
-    svc.complete_delegation(
-        delegation_id=first["delegation"]["entity_id"],
-        coordinator_actor_id="coordinator",
-        status="COMPLETED",
-        artifact="checkpoint-a",
-        missing_delta=None,
-        next_dependency="delta-b",
-    )
-    retry = svc.authorize_delegation(
-        family_id=family_id,
-        coordinator_actor_id="coordinator",
-        worker_key="expensive-b",
-        task_key="delta-b",
-        purpose="Implement another bounded delta",
-        required_capabilities=["MUTATE"],
-        cost_ceiling="EXPENSIVE",
-        owner_approval_id=approvals["expensive-b"],
-    )
-    assert retry["authorized"] is True
 
 
 def test_missing_capability_never_selects_a_substitute_worker():

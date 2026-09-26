@@ -11,7 +11,7 @@ The invariant is:
 ## Recovery order
 
 ```text
-workspace_status
+session_restore / session_bootstrap
     ↓
 recovery_context
     ↓
@@ -68,3 +68,8 @@ The authoritative recovery boundary defines where `N` and known `O` come from af
 A recovered coordinator must not silently change the human working language. `recovery_context` exposes a language policy requiring human-visible recovery/control-plane narration to inherit the current user/session language. Persona, memory, model defaults, or imported prompts do not override that rule.
 
 Canonical field names, state values, protocol identifiers, and reason codes remain stable machine tokens. Only the surrounding human explanation is localized.
+
+
+## Three-state native restore
+
+`session_restore` is read-only with respect to Project/Family/Specification identity and returns `STATE_FOUND`, `STATE_PARTIAL`, or `STATE_NOT_FOUND`. Missing state is never replaced by creating new work and calling it restored. `STATE_PARTIAL` permits bounded validation/backfill only; productive work requires canonical `next_executable_items`. An ACTIVE goal/project/family is unfinished intent, not execution permission.

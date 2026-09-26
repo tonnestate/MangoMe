@@ -15,22 +15,28 @@ from typing import Any, Iterable
 from . import __version__
 from .filesystem import FilesystemScanner
 from .importer import BigBangReconciler, BigBangScanner, serialize_git_discovery
-from .service import MangoMeService
+from .service import MangoMeService, workspace_project_key
 
 
 
 _MANGOME_INSTRUCTION_BEGIN = "<!-- BEGIN MANGOME ZERO-TOUCH -->"
 _MANGOME_INSTRUCTION_END = "<!-- END MANGOME ZERO-TOUCH -->"
 _MANGOME_ALWAYS_ON_INSTRUCTION = """<!-- BEGIN MANGOME ZERO-TOUCH -->
-MangoMe is governed project infrastructure for this workspace. Zero-touch applies to the user interface, not to governance. For substantive project work, call `workspace_status` first.
+MangoMe is governed infrastructure for this workspace. Zero-touch applies to the user interface, not to governance. On every new or recovered session, call `session_restore` (or `session_bootstrap`) before repository exploration, planning, or execution.
 
-AUTHORITATIVE RECOVERY RULE: If MangoMe already has admitted Project/Family state for this workspace, NEVER reconstruct current work state from filesystem paths, broad repository search, Git history, worktrees, contract/evidence directories, filenames, or previous agent prose. Recovery MUST begin from `recovery_context`, `project_overview`, `status`, `effective_family_view`, and/or `read_context`. Physical repository/filesystem inspection is permitted only after MangoMe identifies the bounded unresolved delta or a known artifact that needs validation. Discovery may observe facts; it may not create or reconstruct admitted work identity/state.
+RESTORE RULE: `STATE_FOUND` may expose canonical `next_executable_items`; `STATE_PARTIAL` permits bounded validation/backfill only; `STATE_NOT_FOUND` is evidence that no recoverable state exists. NEVER create Project/Family/Specification state and call it restored. Genuine new work may use `enter_work`; historical/resume work requires explicit import/backfill distinct from native restore. ACTIVE intent/goal state is not execution permission, and BLOCKED work may not be bypassed by inventing replacement work.
 
-Unknown workspaces may use automatic filesystem/Big-Bang discovery for onboarding, but discovery remains `CANDIDATE_ONLY` and must never be mistaken for canonical history. If no admitted MangoMe family/specification fits the current task, call `enter_work` with the user's actual request before productive mutation; it creates current-user-intent-backed canonical work plus the mandatory Plan/Slice binding without promoting discovered history. Reuse `begin_work` for already admitted work.
+AUTHORITATIVE RECOVERY RULE: For admitted work, NEVER reconstruct current work state from filesystem paths, broad repository search, Git history, worktrees, contract/evidence directories, filenames, or previous agent prose. Recovery begins from MangoMe canonical state. Inspect physical artifacts only after MangoMe identifies the bounded unresolved delta. Discovery may observe facts; it may not create admitted truth.
 
-If acting as a parent/coordinator for delegated recovery, remain a coordinator: read canonical MangoMe recovery state, create bounded delegated tasks, consume concise result summaries, persist orchestration progress, and select the next delta. Do not perform broad repository archaeology or re-run worker reconstruction in the parent context.
+INFRASTRUCTURE RULE: MangoMe is infrastructure. Agents may use it but MUST NOT modify MangoMe source/tests/configuration unless the explicit assignment targets MangoMe itself. Project failure, missing state, or a blocked task is not permission to self-edit the governance substrate. Hard filesystem enforcement belongs to the host.
 
-If a managed binding/readiness problem is safely deterministic, run `mangome doctor --repair` yourself before asking the user. Never ask the user to operate Big Bang, contracts, slices, plans, or MangoMe vocabulary. `DONE_CLAIMED` is only a claim; verifier/owner authority remains separate and must never be fabricated.
+DISCOVERY RULE: physical repositories/worktrees/contracts/evidence/artifacts may live in multiple typed, portable scopes. Never assume `/root`, one login user, one OS layout, one repository root, or one provider. Generic file bodies remain in their source systems; persist references/hashes/relations, not arbitrary changelog/context-file bodies. Agent-private `.claude`/`.codex` context is non-authoritative.
+
+CONTEXT RULE: start with the smallest sufficient MangoMe projection. Do not load optional unrelated host skills, memories, broad guidance packs, or repository trees unless the bounded delta requires them.
+
+DELEGATION RULE: fan-out width, model tier, capability, cost and authority are independent. Cheap/standard fan-out may be broad. Expensive/premium work requires explicit bounded authorization; importance, difficulty or capability loss never imply premium escalation. A capability downgrade means checkpoint and hand off only the missing capability. MangoMe authorizes/checkpoints delegation but the external orchestrator must enforce it at the real dispatch boundary.
+
+Human-visible control-plane narration inherits the current user/session language unless the user explicitly changes it. `DONE_CLAIMED` is only a claim; verifier/owner authority remains separate.
 <!-- END MANGOME ZERO-TOUCH -->"""
 
 class OperabilityError(RuntimeError):
@@ -99,6 +105,86 @@ def resolve_workspace_root(value: str | None = None) -> Path:
     return root
 
 
+def _configured_discovery_scopes(root: Path) -> list[dict[str, Any]]:
+    """Resolve portable typed discovery scopes from host configuration.
+
+    The workspace itself is always a scope. Additional locations are optional and
+    supplied by the host via MANGOME_DISCOVERY_SCOPES_JSON. Paths are expanded on
+    the current host; no username, /root path, operating system layout, or provider
+    convention is hard-coded.
+    """
+    scopes: list[dict[str, Any]] = [{
+        "role": "WORKSPACE", "source_kind": "FILESYSTEM", "location": str(root),
+        "discovery_policy": "CANDIDATE_ONLY", "enabled": True,
+    }]
+    raw = os.environ.get("MANGOME_DISCOVERY_SCOPES_JSON", "").strip()
+    if not raw:
+        return scopes
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise OperabilityError("DISCOVERY_SCOPE_CONFIG_INVALID", "MANGOME_DISCOVERY_SCOPES_JSON is not valid JSON") from exc
+    if not isinstance(value, list):
+        raise OperabilityError("DISCOVERY_SCOPE_CONFIG_INVALID", "MANGOME_DISCOVERY_SCOPES_JSON must be a list")
+    for item in value:
+        if isinstance(item, str):
+            item = {"location": item, "role": "ARTIFACT_SOURCE"}
+        if not isinstance(item, dict) or not str(item.get("location") or "").strip():
+            raise OperabilityError("DISCOVERY_SCOPE_CONFIG_INVALID", "each discovery scope requires a location")
+        source_kind = str(item.get("source_kind") or "FILESYSTEM").upper()
+        location = os.path.expandvars(str(item["location"]))
+        if source_kind in {"FILESYSTEM", "GIT"}:
+            location = str(Path(location).expanduser().resolve())
+        scopes.append({
+            "role": str(item.get("role") or "ARTIFACT_SOURCE").upper(),
+            "source_kind": source_kind,
+            "location": location,
+            "discovery_policy": str(item.get("discovery_policy") or "CANDIDATE_ONLY").upper(),
+            "enabled": bool(item.get("enabled", True)),
+            "metadata": dict(item.get("metadata") or {}),
+        })
+    # stable de-duplication
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for scope in scopes:
+        key = (scope["role"], scope["source_kind"], scope["location"])
+        if key not in seen:
+            seen.add(key)
+            out.append(scope)
+    return out
+
+
+def _repository_search_roots(root: Path, scopes: list[dict[str, Any]]) -> list[str]:
+    """Bounded portable roots for cheap Git-location discovery only (no file-body scan)."""
+    candidates: list[Path] = [root.parent, Path.home()]
+    candidates.extend(
+        Path(str(scope["location"])) for scope in scopes
+        if scope.get("enabled", True) and scope.get("source_kind") in {"FILESYSTEM", "GIT"}
+        and scope.get("role") in {"WORKSPACE", "ARTIFACT_SOURCE", "REPOSITORY_SEARCH"}
+    )
+    raw = os.environ.get("MANGOME_REPOSITORY_SEARCH_ROOTS_JSON", "").strip()
+    if raw:
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise OperabilityError("REPOSITORY_SEARCH_CONFIG_INVALID", "MANGOME_REPOSITORY_SEARCH_ROOTS_JSON is not valid JSON") from exc
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise OperabilityError("REPOSITORY_SEARCH_CONFIG_INVALID", "MANGOME_REPOSITORY_SEARCH_ROOTS_JSON must be a list of paths")
+        candidates.extend(Path(os.path.expandvars(v)).expanduser() for v in value)
+    out: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved.exists() and resolved.is_dir():
+            text = str(resolved)
+            if text not in seen:
+                seen.add(text); out.append(text)
+    return out
+
+
 def attach_workspace(
     service: MangoMeService,
     workspace_root: str | None = None,
@@ -106,41 +192,91 @@ def attach_workspace(
     include_git: bool = True,
     max_files: int = 50_000,
 ) -> dict[str, Any]:
-    """Attach a workspace without inventing semantic truth.
+    """Attach a workspace plus explicitly configured portable discovery scopes.
 
-    Unknown workspaces receive one Big-Bang discovery pass plus the normal filesystem
-    inventory. Known workspaces receive the inventory refresh only. Discovery may
-    register observable artifacts but never canonicalizes contract/spec/slice truth.
+    Discovery observes locations and identities only. File bodies stay in their source
+    systems; MangoMe persists bounded metadata/hashes/references and explicitly admitted
+    domain state. Agent-private context is never a project-truth source.
     """
     root = resolve_workspace_root(workspace_root)
     root_text = str(root)
     known = bool(service.store.find("filesystem_roots", {"root_path": root_text}))
+    try:
+        service.project_overview(workspace_project_key(root_text))
+        admitted = True
+    except KeyError:
+        admitted = False
+    scopes = _configured_discovery_scopes(root)
+    persisted_scopes: list[dict[str, Any]] = []
+    for scope in scopes:
+        persisted_scopes.append(service.register_discovery_scope(workspace_root=root_text, **scope))
 
-    inventory = FilesystemScanner(service).scan([root_text], max_files=max_files)
+    scan_scopes = [
+        scope for scope in scopes
+        if scope.get("enabled", True)
+        and scope.get("source_kind") in {"FILESYSTEM", "GIT"}
+        and scope.get("role") != "AGENT_PRIVATE_CONTEXT"
+        and scope.get("discovery_policy") != "IGNORE_FOR_PROJECT_TRUTH"
+        and Path(str(scope.get("location"))).exists()
+    ]
+    roots = [str(scope["location"]) for scope in scan_scopes]
+
+    # Critical bootstrap invariant: admitted work restores from canonical state before
+    # any broad filesystem/repository inventory. This prevents session startup from
+    # becoming repository archaeology. Explicit maintenance/discovery can run later.
+    if admitted:
+        return {
+            "workspace_root": root_text,
+            "first_attach": not known,
+            "admitted": True,
+            "restore_first": True,
+            "discovery_scopes": persisted_scopes,
+            "inventory": {"skipped": True, "reason": "ADMITTED_RESTORE_FIRST"},
+            "repository_locations": service.repository_locations(workspace_root=root_text),
+            "discovery": None,
+            "discovery_truth_level": "CANDIDATE",
+            "content_storage_policy": "REFERENCE_METADATA_ONLY",
+            "rule": "Admitted work restores before discovery; no broad path scan runs during bootstrap.",
+        }
+
+    inventory = FilesystemScanner(service).scan(roots or [root_text], max_files=max_files)
+    scanner = BigBangScanner(service)
     discovery: dict[str, Any] | None = None
+    # Candidate-only semantic discovery runs on first attachment. A later explicit
+    # refresh updates inventory/repository locations without re-admitting history.
     if not known:
-        scanner = BigBangScanner(service)
-        records = scanner.scan([root_text])
+        records = scanner.scan(roots or [root_text])
         reconciliation = BigBangReconciler(service).reconcile(records)
-        git_records = scanner.scan_git([root_text]) if include_git else []
         discovery = {
             "record_count": len(records),
             "matched_count": len(reconciliation["matched"]),
             "collision_count": len(reconciliation["collisions"]),
             "unresolved_count": len(reconciliation["unresolved"]),
-            "git": serialize_git_discovery(git_records),
             "canonical_mutations": reconciliation["canonical_mutations"],
         }
+
+    repo_search_roots = _repository_search_roots(root, scopes)
+    git_records = scanner.scan_git_locations(repo_search_roots) if include_git and not known else []
+    for repo in git_records:
+        service.record_repository_location(
+            workspace_root=root_text, path=repo.root, repository=repo.repository, head=repo.head,
+            branches=repo.branches, worktrees=repo.worktrees, metadata={"error": repo.error} if repo.error else {},
+        )
+    if discovery is not None:
+        discovery["git"] = serialize_git_discovery(git_records)
 
     return {
         "workspace_root": root_text,
         "first_attach": not known,
+        "discovery_scopes": persisted_scopes,
         "inventory": inventory,
+        "repository_locations": service.repository_locations(workspace_root=root_text),
         "discovery": discovery,
         "discovery_truth_level": "CANDIDATE",
+        "content_storage_policy": "REFERENCE_METADATA_ONLY",
         "rule": (
-            "Workspace attachment is automatic discovery only. Ambiguous discoveries remain candidates; "
-            "canonical operational work begins separately from explicit current user intent or explicit admission."
+            "Workspace attachment is candidate-only discovery. Physical locations may be many and portable; "
+            "their presence never creates canonical Project/Family/Specification truth. Generic file bodies remain in source systems."
         ),
     }
 
@@ -182,10 +318,15 @@ def _server_identity(workspace: Path, *, backend: str, database: str) -> dict[st
         "MANGOME_RUNTIME_ROLE": "WORKER",
         "MANGOME_WORKSPACE_ROOT": str(workspace),
         "MANGOME_AUTO_ATTACH": "1",
+        "MANGOME_REQUIRE_SESSION_RESTORE": "1",
         "MANGOME_EXPECTED_VERSION": identity["version"],
     }
     if identity.get("source_root"):
         env["MANGOME_EXPECTED_SOURCE_ROOT"] = str(identity["source_root"])
+    for key in ("MANGOME_DISCOVERY_SCOPES_JSON", "MANGOME_REPOSITORY_SEARCH_ROOTS_JSON"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            env[key] = value
     return {
         "command": identity["python"],
         "args": ["-m", "mangome.mcp_server"],

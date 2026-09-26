@@ -299,6 +299,38 @@ class ModelProfile(BaseEntity):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class DiscoveryScope(BaseEntity):
+    """Portable typed source location for bounded discovery.
+
+    The scope records where observations may be collected; it does not make
+    discovered content canonical truth. File bodies remain in their source system.
+    """
+
+    workspace_root: str
+    role: Literal[
+        "WORKSPACE", "CONTRACT_SOURCE", "ARTIFACT_SOURCE", "EVIDENCE_SOURCE",
+        "REPOSITORY_SEARCH", "REFERENCE_ONLY", "AGENT_PRIVATE_CONTEXT"
+    ] = "ARTIFACT_SOURCE"
+    source_kind: Literal["FILESYSTEM", "GIT", "DMS", "OBJECT_STORAGE", "OTHER"] = "FILESYSTEM"
+    location: str
+    discovery_policy: Literal["CANDIDATE_ONLY", "REFERENCE_ONLY", "IGNORE_FOR_PROJECT_TRUTH"] = "CANDIDATE_ONLY"
+    enabled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RepositoryLocation(BaseEntity):
+    """Observed physical checkout/worktree identity; never project truth by itself."""
+
+    workspace_root: str
+    path: str
+    repository: str | None = None
+    head: str | None = None
+    branches: list[str] = Field(default_factory=list)
+    worktrees: list[str] = Field(default_factory=list)
+    relation_state: Literal["OBSERVED", "SUGGESTED", "BOUND"] = "OBSERVED"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkerRuntimeProfile(BaseEntity):
     """Current host-observed execution capabilities for one worker identity.
 

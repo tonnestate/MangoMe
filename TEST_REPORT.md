@@ -1,74 +1,59 @@
-# Test Report — MangoMe v0.1.9rc3
+# Test Report — MangoMe v0.1.9rc4
 
-Date: 2026-09-25
+Date: 2026-09-26
 
-Baseline: reconstructed v0.1.9rc2 release-candidate surface plus the authoritative-recovery, delegation-governance, and operational-language corrections.
+Canonical baseline: public `tonnestate/MangoMe` `main` at v0.1.9rc3 (`bc75d59fe5ad1797fad3e8e4ebc5e56f27e5db93`), extended by the rc4 changes in this package. Required release dotfile surfaces are included in the package and checked for internal consistency.
 
 ## Local deterministic suite
 
 Command:
 
 ```bash
-PYTHONPATH=src python -m pytest -ra
+make check
 ```
 
 Result in the packaging environment:
 
 ```text
-86 passed, 3 skipped in 0.42s
+90 passed, 3 skipped in 1.40s
+compileall PASS
+required release surfaces PASS
+four Agent Skill surfaces byte-identical PASS
 ```
 
-Skipped checks in this packaging environment:
+Skipped checks:
 
-- MCP in-process surface integration: the optional/runtime `mcp` package is unavailable in this sandbox interpreter.
+- MCP in-process surface integration: the `mcp` dependency is not installed in this sandbox interpreter.
 - Two real MongoDB integration checks: `MANGOME_TEST_MONGO_URI` is not configured in this sandbox.
 
-These are environment skips, not PASS claims. The published GitHub Actions workflow remains responsible for executing the MCP surface test and MongoDB-backed checks.
+These are environment skips, not PASS claims. Post-upload CI remains responsible for MCP and real MongoDB verification.
 
-## Additional checks
+## rc4 regression scope
 
-```text
-python -m compileall -q src tests server.py                         PASS
-MANGOME_BACKEND=memory PYTHONPATH=src python examples/uai_roundtrip.py PASS
-PYTHONPATH=src make check                                           PASS
-python -m pip wheel --no-deps --no-build-isolation .                PASS
-wheel: mangome_mcp-0.1.9rc3-py3-none-any.whl                       PASS
-wheel SHA-256: d298392aaef9df8423ee18195613f7484f057e3f847884dc39b3699d6dab3873
-four Agent Skill surfaces byte-identical                            PASS
-```
+The deterministic suite now covers the new observed failure classes in addition to the prior assurance/recovery tests:
 
-## Release-candidate scope
+- `STATE_NOT_FOUND` restore does not create replacement Project/Family/Specification state;
+- BLOCKED existing work can be restored while `productive_execution_allowed` remains false and `next_executable_items` remains empty;
+- portable multi-root discovery accepts host/user-independent typed scopes;
+- nested/scattered Git checkout locations can be observed without turning them into canonical project truth;
+- agent-private `.claude` context is excluded from filesystem truth inventory;
+- discovered generic documents are stored as references/metadata rather than copied file bodies;
+- high-cost fan-out no longer has the rc3 one-active-per-family serialization rule: multiple separately Owner-authorized tasks may coexist, while task-scoped authorization and runtime parallelism remain enforced.
 
-v0.1.9rc3 closes two observed governance failures: a parent agent reconstructed admitted state through broad repository/filesystem/path discovery, and multiple parent-agent families escalated bounded MangoMe work to high-cost subagents without an explicit task-bound routing authorization.
+## Release-candidate behavior
 
-The release adds:
+v0.1.9rc4 adds native three-state session restore (`STATE_FOUND`, `STATE_PARTIAL`, `STATE_NOT_FOUND`), restore-before-execution semantics, portable typed discovery scopes, physical repository-location observations, and a provider-neutral infrastructure boundary.
 
-- canonical `recovery_context` derived from MangoMe Project/Family/Specification/Plan/Slice/Artifact/Evidence state;
-- admitted-work state-source signaling in `workspace_status`;
-- fail-closed MCP discovery boundaries for overlapping admitted work;
-- targeted-only filesystem reference lookup for identities MangoMe already knows;
-- stronger always-on Claude/Codex recovery instructions and all four Agent Skill surfaces;
-- authoritative recovery documentation;
-- UAI/1 semantic-hash scope clarification;
-- explicit high-assurance MongoDB credential boundary guidance;
-- restoration of required dotfile release surfaces in the upload package;
-- current-runtime capability/cost eligibility and persisted delegation checkpoints;
-- prevention of silent high-cost swarm fan-out through task-bound Owner authorization plus one-active-high-cost-delegation-per-family; high-tier escalation is never implied by difficulty, urgency, importance, self-repair, or capability loss;
-- explicit external-dispatch integration boundary (policy is implemented; provider dispatch enforcement is not falsely claimed);
-- operational-language inheritance for human-visible coordinator/recovery/control-plane narration.
+Important boundaries remain explicit:
 
-No second truth store, new assurance state taxonomy, global repository lock, or replacement persistence backend is introduced.
+- MangoMe does not invent missing recovery state.
+- Genuine NEW work through `enter_work` is distinct from historical import/backfill and from native restore.
+- ACTIVE intent/goal/project state is not execution permission.
+- `DONE_CLAIMED` remains distinct from `VERIFIED` and `ACCEPTED`.
+- MangoMe source is infrastructure and must not be modified by agents unless their explicit assignment targets MangoMe itself; hard filesystem enforcement belongs to the host/runtime.
+- Generic Git/filesystem/DMS document bodies remain in their source systems; MangoMe persists bounded metadata, hashes, references, relations and explicitly admitted semantic state.
+- Model dispatch is external. MangoMe exposes eligibility/authorization/checkpoints; the host/orchestrator must enforce those decisions at the real dispatch boundary.
 
-## GitHub Actions release gate
+## CI gate after upload
 
-The rc3 delta includes `.github/workflows/ci.yml` because the inspected public `main` tree still lacked that required dotfile after the rc2 upload. After upload, the workflow must:
-
-- run the full Python 3.10/3.11/3.12 test matrix;
-- execute MongoDB integration tests against MongoDB 7 without skips;
-- run a Mongo-backed health assertion;
-- run the MCP in-process surface test, including `recovery_context` discovery;
-- run the UAI round-trip example;
-- verify all four Agent Skill surfaces are byte-identical;
-- compile `src`, `tests`, and `server.py`.
-
-A local PASS is not a substitute for the post-upload GitHub Actions result.
+Post-upload CI should run the Python 3.10/3.11/3.12 matrix, MongoDB 7 integration checks without skips, MCP surface tests including `session_restore`/`session_bootstrap`, UAI round-trip, source compilation, and byte-identity checks for all Agent Skill surfaces.

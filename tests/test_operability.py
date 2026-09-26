@@ -82,6 +82,8 @@ def test_claude_code_setup_defaults_to_local_scope_and_preserves_other_servers(t
     assert "Zero-touch applies to the user interface" in rule_text
     assert "AUTHORITATIVE RECOVERY RULE" in rule_text
     assert "NEVER reconstruct current work state" in rule_text
+    assert "MangoMe is infrastructure" in rule_text
+    assert "STATE_NOT_FOUND" in rule_text
 
     attested = attest_client(
         "claude-code", str(tmp_path), backend="memory", database="mangome_test",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import re
 import subprocess
@@ -154,6 +155,48 @@ class BigBangScanner:
         # de-duplicate roots reached from nested scan roots
         unique: dict[str, GitDiscoveryRecord] = {r.root: r for r in results}
         return list(unique.values())
+
+    def scan_git_locations(
+        self, roots: Iterable[str], *, max_depth: int = 8, max_repositories: int = 200, recent_commit_limit: int = 20
+    ) -> list[GitDiscoveryRecord]:
+        """Discover nested Git checkouts/worktrees inside explicitly allowed search roots.
+
+        This is physical-location discovery only. It does not create Project/Family truth.
+        Secret/cache/virtualenv/system-like hidden trees are skipped.
+        """
+        candidates: list[Path] = []
+        excluded = {".git", ".ssh", ".gnupg", ".cache", ".venv", "venv", "node_modules", "__pycache__", "dist", "build"}
+        for raw in roots:
+            base = Path(raw).expanduser().resolve()
+            if not base.exists() or not base.is_dir():
+                continue
+            base_depth = len(base.parts)
+            for current, dirs, _files in os.walk(base):
+                cur = Path(current)
+                depth = len(cur.parts) - base_depth
+                if (cur / ".git").exists():
+                    candidates.append(cur)
+                    # Do not descend into the Git metadata directory itself.
+                    dirs[:] = [d for d in dirs if d != ".git"]
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in excluded
+                    and not (d.startswith(".") and d not in {".github", ".gitlab", ".devcontainer"})
+                ]
+                if depth >= max_depth:
+                    dirs[:] = []
+                if len(candidates) >= max_repositories:
+                    break
+            if len(candidates) >= max_repositories:
+                break
+        unique: list[str] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate.resolve())
+            if key not in seen:
+                seen.add(key)
+                unique.append(key)
+        return self.scan_git(unique, recent_commit_limit=recent_commit_limit)
 
     @staticmethod
     def _git(root: Path, args: list[str]) -> str:

@@ -7,10 +7,10 @@ dev:
 	python -m pip install -e ".[dev]"
 
 test:
-	python -m pytest -ra
+	PYTHONPATH=src python -m pytest -ra
 
 compile:
-	python -m compileall -q src tests server.py
+	PYTHONPATH=src python -m compileall -q src tests server.py
 
 check: test compile
 	test -f .github/workflows/ci.yml

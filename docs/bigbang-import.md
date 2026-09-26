@@ -29,3 +29,10 @@ structured fields
 → strong model
 → human/authorized decision
 ```
+
+
+## Portable multi-root discovery
+
+A workspace is not assumed to equal one filesystem root. Hosts may provide typed scopes through `MANGOME_DISCOVERY_SCOPES_JSON` (for example `CONTRACT_SOURCE`, `ARTIFACT_SOURCE`, `EVIDENCE_SOURCE`, `REPOSITORY_SEARCH`). Paths are resolved on the current host; MangoMe does not hard-code `/root`, a username or an operating-system layout.
+
+Cheap Git-location discovery may inspect bounded search roots such as the workspace parent/home or `MANGOME_REPOSITORY_SEARCH_ROOTS_JSON`, but it records physical repository/worktree identity only. It never creates canonical project truth. Generic file bodies remain in their source system; MangoMe stores bounded metadata, hashes and references. Agent-private `.claude`/`.codex` context is not a project-truth source.
