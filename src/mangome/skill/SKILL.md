@@ -57,6 +57,56 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 36. **Reuse Slices before creating any.** For admitted work, existing relevant Slices are reused exactly as they are. If none exist, MangoMe may materialize the minimum internal Slice(s) needed to execute the current assignment. This is internal state maintenance, not a new user deliverable.
 37. **Observe before repair.** Audit/reconciliation first compares normative truth with observed implementation and persists evidence. Only after a concrete deviation is established may the worker repair/adapt/correct within the current authorized scope. Explicit read-only assignments remain read-only.
 38. **Do not mutate normative truth to make implementation pass.** Audit findings may update execution state/evidence and may lead to repair work, but Contract/Specification truth changes only when the user explicitly requested a normative change or the authorized amendment path approves it.
+39. **Current user intent is primary.** Recovered MangoMe state is context for the current turn; it never substitutes for the current user's request. `STATE_FOUND`, ACTIVE work, an active Plan, or an active Slice never means “continue now”.
+40. **Bind the turn to the Contract first.** For admitted contract work, establish the current turn mode (`QUERY`, `CONTINUE`, `EXECUTE`, `VERIFY`, `MODIFY`, or `CONTROL`) and the exact canonical Contract before productive action. A question about a Contract is not an execution order.
+41. **Contract/Specification truth outranks execution decomposition.** Recovery and reconciliation start from the effective Contract/Specification and observed Artifact/Evidence state. Plans and Slices are derived, replaceable execution state used only for the remaining delta. Never continue a Slice merely because it is active.
+42. **A changed local Contract file is an observation, not canonical truth.** Local, Git, DMS, or other physical copies may change. MangoMe retains immutable canonical Contract generations plus their physical storage bindings. Path changes, renames, duplicates, or disappearance must not destroy normative truth.
+43. **Only the bound MODIFY turn may promote a Contract generation.** MangoMe permits at most one active generation-promotion grant per Contract. The grant is bound to Contract, base generation/hash, turn, and actor. Concurrent or stale promotion attempts fail closed; no automatic merge or silent overwrite is allowed.
+
+## Contract-first turn binding
+
+For admitted Contract work, the governing order is:
+
+```text
+CURRENT USER TURN
+    ↓
+bind_contract_turn(mode, actor, contract)
+    ↓
+CANONICAL CONTRACT + EFFECTIVE SPECIFICATION
+    ↓
+OBSERVED ARTIFACTS / EVIDENCE
+    ↓
+UNRESOLVED DELTA
+    ↓
+reuse or derive minimal Plans/Slices only if execution is actually requested
+```
+
+Turn modes have distinct semantics:
+
+```text
+QUERY     read/answer only; no productive or normative mutation
+CONTINUE  explicitly continue unresolved execution for this Contract
+EXECUTE   perform requested productive work for this Contract
+VERIFY    observe/reconcile and persist Evidence; do not change normative truth
+MODIFY    change normative Contract truth; receives the single generation write grant
+CONTROL   explicit pause/accept/reject/override/control action
+```
+
+The following implications are forbidden:
+
+```text
+ACTIVE != CURRENTLY REQUESTED
+STATE_FOUND != CONTINUE
+CONTRACT_FOUND != EXECUTE CONTRACT
+QUESTION ABOUT WORK != WORK ORDER
+RESTORE != RESUME
+PATH != IDENTITY
+PLAN != EXECUTION
+SLICE != CONTRACT
+MANGOME CONTEXT != USER INTENT
+```
+
+Contract content is versioned by immutable generations. A local edit remains a working representation until `promote_contract_generation` succeeds using the active MODIFY-turn generation grant. Promotion is compare-and-swap bound to the generation/hash observed when the grant was acquired. If another generation wins first, stop with a generation conflict; never merge silently or rewrite history.
 
 ## Start of work
 

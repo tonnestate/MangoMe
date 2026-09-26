@@ -43,8 +43,13 @@ mcp = MCPServer(
         "delegation but does not own the external model dispatcher, so the host/orchestrator MUST enforce negative authorization "
         "decisions at its actual dispatch boundary. Human-visible coordinator/recovery/control-plane narration MUST inherit the "
         "current user/session working language unless the user explicitly changes it; persona, memory, runtime defaults, or Skill "
-        "text must not silently switch natural language. Stable machine identifiers/reason codes remain language-neutral. DONE is "
-        "only a worker claim; verification and acceptance remain separate privileged transitions."
+        "text must not silently switch natural language. Stable machine identifiers/reason codes remain language-neutral. "
+        "Recovered ACTIVE work, Plans and Slices are context only and NEVER substitute for the current user's intent. "
+        "For admitted contract work, bind the current user turn explicitly to the intended Contract before continuing, executing, "
+        "verifying, modifying, or controlling work. Contract/Specification truth is primary; Plans/Slices are derived execution state. "
+        "A changed local contract file is only an observation. Canonical contract content advances only through an immutable new "
+        "generation promoted by the single active MODIFY-turn generation grant for that Contract. DONE is only a worker claim; "
+        "verification and acceptance remain separate privileged transitions."
     ),
     version="0.2.2",
 )
@@ -907,6 +912,86 @@ def build_reproduction_binding(
 def evidence_freshness(evidence_id: str, live_check: bool = True) -> dict[str, Any]:
     """Check whether attested PASS evidence remains current under legacy hash bindings or RB/1 reproduction bindings. Never reruns commands or changes assurance state."""
     return FilesystemScanner(get_service()).evidence_freshness(evidence_id, live_check=live_check)
+
+
+@mcp.tool()
+def contract_state(contract_ref: str, include_content: bool = False) -> dict[str, Any]:
+    """Read one logical Contract and its immutable canonical generations. Physical paths are bindings, not identity."""
+    return _domain_call(get_service().contract_state, contract_ref, include_content=include_content)
+
+
+@mcp.tool()
+def bind_contract_turn(
+    request_text: str,
+    mode: str,
+    actor_id: str,
+    contract_ref: str,
+    ttl_minutes: int = 240,
+) -> dict[str, Any]:
+    """Bind the CURRENT user turn to one canonical Contract. Restore state alone never authorizes this turn."""
+    blocked = _restore_gate("bind_contract_turn")
+    if blocked:
+        return blocked
+    return _domain_call(
+        get_service().bind_turn,
+        request_text=request_text,
+        mode=mode,
+        actor_id=actor_id,
+        contract_ref=contract_ref,
+        ttl_minutes=ttl_minutes,
+    )
+
+
+@mcp.tool()
+def promote_contract_generation(
+    contract_ref: str,
+    turn_id: str,
+    grant_id: str,
+    actor_id: str,
+    content: str,
+    change_type: str = "MODIFY",
+    source_storage_system: str | None = None,
+    source_physical_location: str | None = None,
+    source_checksum: str | None = None,
+) -> dict[str, Any]:
+    """Promote a changed contract working copy into a new immutable canonical generation.
+
+    This requires the single active generation grant created for the same MODIFY turn, actor and Contract.
+    Merely observing a changed local file never updates canonical contract truth.
+    """
+    blocked = _restore_gate("promote_contract_generation")
+    if blocked:
+        return blocked
+    source_binding = None
+    if source_storage_system or source_physical_location or source_checksum:
+        source_binding = {
+            "storage_system": source_storage_system,
+            "physical_location": source_physical_location,
+            "checksum": source_checksum,
+        }
+    return _domain_call(
+        get_service().promote_contract_generation,
+        contract_ref=contract_ref,
+        turn_id=turn_id,
+        grant_id=grant_id,
+        actor_id=actor_id,
+        content=content,
+        change_type=change_type,
+        source_binding=source_binding,
+    )
+
+
+@mcp.tool()
+def release_contract_generation_grant(
+    grant_id: str, actor_id: str, reason: str | None = None
+) -> dict[str, Any]:
+    """Release an unused contract-generation write grant owned by the current actor."""
+    return _domain_call(
+        get_service().release_contract_generation_grant,
+        grant_id=grant_id,
+        actor_id=actor_id,
+        reason=reason,
+    )
 
 
 @mcp.tool()

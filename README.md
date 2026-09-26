@@ -131,6 +131,45 @@ SLICES                        INTERNAL SLICE(S)
 
 The user should receive the **result of the assignment**, not MangoMe's internal decomposition.
 
+## Contract-first turn binding and immutable generations
+
+MangoMe treats the **current user turn** and the **recovered work state** as different things. Restored ACTIVE work is durable context, not an instruction to continue it. For admitted contract work, an agent first binds the current turn to the intended logical Contract with one of six modes: `QUERY`, `CONTINUE`, `EXECUTE`, `VERIFY`, `MODIFY`, or `CONTROL`.
+
+The recovery priority is therefore:
+
+```text
+CURRENT USER TURN
+    ↓
+EFFECTIVE CONTRACT / SPECIFICATION
+    ↓
+OBSERVED ARTIFACTS / EVIDENCE
+    ↓
+UNRESOLVED DELTA
+    ↓
+DERIVED PLAN / SLICE STATE
+```
+
+Plans and Slices remain durable and useful, but they are execution decomposition rather than normative truth. An active Slice never authorizes the current turn by itself.
+
+Contract bodies can exist in more than one physical location. MangoMe keeps the logical Contract identity separate from those locations and can persist immutable canonical generations of the normative body in MongoDB. A local or Git/DMS copy may change, but that changed file is only an observation until an explicitly bound `MODIFY` turn promotes it.
+
+Promotion is single-writer and compare-and-swap protected. A generation grant is bound to the Contract, actor, current turn, base generation, and base content hash. Only that grant may create the next immutable generation; concurrent or stale promotion fails closed instead of merging or overwriting silently.
+
+This gives the intended asymmetry:
+
+```text
+logical Contract          durable identity
+canonical generations    immutable normative history
+physical files            mutable working representations / bindings
+Plans and Slices          derived execution state
+```
+
+The key invariants are:
+
+> **MangoMe context never substitutes for current user intent.**
+
+> **A changed contract file is not canonical truth until the authorized MODIFY turn promotes a new generation.**
+
 ## Slices are internal execution state
 
 Slices are durable execution addresses, not normal user-facing deliverables.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from .integrity import IntegrityMangoMeService
+from .contract_control import ContractGovernedMangoMeService
 from .service import MangoMeService
 from .storage.memory import InMemoryStore
 from .storage.mongo import MongoStore
@@ -31,7 +31,7 @@ def get_service() -> MangoMeService:
     else:
         uri = os.environ.get("MANGOME_MONGODB_URI", "mongodb://127.0.0.1:27017")
         store = MongoStore(uri, database)
-    _service = IntegrityMangoMeService(store)
+    _service = ContractGovernedMangoMeService(store)
     if os.environ.get("MANGOME_AUTO_ATTACH", "").strip().lower() in {"1", "true", "yes", "on"}:
         max_files = int(os.environ.get("MANGOME_AUTO_ATTACH_MAX_FILES", "50000"))
         _workspace_attachment = attach_workspace(

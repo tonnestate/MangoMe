@@ -89,7 +89,8 @@ class MongoStore(Store):
         for name in (
             "requests", "projects", "families", "contracts", "specs", "slices", "plans", "claims",
             "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts",
-            "filesystem_entries", "filesystem_roots"
+            "filesystem_entries", "filesystem_roots", "turn_bindings", "contract_heads",
+            "contract_generations", "contract_generation_grants"
         ):
             self.db[name].create_index([("entity_id", ASCENDING)], unique=True)
         self.db["projects"].create_index([("project_key", ASCENDING)])
@@ -111,6 +112,13 @@ class MongoStore(Store):
         self.db["edges"].create_index([("from_id", ASCENDING), ("relation", ASCENDING), ("to_id", ASCENDING)])
         self.db["edges"].create_index([("to_id", ASCENDING), ("relation", ASCENDING), ("from_id", ASCENDING)])
         self.db["evidence"].create_index([("subject_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["turn_bindings"].create_index([("contract_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["turn_bindings"].create_index([("actor_id", ASCENDING), ("status", ASCENDING)])
+        self.db["contract_heads"].create_index([("contract_id", ASCENDING)], unique=True)
+        self.db["contract_generations"].create_index([("contract_id", ASCENDING), ("generation", ASCENDING)])
+        self.db["contract_generations"].create_index([("content_hash", ASCENDING)])
+        self.db["contract_generation_grants"].create_index([("contract_id", ASCENDING), ("status", ASCENDING)])
+        self.db["contract_generation_grants"].create_index([("turn_id", ASCENDING)])
 
     def health(self) -> dict[str, Any]:
         result = self.db.command("ping")

@@ -28,6 +28,10 @@ RESTORE RULE: `STATE_FOUND` may expose canonical `next_executable_items`; `STATE
 
 AUTHORITATIVE RECOVERY RULE: For admitted work, NEVER reconstruct current work state from filesystem paths, broad repository search, Git history, worktrees, contract/evidence directories, filenames, or previous agent prose. Recovery begins from MangoMe canonical state. Inspect physical artifacts only after MangoMe identifies the bounded unresolved delta. Discovery may observe facts; it may not create admitted truth.
 
+TURN / CONTRACT RULE: Recovered MangoMe state is context, never the current user's intent. `STATE_FOUND`, ACTIVE work, Plans, or Slices do not mean “continue”. For admitted contract work, bind the current user turn explicitly to the intended canonical Contract and mode (`QUERY`, `CONTINUE`, `EXECUTE`, `VERIFY`, `MODIFY`, or `CONTROL`) before productive action. Contract/Specification truth is primary; Plans/Slices are derived execution state for the remaining delta.
+
+CONTRACT GENERATION RULE: Physical Contract files may move, duplicate, disappear, or be edited. A changed physical file is only an observation. Canonical normative content advances only by promoting a new immutable Contract generation from the single active MODIFY-turn generation grant bound to Contract, actor, base generation/hash, and turn. Never auto-promote, silently merge, or overwrite canonical Contract history.
+
 INFRASTRUCTURE RULE: MangoMe is infrastructure. Agents may use it but MUST NOT modify MangoMe source/tests/configuration unless the explicit assignment targets MangoMe itself. Project failure, missing state, or a blocked task is not permission to self-edit the governance substrate. Hard filesystem enforcement belongs to the host.
 
 DISCOVERY RULE: physical repositories/worktrees/contracts/evidence/artifacts may live in multiple typed, portable scopes. Never assume `/root`, one login user, one OS layout, one repository root, or one provider. Generic file bodies remain in their source systems; persist references/hashes/relations, not arbitrary changelog/context-file bodies. Agent-private `.claude`/`.codex` context is non-authoritative.
