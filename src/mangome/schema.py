@@ -6,11 +6,19 @@ from typing import Any
 CURRENT_SCHEMA_VERSION = 4
 
 
+class UnsupportedSchemaVersion(RuntimeError):
+    """Raised when a reader is older than the persisted MangoMe document schema."""
+
+
 def upgrade_document(collection: str, document: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     """Upgrade a document in memory without destroying unknown fields."""
     doc = deepcopy(document)
     changes: list[str] = []
     version = int(doc.get("schema_version", 1))
+    if version > CURRENT_SCHEMA_VERSION:
+        raise UnsupportedSchemaVersion(
+            f"unsupported future schema for {collection}: document={version}, reader={CURRENT_SCHEMA_VERSION}"
+        )
 
     if "revision" not in doc:
         doc["revision"] = 0

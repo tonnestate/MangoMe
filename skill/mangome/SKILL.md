@@ -50,6 +50,13 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 31. **Use typed discovery scopes.** Physical repositories, worktrees, contract/evidence/artifact roots may be scattered across users, hosts and operating systems. Use persisted/configured typed locations; never assume `/root`, `$HOME`, one repository root or one provider layout.
 32. **References, not file-body duplication.** Generic repository/filesystem/DMS files remain in their source systems. MangoMe stores bounded metadata, hashes, references, relations and explicitly admitted domain state; do not copy changelogs, context files or arbitrary documents into MongoDB merely because they were discovered.
 33. **Do not load optional context gratuitously.** Use the smallest sufficient MangoMe projection first. Do not read unrelated optional host skills, memories, broad guidance packs or repository trees unless the bounded delta actually requires them. Host-mandated instructions remain authoritative.
+34. **Do not mutate host network/system configuration as part of MangoMe operation.** MangoMe setup/doctor may manage only its documented client/workspace integration surfaces. DNS/resolver, network-manager, firewall, package-manager, SSH and unrelated system configuration are outside MangoMe's normal authority unless the explicit assignment itself is a host-maintenance task.
+
+34. **Slices are internal execution state.** Never expose Slice IDs, Slice decomposition, Plans, recovery cursors, or MangoMe orchestration to the user unless the user explicitly asks to inspect MangoMe itself. Human-visible responses contain outcomes, findings, evidence, blockers, and decisions.
+35. **Execute the requested work; do not substitute planning.** An AUDIT/REVIEW/VERIFY request must produce observations/findings/evidence. A new contract, specification, checklist, plan, or audit instruction document is not a substitute for executing that assignment.
+36. **Reuse Slices before creating any.** For admitted work, existing relevant Slices are reused exactly as they are. If none exist, MangoMe may materialize the minimum internal Slice(s) needed to execute the current assignment. This is internal state maintenance, not a new user deliverable.
+37. **Observe before repair.** Audit/reconciliation first compares normative truth with observed implementation and persists evidence. Only after a concrete deviation is established may the worker repair/adapt/correct within the current authorized scope. Explicit read-only assignments remain read-only.
+38. **Do not mutate normative truth to make implementation pass.** Audit findings may update execution state/evidence and may lead to repair work, but Contract/Specification truth changes only when the user explicitly requested a normative change or the authorized amendment path approves it.
 
 ## Start of work
 
@@ -67,6 +74,9 @@ STATE_FOUND?
 ```
 
 `enter_work` is the zero-touch entry point for ordinary new work. It does not weaken governance and it does not admit discovery candidates. `begin_work` remains the convenience path for an already admitted family with an effective specification. Both paths must end with a persisted Plan before productive mutation.
+
+`prepare_assignment` is the zero-touch path for an already admitted assignment when the worker must execute/reconcile work rather than invent a new user-facing planning artifact. It reuses existing Slices; only an admitted Family with no Slices may receive a minimal internal Slice. Slice/Plan details stay internal.
+
 
 Use lower-level `intake_request → submit_plan → start_slice` only when advanced control is needed. Plans should state expected scope/artifacts, acceptance expectations and an estimate when meaningful.
 

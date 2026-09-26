@@ -315,6 +315,8 @@ def _server_identity(workspace: Path, *, backend: str, database: str) -> dict[st
     env = {
         "MANGOME_BACKEND": backend,
         "MANGOME_DATABASE": database,
+        "MANGOME_EXPECTED_DATABASE": database,
+        "MANGOME_CONTEXT_MAX_BYTES": os.environ.get("MANGOME_CONTEXT_MAX_BYTES", "65536"),
         "MANGOME_RUNTIME_ROLE": "WORKER",
         "MANGOME_WORKSPACE_ROOT": str(workspace),
         "MANGOME_AUTO_ATTACH": "1",
@@ -621,7 +623,7 @@ def _strip_toml_section_family(text: str, section: str) -> str:
             continue
         if stripped.startswith("[") and stripped.endswith("]"):
             header = stripped.strip("[]").strip()
-            normalized_header = ".".join(part.strip().strip('"').strip("'") for part in header.split("."))
+            normalized_header = ".".join(part.strip().strip('\"').strip("'") for part in header.split("."))
             if normalized_header == section or normalized_header.startswith(section + "."):
                 skipping = True
                 continue

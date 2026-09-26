@@ -497,7 +497,6 @@ class MangoMeService:
                 required_evidence=evidence,
                 supersedes_spec_id=(current_spec.get("entity_id") if current_spec else None),
             )
-
         work = self.begin_work(
             family_id=family["entity_id"],
             actor_id=actor_id,
@@ -535,6 +534,153 @@ class MangoMeService:
                 "Filesystem/Big-Bang discoveries remain non-canonical until explicitly admitted, and "
                 "verification/acceptance remain separate capability-protected decisions."
             ),
+        }
+
+    def prepare_assignment(
+        self,
+        *,
+        family_id: str,
+        actor_id: str,
+        request_text: str,
+        intent: str | None = None,
+        classification: str | None = None,
+        classification_source: str = "MANGOME_ASSIGNMENT_PREP",
+        read_only: bool = False,
+        expected_artifacts: list[str] | None = None,
+        expected_scope: list[str] | None = None,
+        estimate: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Prepare an existing admitted assignment without exposing orchestration to the user.
+
+        Existing Slices are authoritative execution addresses and are reused. When an
+        admitted Family has no Slices yet, MangoMe materializes exactly one minimal
+        internal Slice so the worker can execute the assignment instead of returning a
+        planning/contract artifact to the user. This method never creates or amends a
+        Specification or ContractContribution.
+        """
+        family = self._must_get("families", family_id)
+        spec_id = family.get("current_spec_id")
+        if not spec_id:
+            raise PlanRequired("prepare_assignment requires an existing effective specification")
+        spec = self._must_get("specs", spec_id)
+        if not spec.get("effective", True):
+            raise PlanRequired("prepare_assignment requires the current effective specification")
+
+        normalized_classification = str(classification or self._fallback_classification(request_text)).upper()
+        request = self.intake_request(
+            request_text=request_text,
+            classification=normalized_classification,
+            classification_source=classification_source,
+            family_id=family_id,
+        )
+        existing = sorted(
+            self.store.find("slices", {"family_id": family_id}),
+            key=lambda s: (s.get("sequence") is None, s.get("sequence") or 0, s.get("created_at")),
+        )
+        policy = {
+            "slices": "INTERNAL_ONLY",
+            "user_result": "OUTCOME_FINDINGS_EVIDENCE_ONLY",
+            "planning_is_completion": False,
+            "reuse_existing_slices": True,
+            "materialize_only_when_none_exist": True,
+            "observe_before_repair": True,
+            "repair_allowed_after_evidence": not read_only,
+            "normative_truth_mutation": "FORBIDDEN_UNLESS_EXPLICITLY_REQUESTED",
+        }
+        if existing:
+            nonterminal = [
+                s for s in existing
+                if s.get("execution_state") not in {ExecutionState.DONE_CLAIMED.value, ExecutionState.CANCELLED.value}
+            ]
+            active_plan_ids = sorted({str(s.get("active_plan_id")) for s in nonterminal if s.get("active_plan_id")})
+            plan = self.store.get("plans", active_plan_ids[0]) if len(active_plan_ids) == 1 else None
+            if nonterminal and not active_plan_ids:
+                proposed = [
+                    {
+                        "declared_id": s["declared_id"],
+                        "title": s.get("title") or s["declared_id"],
+                        "objective": s.get("objective"),
+                        "sequence": s.get("sequence"),
+                        "acceptance": [g.get("description") for g in s.get("gates", []) if g.get("description")],
+                    }
+                    for s in nonterminal
+                ]
+                plan = self.submit_plan(
+                    family_id=family_id,
+                    request_id=request["entity_id"],
+                    spec_id=spec_id,
+                    actor_id=actor_id,
+                    intent=str(intent or request_text),
+                    proposed_slices=proposed,
+                    contract_ids=list(spec.get("contract_ids") or []),
+                    expected_artifacts=expected_artifacts,
+                    expected_scope=expected_scope,
+                    estimate=estimate,
+                    acceptance_expectations=list(spec.get("acceptance_criteria") or []),
+                    materialize_missing_slices=False,
+                )
+            return {
+                "request": request,
+                "plan": plan,
+                "active_plan_ids": active_plan_ids,
+                "slice_action": "REUSED_EXISTING",
+                "slice_count_before": len(existing),
+                "slice_count_after": len(existing),
+                "targets": [
+                    {
+                        "entity_id": s.get("entity_id"),
+                        "declared_id": s.get("declared_id"),
+                        "execution_state": s.get("execution_state"),
+                        "assurance_state": s.get("assurance_state"),
+                    }
+                    for s in existing
+                ],
+                "presentation_policy": policy,
+            }
+
+        title = "Internal assignment execution"
+        declared_id = _auto_slice_declared_id(
+            family_id=family_id,
+            request_text=request_text,
+            intent=str(intent or request_text),
+            title=title,
+        )
+        plan = self.submit_plan(
+            family_id=family_id,
+            request_id=request["entity_id"],
+            spec_id=spec_id,
+            actor_id=actor_id,
+            intent=str(intent or request_text),
+            proposed_slices=[{
+                "declared_id": declared_id,
+                "title": title,
+                "objective": request_text,
+                "acceptance": list(spec.get("acceptance_criteria") or []),
+            }],
+            contract_ids=list(spec.get("contract_ids") or []),
+            expected_artifacts=expected_artifacts,
+            expected_scope=expected_scope,
+            estimate=estimate,
+            acceptance_expectations=list(spec.get("acceptance_criteria") or []),
+            materialize_missing_slices=True,
+        )
+        matches = self.store.find("slices", {"family_id": family_id, "declared_id": declared_id})
+        if len(matches) != 1:
+            raise RuntimeError("prepare_assignment failed to materialize exactly one internal slice")
+        started = self.start_slice(slice_id=matches[0]["entity_id"], actor_id=actor_id, plan_id=plan["entity_id"])
+        return {
+            "request": request,
+            "plan": plan,
+            "slice_action": "MATERIALIZED_INTERNAL",
+            "slice_count_before": 0,
+            "slice_count_after": 1,
+            "targets": [{
+                "entity_id": started["slice"]["entity_id"],
+                "declared_id": started["slice"]["declared_id"],
+                "execution_state": started["slice"]["execution_state"],
+                "assurance_state": started["slice"]["assurance_state"],
+            }],
+            "presentation_policy": policy,
         }
 
     def begin_work(
@@ -881,9 +1027,19 @@ class MangoMeService:
             if sl.get("last_actor_id") == actor_id and sl.get("last_plan_id") == plan_id:
                 return sl
             raise InvalidTransition("slice already has a DONE claim from another execution context")
-        sl, _ = self._require_plan_for_slice(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id)
+        sl, plan = self._require_plan_for_slice(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id)
         if sl.get("active_plan_id") != plan_id:
             raise PlanRequired("slice must be active under this plan before DONE can be claimed")
+        request = self._must_get("requests", plan["request_id"])
+        if str(request.get("classification") or "").upper() in {"VERIFICATION", "AUDIT", "REVIEW"}:
+            audit_evidence = [
+                e for e in self.store.find("evidence", {"subject_id": slice_id})
+                if str(e.get("evidence_class") or "CLAIM").upper() != EvidenceClass.CLAIM.value
+            ]
+            if not audit_evidence:
+                raise InvalidTransition(
+                    "AUDIT_RESULT_EVIDENCE_REQUIRED: audit/review work cannot claim DONE from planning or prose alone"
+                )
         now = utcnow()
         updated = self._update(
             "slices", slice_id,
@@ -998,7 +1154,6 @@ class MangoMeService:
         discovery_policy: str = "CANDIDATE_ONLY", enabled: bool = True, metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from pathlib import Path
-
         root = str(Path(workspace_root).expanduser().resolve())
         loc = str(Path(location).expanduser().resolve()) if source_kind.upper() in {"FILESYSTEM", "GIT"} else str(location)
         role = role.upper()
@@ -1307,8 +1462,9 @@ class MangoMeService:
         plans = self.store.find("plans", {"family_id": family_id})
         active_plans = [p for p in plans if p.get("status") in {"RECORDED", "ACTIVE"}]
         context_ids = {family_id, *(s["entity_id"] for s in slices), *(c["entity_id"] for c in contracts), *(x["entity_id"] for x in specs)}
-        evidence = [e for e in self.store.find("evidence") if e.get("subject_id") in context_ids]
-        edges = [e for e in self.store.find("edges") if e.get("from_id") in context_ids or e.get("to_id") in context_ids]
+        evidence = self.store.find("evidence", {"subject_id__in": list(context_ids)})
+        edge_rows = self.store.find("edges", {"from_id__in": list(context_ids)}) + self.store.find("edges", {"to_id__in": list(context_ids)})
+        edges = list({e["entity_id"]: e for e in edge_rows}.values())
         return {
             "family": family,
             "contracts": contracts,
@@ -1355,8 +1511,8 @@ class MangoMeService:
     def graph(self, entity_id: str) -> dict[str, Any]:
         if not self._entity_exists_anywhere(entity_id):
             raise KeyError(f"unknown graph entity {entity_id}")
-        outgoing = [e for e in self.store.find("edges") if e.get("from_id") == entity_id]
-        incoming = [e for e in self.store.find("edges") if e.get("to_id") == entity_id]
+        outgoing = self.store.find("edges", {"from_id": entity_id})
+        incoming = self.store.find("edges", {"to_id": entity_id})
         return {"entity_id": entity_id, "outgoing": outgoing, "incoming": incoming}
 
     def effective_family_view(self, family_id: str) -> dict[str, Any]:
@@ -1364,8 +1520,8 @@ class MangoMeService:
         contracts = sorted(self.store.find("contracts", {"family_id": family_id}), key=lambda c: c["created_at"])
         ids = {c["entity_id"] for c in contracts}
         edges = [
-            e for e in self.store.find("edges")
-            if e.get("from_id") in ids and e.get("to_id") in ids and e.get("relation") in _CONTRACT_EVOLUTION_RELATIONS
+            e for e in self.store.find("edges", {"from_id__in": list(ids)})
+            if e.get("to_id") in ids and e.get("relation") in _CONTRACT_EVOLUTION_RELATIONS
         ]
         confirmed = [e for e in edges if e.get("status") == EdgeStatus.CONFIRMED.value]
         superseded = {e["to_id"] for e in confirmed if e.get("relation") == RelationType.SUPERSEDES.value}
@@ -1636,6 +1792,11 @@ class MangoMeService:
                 "human_visible_language": "INHERIT_CURRENT_USER_SESSION_LANGUAGE",
                 "silent_language_switch": "FORBIDDEN",
                 "machine_identifiers": "STABLE_LANGUAGE_NEUTRAL_TOKENS",
+            },
+            "presentation_policy": {
+                "slices": "INTERNAL_ONLY",
+                "plans": "INTERNAL_ONLY",
+                "user_result": "OUTCOME_FINDINGS_EVIDENCE_ONLY",
             },
             "rule": (
                 "Recovery follows canonical identity/state. Do not reconstruct admitted work from filesystem paths, "

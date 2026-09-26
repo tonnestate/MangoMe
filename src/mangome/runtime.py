@@ -19,11 +19,17 @@ def get_service() -> MangoMeService:
         return _service
     enforce_expected_identity()
     backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
+    database = os.environ.get("MANGOME_DATABASE", "mangome")
+    expected_database = os.environ.get("MANGOME_EXPECTED_DATABASE", "").strip()
+    if backend != "memory" and expected_database and database != expected_database:
+        raise OperabilityError(
+            "WRONG_MANGOME_DATABASE",
+            f"managed MangoMe binding expects database {expected_database!r}, running configuration selects {database!r}",
+        )
     if backend == "memory":
         store = InMemoryStore()
     else:
         uri = os.environ.get("MANGOME_MONGODB_URI", "mongodb://127.0.0.1:27017")
-        database = os.environ.get("MANGOME_DATABASE", "mangome")
         store = MongoStore(uri, database)
     _service = IntegrityMangoMeService(store)
     if os.environ.get("MANGOME_AUTO_ATTACH", "").strip().lower() in {"1", "true", "yes", "on"}:

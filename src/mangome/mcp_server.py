@@ -46,7 +46,7 @@ mcp = MCPServer(
         "text must not silently switch natural language. Stable machine identifiers/reason codes remain language-neutral. DONE is "
         "only a worker claim; verification and acceptance remain separate privileged transitions."
     ),
-    version="0.1.9rc4",
+    version="0.2.2",
 )
 
 
@@ -361,6 +361,42 @@ def enter_work(
     if result.get("ok") is not False:
         set_session_restore_snapshot({"restore_state": "STATE_FOUND", "mode": "NEW_WORK_ADMITTED"})
     return result
+
+
+@mcp.tool()
+def prepare_assignment(
+    family_id: str,
+    actor_id: str,
+    request_text: str,
+    intent: str | None = None,
+    classification: str | None = None,
+    read_only: bool = False,
+    expected_artifacts: list[str] | None = None,
+    expected_scope: list[str] | None = None,
+    estimate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Prepare internal execution for an admitted assignment without exposing MangoMe orchestration to the user.
+
+    Existing Slices are reused and never duplicated. If the admitted Family has no
+    Slice, MangoMe materializes one minimal internal execution Slice. For audit/review
+    assignments, the worker must still perform the audit and persist Evidence; planning
+    or producing another contract/specification is not completion.
+    """
+    blocked = _restore_gate("prepare_assignment")
+    if blocked:
+        return blocked
+    return _domain_call(
+        get_service().prepare_assignment,
+        family_id=family_id,
+        actor_id=actor_id,
+        request_text=request_text,
+        intent=intent,
+        classification=classification,
+        read_only=read_only,
+        expected_artifacts=expected_artifacts,
+        expected_scope=expected_scope,
+        estimate=estimate,
+    )
 
 
 @mcp.tool()

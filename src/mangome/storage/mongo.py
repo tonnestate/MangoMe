@@ -109,6 +109,8 @@ class MongoStore(Store):
         self.db["filesystem_entries"].create_index([("role", ASCENDING)])
         self.db["filesystem_roots"].create_index([("root_path", ASCENDING)], unique=True)
         self.db["edges"].create_index([("from_id", ASCENDING), ("relation", ASCENDING), ("to_id", ASCENDING)])
+        self.db["edges"].create_index([("to_id", ASCENDING), ("relation", ASCENDING), ("from_id", ASCENDING)])
+        self.db["evidence"].create_index([("subject_id", ASCENDING), ("created_at", ASCENDING)])
 
     def health(self) -> dict[str, Any]:
         result = self.db.command("ping")
