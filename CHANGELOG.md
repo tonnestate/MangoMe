@@ -1,4 +1,18 @@
 # Changelog
+## 0.2.2 — 2026-09-26 
+Package/Layout v0.2.2      PASS
+Root-Shadowing             PASS
+Version consistency        PASS
+v0.2.2 hardening code      PASS
+v0.2.2 regression test     PASS/PRESENT
+
+.gitignore                 MISSING
+GitHub CI workflow         MISSING
+GitHub Skill mirror        MISSING
+Claude Skill mirror        MISSING
+CHANGELOG v0.2.2           MISSING
+
+
 
 ## 0.1.9rc4 — 2026-09-26 — Portable Discovery, Native Session Restore & Tiered Fan-Out
 
