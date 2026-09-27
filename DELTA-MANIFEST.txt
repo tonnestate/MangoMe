@@ -1,23 +1,6 @@
-MangoMe v0.3.4 delta: stale host-memory authority guard
+MangoMe v0.3.5 -> v0.3.6 overlay delta
 
-Target: MangoMe v0.3.4
-Scope: Skill/governance only; no runtime, schema, database, MCP or package-version change.
-
-Purpose:
-- Generic host memory, prior chats, old audit/eval notes, cached summaries and agent-local memory are candidate-only discovery hints.
-- They must not establish current WorkIdentity, Contract/Specification truth, workspace binding, installation/version state, controller authority or operational truth.
-- If such a hint is consulted, it must be revalidated against current user intent, canonical MangoMe state and current direct workspace/runtime observation.
-- Broad historical host-memory search is not a default recovery path.
-
-Changed files:
-- skill/mangome/SKILL.md
-- src/mangome/skill/SKILL.md
-- .github/skills/mangome/SKILL.md
-- .claude/skills/mangome/SKILL.md
-- tests/test_repo_surfaces.py
-
-Validation:
-- python -m pytest -q tests/test_repo_surfaces.py
-- result: 4 passed
-
-Apply from repository root by overlaying this archive while preserving paths.
+Adds BTTM/1 bitemporal truth maintenance and MTB/1 MongoDB trust-boundary hardening.
+Overlay onto a clean v0.3.5 checkout, preserving deployment-local environment/service configuration.
+No destructive MongoDB migration is required; new truth collections/indexes are created lazily by normal MangoMe index initialization.
+Run `make check` after applying.

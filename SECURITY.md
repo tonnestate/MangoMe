@@ -26,7 +26,9 @@ For production deployment:
 - keep verifier/owner runtimes isolated from worker runtimes;
 - treat direct database writers as trusted infrastructure, not ordinary agents.
 
-The managed client setup deliberately does not copy MongoDB credentials into generated client configuration. MangoMe does not require a separate service, container, or OS identity as part of its core architecture. Deployments that expose direct MongoDB write credentials to an unrestricted worker must, however, treat that worker as inside the trusted database boundary and must not claim that MangoMe's service-level transition checks protect against that worker bypassing the API.
+The managed client setup deliberately does not copy MongoDB credentials into generated client configuration. v0.3.6 adds `MTB/1`: `MANGOME_TRUST_BOUNDARY=STRICT` requires a protected `MANGOME_MONGODB_URI_FILE` and expected dedicated service uid, rejects worker-visible environment URIs, and rejects remote MongoDB endpoints unless explicitly allowed. `MANGOME_ENFORCE_LEAST_PRIVILEGE=1` also rejects known dangerous built-in/global MongoDB roles when role introspection is available.
+
+A strict deployment therefore runs MangoMe under a separate OS/service identity whose credential file is inaccessible to workers. Deployments that expose direct MongoDB write credentials to an unrestricted worker must treat that worker as inside the trusted database boundary and must not claim that MangoMe's service-level transition checks protect against bypassing the API.
 
 ## Discovery and admission
 

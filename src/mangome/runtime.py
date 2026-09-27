@@ -6,6 +6,7 @@ from .work_control import WorkGovernedMangoMeService
 from .service import MangoMeService, workspace_project_key
 from .storage.memory import InMemoryStore
 from .storage.mongo import MongoStore
+from .trust_boundary import resolve_mongodb_connection, enforce_mongo_role_boundary
 from .operability import OperabilityError, attach_workspace, enforce_expected_identity, resolve_workspace_root
 
 _service: MangoMeService | None = None
@@ -65,8 +66,9 @@ def get_service() -> MangoMeService:
     if backend == "memory":
         store = InMemoryStore()
     else:
-        uri = os.environ.get("MANGOME_MONGODB_URI", "mongodb://127.0.0.1:27017")
-        store = MongoStore(uri, database)
+        mongo = resolve_mongodb_connection()
+        store = MongoStore(mongo.uri, database)
+        enforce_mongo_role_boundary(store)
     _service = WorkGovernedMangoMeService(store)
     if os.environ.get("MANGOME_AUTO_ATTACH", "").strip().lower() in {"1", "true", "yes", "on"}:
         # v0.3.4 hotfix: startup binding must be cheap and non-blocking.  Do not
@@ -142,6 +144,17 @@ def health_snapshot() -> dict[str, object]:
     backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
     database = os.environ.get("MANGOME_DATABASE", "mangome") if backend != "memory" else None
     backend_name = "memory" if backend == "memory" else "mongodb"
+    trust_boundary = None
+    if backend != "memory":
+        try:
+            trust_boundary = resolve_mongodb_connection().status
+        except Exception as exc:
+            trust_boundary = {
+                "protocol": "MTB/1",
+                "mode": os.environ.get("MANGOME_TRUST_BOUNDARY", "WARN").strip().upper(),
+                "ok": False,
+                "reason_code": getattr(exc, "code", type(exc).__name__),
+            }
 
     try:
         service = get_service()
@@ -172,6 +185,7 @@ def health_snapshot() -> dict[str, object]:
             "version": __version__,
             "schema_version": CURRENT_SCHEMA_VERSION,
             "store": store,
+            "trust_boundary": trust_boundary,
         }
 
     return {
@@ -179,6 +193,7 @@ def health_snapshot() -> dict[str, object]:
         "version": __version__,
         "schema_version": CURRENT_SCHEMA_VERSION,
         "store": store_health,
+        "trust_boundary": trust_boundary,
         "workspace_attachment": _workspace_attachment,
     }
 

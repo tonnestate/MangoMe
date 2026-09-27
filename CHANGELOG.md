@@ -1,3 +1,14 @@
+## 0.3.6 — 2026-09-27 — Bitemporal Truth Maintenance & MongoDB Trust Boundary
+
+- Added `BTTM/1` canonical truth assertions with separate valid-time and known-time intervals.
+- Added Evidence/support/assumption/dependency/contradiction grounding and deterministic supportability states.
+- Added non-destructive invalidation with recursive `REVALIDATION_REQUIRED` propagation and immutable truth events.
+- Integrated current BTTM assertions into PCH/1 and ContextCompiler without conflating truth with cognitive temperature.
+- Added `record_truth_assertion`, `truth_at`, `truth_assertion_status`, `invalidate_truth_assertion`, and `bitemporal_truth_status` MCP surfaces.
+- Added `MTB/1` strict MongoDB trust-boundary mode: protected credential-file loading, expected service-uid enforcement, remote-endpoint fail-closed default, sanitized health posture, and optional rejection of dangerous built-in MongoDB roles.
+- Added `trust_boundary_status` and production deployment guidance.
+- No destructive migration of existing canonical collections is required; v0.3.6 adds new truth collections and indexes.
+
 # Changelog
 
 ## 0.3.5 — 2026-09-27 — Out-of-Band Control-Plane Self-Maintenance

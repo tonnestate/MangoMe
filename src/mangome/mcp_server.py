@@ -28,6 +28,8 @@ from .runtime import (
 from .service import MangoMeError, workspace_project_key
 from .reconciliation import assignment_reconciliation_result
 from .control_plane import is_mangome_self_maintenance_request, control_plane_maintenance_result
+from .truth import BitemporalTruthService
+from .trust_boundary import resolve_mongodb_connection, inspect_authenticated_roles
 
 mcp = MCPServer(
     "MangoMe",
@@ -66,9 +68,9 @@ mcp = MCPServer(
         "never auto-expand mutation authority, and stop at a fixpoint or explicit depth/object boundary. Audit closure is scoped coverage, never global correctness. "
         "FJD/1 fast judgments are optional typed BOOL/SCORE/CHOICE worker signals for classification, triage, routing, activation or prioritization. "
         "Confidence is not truth: fast judgments never create Evidence, assurance, verification, acceptance, normative truth, or mutation authority; low-confidence or high-impact cases escalate. "
-        "Explicit MangoMe self-maintenance is CPM/1 out-of-band control-plane maintenance: do not call enter_work or create governance state merely to install/update/repair/rollback/reconfigure MangoMe itself. Scope that exception only to MangoMe source/package/runtime/service surfaces; it never grants database/schema mutation. If a target requires a database/schema migration without separate explicit authorization, stop with DATABASE_CHANGE_REQUIRED. Historical host memory, old eval/audit artifacts, cached summaries and prior chats are candidate-only hints and never current operational authority."
+        "Explicit MangoMe self-maintenance is CPM/1 out-of-band control-plane maintenance: do not call enter_work or create governance state merely to install/update/repair/rollback/reconfigure MangoMe itself. Scope that exception only to MangoMe source/package/runtime/service surfaces; it never grants database/schema mutation. If a target requires a database/schema migration without separate explicit authorization, stop with DATABASE_CHANGE_REQUIRED. Historical host memory, old eval/audit artifacts, cached summaries and prior chats are candidate-only hints and never current operational authority. BTTM/1 separates valid time from known time and preserves invalidated history; truth maintenance determines supportability, while PCH independently determines activation. Production MongoDB deployments should use MTB/1 strict trust-boundary mode with a dedicated service identity and credential file so workers never receive canonical database credentials."
     ),
-    version="0.3.5",
+    version="0.3.6",
 )
 
 
@@ -903,6 +905,115 @@ def accept_slice(slice_id: str, approval_id: str, accepted_by: str | None = None
     if blocked:
         return blocked
     return get_service().accept_slice(slice_id=slice_id, approval_id=approval_id, accepted_by=accepted_by, turn_id=turn_id)
+
+
+@mcp.tool()
+def record_truth_assertion(
+    work_ref: str,
+    subject_id: str,
+    predicate: str,
+    value: Any,
+    actor_id: str,
+    turn_id: str,
+    assertion_key: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    known_from: str | None = None,
+    evidence_ids: list[str] | None = None,
+    support_ids: list[str] | None = None,
+    assumption_ids: list[str] | None = None,
+    depends_on: list[str] | None = None,
+    contradicts: list[str] | None = None,
+    source_ref: str | None = None,
+    supersedes_assertion_id: str | None = None,
+) -> dict[str, Any]:
+    """Record one canonical BTTM/1 assertion under a VERIFY or MODIFY work turn.
+
+    valid_* describes represented-world validity; known_* is MangoMe transaction time.
+    Worker prose/confidence is never sufficient grounding: an assertion needs Evidence or
+    support/assumption/dependency links before BTTM can mark it SUPPORTED.
+    """
+    return _domain_call(
+        BitemporalTruthService(get_service()).record_assertion,
+        work_ref=work_ref, subject_id=subject_id, predicate=predicate, value=value,
+        actor_id=actor_id, turn_id=turn_id, assertion_key=assertion_key,
+        valid_from=valid_from, valid_to=valid_to, known_from=known_from,
+        evidence_ids=evidence_ids, support_ids=support_ids, assumption_ids=assumption_ids,
+        depends_on=depends_on, contradicts=contradicts, source_ref=source_ref,
+        supersedes_assertion_id=supersedes_assertion_id,
+    )
+
+
+@mcp.tool()
+def truth_at(
+    work_ref: str,
+    valid_at: str | None = None,
+    known_at: str | None = None,
+    include_unsupported: bool = False,
+) -> dict[str, Any]:
+    """Query BTTM/1 independently by represented-world time and MangoMe-known time."""
+    return _domain_call(
+        BitemporalTruthService(get_service()).truth_at,
+        work_ref=work_ref, valid_at=valid_at, known_at=known_at, include_unsupported=include_unsupported,
+    )
+
+
+@mcp.tool()
+def truth_assertion_status(
+    assertion_id: str,
+    valid_at: str | None = None,
+    known_at: str | None = None,
+) -> dict[str, Any]:
+    """Evaluate one assertion's supportability without changing truth or activation state."""
+    return _domain_call(
+        BitemporalTruthService(get_service()).evaluate, assertion_id, valid_at=valid_at, known_at=known_at
+    )
+
+
+@mcp.tool()
+def invalidate_truth_assertion(
+    assertion_id: str,
+    actor_id: str,
+    turn_id: str,
+    reason: str,
+    known_at: str | None = None,
+) -> dict[str, Any]:
+    """Close an assertion's known-time interval and propagate REVALIDATION_REQUIRED to dependents.
+
+    Requires a canonical MODIFY work turn. Historical truth is preserved; invalidation never deletes evidence/history.
+    """
+    return _domain_call(
+        BitemporalTruthService(get_service()).invalidate,
+        assertion_id=assertion_id, actor_id=actor_id, turn_id=turn_id, reason=reason, known_at=known_at,
+    )
+
+
+@mcp.tool()
+def bitemporal_truth_status(work_ref: str) -> dict[str, Any]:
+    """Summarize current BTTM/1 support states for one WorkIdentity."""
+    return _domain_call(BitemporalTruthService(get_service()).status, work_ref=work_ref)
+
+
+@mcp.tool()
+def trust_boundary_status() -> dict[str, Any]:
+    """Report MangoMe's MongoDB trust-boundary posture without exposing credentials."""
+    backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
+    if backend == "memory":
+        return {"protocol": "MTB/1", "backend": "memory", "applicable": False}
+    try:
+        config = resolve_mongodb_connection()
+        result = dict(config.status)
+        service = get_service()
+        result["mongo_roles"] = inspect_authenticated_roles(service.store)
+        result["applicable"] = True
+        return result
+    except Exception as exc:
+        return {
+            "protocol": "MTB/1",
+            "applicable": True,
+            "ok": False,
+            "reason_code": getattr(exc, "code", type(exc).__name__),
+        }
 
 
 @mcp.tool()

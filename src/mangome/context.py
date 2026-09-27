@@ -6,6 +6,7 @@ from typing import Any
 
 from .hygiene import CognitiveHygieneService
 from .service import MangoMeService
+from .truth import BitemporalTruthService
 
 
 class ContextBudgetExceeded(RuntimeError):
@@ -177,9 +178,41 @@ class ContextCompiler:
                     "Discovery/recovery/playbooks never promote themselves to canonical truth."
                 ),
             }
+            truth = BitemporalTruthService(self.service)
+            try:
+                truth_state = truth.truth_at(work_ref=work["entity_id"], include_unsupported=True)
+                current_truth = []
+                for item in truth_state.get("assertions") or []:
+                    assertion = item.get("assertion") or {}
+                    if assertion.get("entity_id") not in resident_ids:
+                        continue
+                    current_truth.append({
+                        "entity_id": assertion.get("entity_id"),
+                        "assertion_key": assertion.get("assertion_key"),
+                        "subject_id": assertion.get("subject_id"),
+                        "predicate": assertion.get("predicate"),
+                        "value": assertion.get("value"),
+                        "valid_from": assertion.get("valid_from"),
+                        "valid_to": assertion.get("valid_to"),
+                        "known_from": assertion.get("known_from"),
+                        "known_to": assertion.get("known_to"),
+                        "support_state": item.get("support_state"),
+                    })
+                payload["bitemporal_truth"] = {
+                    "protocol": "BTTM/1",
+                    "current_resident_assertions": current_truth,
+                    "rule": "Truth maintenance decides supportability; Cognitive Hygiene independently decides residency.",
+                }
+            except Exception:
+                payload["bitemporal_truth"] = {
+                    "protocol": "BTTM/1",
+                    "current_resident_assertions": [],
+                    "rule": "Truth layer unavailable in this projection; never synthesize truth from worker judgment.",
+                }
             payload["instruction"] += (
                 " WorkIdentity, normative baseline bindings and assurance history are canonical. "
-                "Progressive checkpoints and Playbooks must never overwrite or reconstruct them."
+                "Progressive checkpoints and Playbooks must never overwrite or reconstruct them. "
+                "BTTM supportability and PCH activation are separate dimensions."
             )
 
         configured = max_bytes

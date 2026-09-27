@@ -80,6 +80,20 @@ When the user says things such as “understand the system”, “make reasonabl
 
 The effect boundary includes code/file/database writes, commits, deployments, external messages/actions, canonical MangoMe mutations, normative promotion, DONE/VERIFIED claims, and other durable project-changing operations. Reading, searching, reasoning, local classification and tentative planning are not themselves productive effects.
 
+## Bitemporal truth maintenance (BTTM/1)
+
+Use BTTM/1 when current work needs durable factual assertions whose real-world validity and organizational knowledge time can differ. `valid_*` answers when a fact is claimed to hold in the represented world; `known_*` answers when MangoMe knew that assertion version. Never collapse those axes.
+
+Canonical truth assertions must be grounded by Evidence or explicit support/assumption/dependency links. Worker prose, model confidence, FJD/1 output and historical host memory are not sufficient grounding. Invalidation is non-destructive: close the known-time interval, preserve the historical row, propagate `REVALIDATION_REQUIRED`, and let PCH reheat the affected region. Truth maintenance decides supportability; Cognitive Hygiene decides activation.
+
+Use `truth_at` for historical reconstruction, `truth_assertion_status` for supportability, `record_truth_assertion` under a bound `VERIFY`/`MODIFY` turn, and `invalidate_truth_assertion` only under `MODIFY`.
+
+## MongoDB trust boundary (MTB/1)
+
+For production, workers must not possess canonical MongoDB credentials. Prefer `MANGOME_TRUST_BOUNDARY=STRICT`, a dedicated MangoMe OS/service identity, an owner-only `MANGOME_MONGODB_URI_FILE`, and an expected service uid. Do not place canonical database credentials in a worker-visible environment or generated client configuration.
+
+`trust_boundary_status` is diagnostic only and never exposes secrets. A trust-boundary failure is a host/deployment problem, not an invitation for the worker to search for credentials, relax permissions, or self-promote database authority.
+
 ## Fast bounded judgments (FJD/1)
 
 Use FJD/1 only when a bounded typed decision would save expensive reasoning: classification, triage, routing, activation, relevance or prioritization. A host may produce the value with a heuristic, small local classifier, specialized decision model, or other cheap engine; MangoMe itself does not require a particular inference provider.
@@ -154,6 +168,11 @@ Never treat confidence as truth. FJD/1 may guide which path to inspect or which 
 60. **Self-maintenance does not self-admit.** An explicit operator request to install/update/repair/rollback/reconfigure MangoMe itself uses the out-of-band `CPM/1` control-plane maintenance path. Do not call `enter_work` or write an approval merely to make MangoMe capable of repairing itself.
 61. **No hidden database exception.** `CPM/1` never authorizes canonical MongoDB/schema mutation. If the maintenance target requires such a change, stop with `DATABASE_CHANGE_REQUIRED` unless the user separately and explicitly authorizes it.
 62. **Current sources outrank stale host memory.** For MangoMe version/install/runtime state, prefer current user intent, current repository/runtime observation, and current canonical MangoMe state. Old eval contracts, prior chats, host-memory files, and cached summaries are discovery hints only.
+63. **Valid time and known time are separate.** BTTM/1 must preserve both represented-world validity and MangoMe transaction/knowledge time; do not overwrite history to make current truth convenient.
+64. **Supportability is not activation.** BTTM/1 decides whether an assertion is supportable; PCH/1 decides whether it should be resident. Neither substitutes for assurance or normative authority.
+65. **Invalidation propagates, history remains.** Closing a support assertion must mark dependent current assertions `REVALIDATION_REQUIRED` without deleting earlier truth/evidence history.
+66. **Workers never receive canonical DB credentials in strict mode.** MTB/1 production deployments use a dedicated service identity and protected credential file. A worker-visible MongoDB URI places that worker inside the database trust boundary and invalidates claims of service-level isolation.
+67. **Trust-boundary failures are host-owned.** A worker must not search for credentials, weaken filesystem permissions, switch to an admin MongoDB role, or bypass MangoMe when MTB/1 fails closed.
 
 ## WorkIdentity-first turn binding
 

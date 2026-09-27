@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.5-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.6-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -84,6 +84,10 @@ MangoMe moves that problem out of the prompt and into durable, inspectable state
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
 
 ---
+
+# v0.3.6 — bitemporal truth + hardened MongoDB trust boundary
+
+v0.3.6 closes the two remaining core gaps identified after the v0.3.x architecture review. `BTTM/1` adds non-destructive bitemporal truth maintenance (`valid_time` vs `known_time`) with support/assumption/dependency invalidation and PCH revalidation heating. `MTB/1` adds an optional fail-closed production trust-boundary profile so canonical MongoDB credentials can live behind a dedicated MangoMe service identity instead of in worker-visible environment/configuration. See `docs/bitemporal-truth-maintenance.md` and `docs/trust-boundary.md`.
 
 # v0.3.5 — out-of-band control-plane self-maintenance
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from .enums import EdgeStatus, RelationType
 from .service import MangoMeService
+from .truth import BitemporalTruthService
 
 PCH_POLICY_VERSION = "PCH/1"
 DEFAULT_ACTIVE_MAX_OBJECTS = 64
@@ -153,6 +154,22 @@ class CognitiveHygieneService:
         for item in ctx.get("evidence") or []:
             add("EVIDENCE", item)
 
+        # BTTM/1 current truth assertions are canonical epistemic nodes. They are
+        # included in the cognitive map, but their support state remains orthogonal
+        # to PCH temperature: supportability decides what may be believed; hygiene
+        # decides what should be resident for the task.
+        resolver = getattr(self.service, "_work_for_family", None)
+        if callable(resolver):
+            work = resolver(str(ctx.get("family", {}).get("entity_id") or ""))
+            if work is not None:
+                try:
+                    for item in BitemporalTruthService(self.service).current_assertions(work["entity_id"]):
+                        add("TRUTH_ASSERTION", item)
+                except Exception:
+                    # Cognitive hygiene is a projection layer; failure to read an
+                    # optional truth layer must not mutate or corrupt canonical state.
+                    pass
+
         # Active Plans reference Requests; include them as navigation context when present.
         request_ids = {str(p.get("request_id")) for p in ctx.get("active_plans") or [] if p.get("request_id")}
         for request_id in request_ids:
@@ -207,11 +224,21 @@ class CognitiveHygieneService:
             connect(item.get("entity_id"), item.get("subject_id"), "EVIDENCES", synthetic=True)
             connect(item.get("entity_id"), item.get("artifact_id"), "EVIDENCES_ARTIFACT", synthetic=True)
         for entry in nodes.values():
-            if entry.get("kind") != "ARTIFACT":
-                continue
-            artifact = entry.get("doc") or {}
-            for owner_id in artifact.get("belongs_to") or []:
-                connect(artifact.get("entity_id"), owner_id, "ARTIFACT_BELONGS_TO", synthetic=True)
+            if entry.get("kind") == "ARTIFACT":
+                artifact = entry.get("doc") or {}
+                for owner_id in artifact.get("belongs_to") or []:
+                    connect(artifact.get("entity_id"), owner_id, "ARTIFACT_BELONGS_TO", synthetic=True)
+            elif entry.get("kind") == "TRUTH_ASSERTION":
+                assertion = entry.get("doc") or {}
+                connect(assertion.get("entity_id"), assertion.get("subject_id"), "ASSERTS_ABOUT", synthetic=True)
+                for ref in assertion.get("support_ids") or []:
+                    connect(assertion.get("entity_id"), ref, "SUPPORTED_BY", synthetic=True)
+                for ref in assertion.get("assumption_ids") or []:
+                    connect(assertion.get("entity_id"), ref, "ASSUMES", synthetic=True)
+                for ref in assertion.get("depends_on") or []:
+                    connect(assertion.get("entity_id"), ref, "DEPENDS_ON", synthetic=True)
+                for ref in assertion.get("contradicts") or []:
+                    connect(assertion.get("entity_id"), ref, "CONTRADICTS", synthetic=True)
         return adjacency, relations
 
     @staticmethod
@@ -331,6 +358,8 @@ class CognitiveHygieneService:
                 operational = 0.68
             elif kind == "ARTIFACT":
                 operational = 0.74 if doc.get("exists", True) and doc.get("readable", True) else 0.40
+            elif kind == "TRUTH_ASSERTION":
+                operational = 0.82 if doc.get("known_to") is None else 0.30
 
             validity = _explicit_validity(doc)
             freshness = _VALIDITY_SCORES.get(validity or "UNKNOWN", 0.65)
@@ -344,6 +373,13 @@ class CognitiveHygieneService:
                 trust_score = {"OWNER_ATTESTED": 1.0, "VERIFIER_ATTESTED": 0.92, "UNATTESTED": 0.45}.get(trust, 0.45)
                 verdict_score = {"PASS": 1.0, "FAIL": 1.0, "INFO": 0.70, "UNKNOWN": 0.35}.get(verdict, 0.35)
                 support = (trust_score + verdict_score) / 2.0
+            elif kind == "TRUTH_ASSERTION":
+                support = {
+                    "SUPPORTED": 1.0,
+                    "CONTRADICTED": 0.25,
+                    "REVALIDATION_REQUIRED": 0.40,
+                    "UNSUPPORTED": 0.15,
+                }.get(str(doc.get("support_state") or "REVALIDATION_REQUIRED"), 0.40)
 
             conflict_boost = 0.12 if entity_id in conflict_ids else 0.0
             revalidation_boost = 0.16 if validity in {"STALE", "SOURCE_CHANGED", "ENVIRONMENT_CHANGED", "REVALIDATION_REQUIRED"} else 0.0
