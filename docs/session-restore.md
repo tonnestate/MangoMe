@@ -1,6 +1,6 @@
 # Native session restore
 
-MangoMe restores durable work state before productive execution. In managed v0.3.3 clients this read-only snapshot is populated automatically when MangoMe initializes; the worker does not need to call restore merely because a session started.
+MangoMe restores durable work state before productive execution. In managed v0.3.4 clients runtime startup performs only a cheap read-only workspace binding; canonical restore is resolved lazily when reconciliation/recovery or an effect gate actually needs it. The worker does not call restore merely because a session started.
 
 ```text
 RECOVERY / STATUS REQUEST OR UNMANAGED HOST

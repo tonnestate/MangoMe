@@ -9,7 +9,7 @@ MangoMe is the canonical operational-memory system for durable multi-agent work.
 
 ## Zero-touch user rule
 
-Zero-touch applies to the **user interface**, not to MangoMe's governance. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, call `session_restore`, or otherwise operate MangoMe vocabulary manually. Managed clients bootstrap read-only workspace/restore state automatically when MangoMe is first used. Do **not** perform a ritual restore merely because a chat/session started.
+Zero-touch applies to the **user interface**, not to MangoMe's governance. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, call `session_restore`, or otherwise operate MangoMe vocabulary manually. Managed clients bind the workspace automatically through a read-only fast path when MangoMe is first used. Binding performs no filesystem inventory or Big-Bang discovery; canonical restore is lazy at reconciliation/recovery or the effect boundary. Do **not** perform a ritual restore merely because a chat/session started.
 
 The default rule is:
 
@@ -22,6 +22,8 @@ GOVERNED PRODUCTIVE WORK
 ```
 
 A worker may inspect files, search a repository, understand architecture, form hypotheses, classify the request, and draft a **tentative** decomposition before MangoMe reconciliation. Those thoughts are worker judgment, not canonical project state. Before the first productive mutation, external side effect, canonical Plan/Spec/Contract change, or assurance claim, call `reconcile_assignment` and reconcile the tentative understanding with existing WorkIdentity, unfinished work, authority and the current normative baseline.
+
+A bootstrap/reconciliation call must never be used as an excuse to stop ordinary cognition while MangoMe scans a filesystem. **Binding is not discovery.** If MangoMe is unresolved, continue safe reading/reasoning and keep productive effects blocked; explicit discovery/onboarding is a separate operation.
 
 Use explicit `session_restore` / `session_bootstrap` when the assignment is specifically about recovery/status, when an unmanaged host has no automatic bootstrap, or when `reconcile_assignment` reports that recovery/backfill is required. If canonical restore resolves to `STATE_NOT_FOUND`, preserve that fact. Never create Project/Family/Specification state and call it recovered. Only genuinely new work may use `enter_work` with the user's actual request before productive mutation; historical/resume work requires explicit import/backfill distinct from restore. `enter_work` admits a canonical **WorkIdentity** and an operational-intent baseline; it does **not** turn the prompt into a Specification or Contract.
 
@@ -80,7 +82,7 @@ Never treat confidence as truth. FJD/1 may guide which path to inspect or which 
 
 ## Non-negotiable rules
 
-1. **Think freely; reconcile before effect.** Repository exploration, reasoning, classification and tentative decomposition may happen before MangoMe reconciliation. Before productive mutation, canonical state change, external side effect or assurance claim, call `reconcile_assignment` (or use explicit restore on an unmanaged/recovery path). Managed clients auto-bootstrap read-only restore state; `STATE_NOT_FOUND` is never permission to synthesize recovery state.
+1. **Think freely; reconcile before effect.** Repository exploration, reasoning, classification and tentative decomposition may happen before MangoMe reconciliation. Before productive mutation, canonical state change, external side effect or assurance claim, call `reconcile_assignment` (or use explicit restore on an unmanaged/recovery path). Managed clients auto-bind the workspace without scanning and resolve canonical restore lazily; `STATE_NOT_FOUND` is never permission to synthesize recovery state.
 2. **Categorize every assignment.** Call `intake_request`; reuse IntakeGov classification when available.
 3. **Resolve before creating.** Search existing project/family/contract/slice identity before creating a new one.
 4. **A prompt is not a Contract or Specification.** A user turn may admit durable WorkIdentity, but normative truth requires its own admission path.
@@ -211,7 +213,7 @@ current-turn binding / authority
 productive effect
 ```
 
-Managed runtimes may have already populated the read-only restore snapshot automatically. `reconcile_assignment` is therefore the preferred worker-facing bridge; it is not another persistence layer and does not make tentative worker judgment canonical. Explicit `session_restore` remains the recovery/status primitive.
+Managed runtimes may already have a volatile read-only workspace binding, while canonical restore remains lazy. `reconcile_assignment` is therefore the preferred worker-facing bridge; it is not another persistence layer and does not make tentative worker judgment canonical. Explicit `session_restore` remains the recovery/status primitive.
 
 `enter_work` is the zero-touch entry point for ordinary new work. In v0.3 it admits WorkIdentity and an operational-intent baseline without manufacturing a Specification from the prompt. `begin_work` remains the convenience path for already admitted work. Productive Plans must be bound to WorkIdentity, current WorkTurn and current NormativeBaseline before mutation.
 

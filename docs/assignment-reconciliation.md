@@ -28,7 +28,7 @@ Reading, searching, local reasoning, classification, hypotheses and tentative pl
 
 ## Managed bootstrap
 
-Managed clients use automatic workspace attachment. Runtime initialization computes the read-only restore snapshot; `MANGOME_REQUIRE_SESSION_RESTORE=1` remains a compatibility safety gate but no longer requires the worker to make a ritual restore tool call. Explicit `session_restore` remains the primitive for dedicated recovery/status workflows and unmanaged hosts.
+Managed clients use automatic read-only workspace binding. Runtime initialization does not scan or eagerly compute the canonical restore snapshot; restore is resolved lazily when reconciliation/recovery or an effect gate needs it. `MANGOME_REQUIRE_SESSION_RESTORE=1` remains a compatibility safety gate but no longer requires the worker to make a ritual restore tool call. Explicit `session_restore` remains the primitive for dedicated recovery/status workflows and unmanaged hosts.
 
 ## Invariants
 

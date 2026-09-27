@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.4 — 2026-09-27 — Non-Blocking Bootstrap / Lazy Discovery Hotfix
+
+- Separates **workspace binding** from filesystem/Big-Bang discovery. A managed MCP process now creates only a volatile read-only workspace binding at startup; it does not inventory files, scan repositories, or run onboarding discovery.
+- `session_restore`, `session_bootstrap`, and `reconcile_assignment` no longer fall back to `refresh_workspace_attachment()` when no attachment exists. They use the read-only binding fast path and consult canonical MangoMe state directly.
+- Automatic startup no longer performs canonical recovery eagerly. Canonical restore is lazy and occurs only when reconciliation/recovery or an effect gate needs it.
+- Explicit `workspace_status(..., refresh=True)` remains the opt-in path for full attachment/discovery refresh.
+- `session_bootstrap` now returns timing/mode diagnostics and guarantees that the bootstrap path itself performs no filesystem inventory, Big-Bang discovery, or repository archaeology.
+- Preserves the v0.3.3 effect-boundary rule: cognition may continue while MangoMe is unresolved; productive effects remain fail-closed until canonical reconciliation succeeds.
+
 ## 0.3.3 — 2026-09-27 — Zero-Touch Assignment Reconciliation / Effect Boundary
 
 - Replaced the worker-facing restore-first ritual with **THINK FREELY, RECONCILE BEFORE EFFECT**.

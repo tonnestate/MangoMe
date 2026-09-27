@@ -23,7 +23,7 @@ from .filesystem import FilesystemScanner
 from .interlingua import UAICompiler, decode_uai_result as decode_result_packet, render_uai_result as render_result_packet
 from .runtime import (
     get_service, health_snapshot, refresh_workspace_attachment, workspace_attachment_snapshot,
-    set_session_restore_snapshot, session_restore_snapshot,
+    ensure_workspace_binding, restore_workspace_state, set_session_restore_snapshot, session_restore_snapshot,
 )
 from .service import MangoMeError, workspace_project_key
 from .reconciliation import assignment_reconciliation_result
@@ -36,7 +36,7 @@ mcp = MCPServer(
         "contracts, slices, plans, or other MangoMe internals. THINK FREELY, RECONCILE BEFORE EFFECT: a worker may inspect, "
         "reason, form hypotheses, and draft a tentative decomposition before consulting MangoMe, but must reconcile the current "
         "assignment with MangoMe before productive mutation, canonical state changes, external side effects, or assurance claims. "
-        "Managed clients bootstrap read-only restore state automatically; do not call session_restore merely because a session started. "
+        "Managed clients bind the workspace automatically without scanning; canonical restore/reconciliation is lazy at the effect boundary. Do not call session_restore merely because a session started. "
         "Use reconcile_assignment as the normal assignment bridge; use explicit session_restore/session_bootstrap for recovery/status or "
         "when automatic managed bootstrap is unavailable. "
         "Discovery is candidate-only and is only an onboarding mechanism for work that is not yet admitted. Once a "
@@ -66,7 +66,7 @@ mcp = MCPServer(
         "FJD/1 fast judgments are optional typed BOOL/SCORE/CHOICE worker signals for classification, triage, routing, activation or prioritization. "
         "Confidence is not truth: fast judgments never create Evidence, assurance, verification, acceptance, normative truth, or mutation authority; low-confidence or high-impact cases escalate."
     ),
-    version="0.3.3",
+    version="0.3.4",
 )
 
 
@@ -168,22 +168,12 @@ def _restore_gate(operation: str, *, allow_new_work: bool = False) -> dict[str, 
         return None
     restored = session_restore_snapshot()
     if restored is None and str(os.environ.get("MANGOME_AUTO_ATTACH", "")).strip().lower() in {"1", "true", "yes", "on"}:
-        # v0.3.3 managed zero-touch: initialize/attach and populate the read-only
-        # canonical restore snapshot automatically. This also covers a process where
-        # the service was initialized before the restore snapshot was populated.
+        # v0.3.4 managed zero-touch: startup binds cheaply; canonical restore is
+        # resolved lazily only when an effect gate actually needs it.
         get_service()
         restored = session_restore_snapshot()
         if restored is None:
-            current = workspace_attachment_snapshot() or refresh_workspace_attachment()
-            root = str(
-                (current or {}).get("workspace_root")
-                or os.environ.get("MANGOME_WORKSPACE_ROOT")
-                or os.getcwd()
-            )
-            restored = get_service().session_restore(
-                workspace_project_key(str(Path(root).expanduser().resolve()))
-            )
-            set_session_restore_snapshot(restored)
+            restored = restore_workspace_state()
     if restored is None:
         return {
             "ok": False,
@@ -282,8 +272,10 @@ def health() -> dict[str, Any]:
 def workspace_status(workspace_root: str | None = None, refresh: bool = False) -> dict[str, Any]:
     """Return attachment state plus any durable workspace project already known to MangoMe."""
     current = workspace_attachment_snapshot()
-    if refresh or current is None or (workspace_root and current.get("workspace_root") != workspace_root):
-        current = refresh_workspace_attachment(workspace_root, force=refresh)
+    if refresh:
+        current = refresh_workspace_attachment(workspace_root, force=True)
+    elif current is None or (workspace_root and current.get("workspace_root") != workspace_root):
+        current = ensure_workspace_binding(workspace_root)
     root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     project_key = workspace_project_key(root)
     try:
@@ -480,16 +472,14 @@ def _reconcile_assignment_impl(
     # used to frame reconciliation, not canonical truth.
     if not str(request_text or "").strip():
         raise ValueError("request_text is required for assignment reconciliation")
-    current = workspace_attachment_snapshot() or refresh_workspace_attachment(workspace_root)
+    current = workspace_attachment_snapshot() or ensure_workspace_binding(workspace_root)
     root = str(
         (current or {}).get("workspace_root")
         or workspace_root
         or os.environ.get("MANGOME_WORKSPACE_ROOT")
         or os.getcwd()
     )
-    project_key = workspace_project_key(str(Path(root).expanduser().resolve()))
-    restored = get_service().session_restore(project_key)
-    set_session_restore_snapshot(restored)
+    restored = restore_workspace_state(root)
     return assignment_reconciliation_result(
         restored,
         workspace_root=str(Path(root).expanduser().resolve()),
@@ -543,7 +533,7 @@ def enter_work(
         blocked = _controller_gate("enter_work(existing workspace)", controller_actor_id, controller_token)
         if blocked:
             return blocked
-    attachment = workspace_attachment_snapshot() or refresh_workspace_attachment()
+    attachment = workspace_attachment_snapshot() or ensure_workspace_binding()
     root = str(attachment.get("workspace_root") or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     result = _domain_call(
         get_service().enter_work,
@@ -915,19 +905,28 @@ def project_overview(project_ref: str) -> dict[str, Any]:
 
 @mcp.tool()
 def session_restore(workspace_root: str | None = None) -> dict[str, Any]:
-    """Restore canonical session/work state without creating Project/Family/Spec state."""
-    current = workspace_attachment_snapshot() or refresh_workspace_attachment(workspace_root)
-    root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
-    project_key = workspace_project_key(str(Path(root).expanduser().resolve()))
-    result = get_service().session_restore(project_key)
-    set_session_restore_snapshot(result)
-    return result
+    """Restore canonical session/work state without discovery or state creation."""
+    return dict(restore_workspace_state(workspace_root))
 
 
 @mcp.tool()
 def session_bootstrap(workspace_root: str | None = None) -> dict[str, Any]:
-    """Host-start alias for session_restore; same read-only semantics."""
-    return session_restore(workspace_root)
+    """Bounded read-only bootstrap: bind cheaply, then read canonical restore state.
+
+    Bootstrap never runs filesystem inventory, Big-Bang discovery, or repository
+    archaeology.  Those remain explicit onboarding/maintenance operations.
+    """
+    import time
+    started = time.perf_counter()
+    result = session_restore(workspace_root)
+    result = dict(result)
+    result["bootstrap"] = {
+        "mode": "READ_ONLY_FAST_PATH",
+        "discovery_performed": False,
+        "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+        "rule": "BOOTSTRAP_MUST_NOT_BLOCK_COGNITION; BINDING_IS_NOT_DISCOVERY",
+    }
+    return result
 
 
 @mcp.tool()
@@ -1191,7 +1190,7 @@ def model_stats(model_id: str | None = None, work_class: str | None = None) -> d
 @mcp.tool()
 def discovery_scopes(workspace_root: str | None = None) -> dict[str, Any]:
     """Return portable typed discovery scopes; this does not scan or admit content."""
-    current = workspace_attachment_snapshot() or refresh_workspace_attachment(workspace_root)
+    current = workspace_attachment_snapshot() or ensure_workspace_binding(workspace_root)
     root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     return {"workspace_root": root, "scopes": get_service().discovery_scopes(workspace_root=root)}
 
@@ -1199,7 +1198,7 @@ def discovery_scopes(workspace_root: str | None = None) -> dict[str, Any]:
 @mcp.tool()
 def repository_locations(workspace_root: str | None = None) -> dict[str, Any]:
     """Return observed physical Git checkout/worktree locations without inferring project truth."""
-    current = workspace_attachment_snapshot() or refresh_workspace_attachment(workspace_root)
+    current = workspace_attachment_snapshot() or ensure_workspace_binding(workspace_root)
     root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     return {"workspace_root": root, "repositories": get_service().repository_locations(workspace_root=root)}
 

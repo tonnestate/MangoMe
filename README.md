@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.3-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.4-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -85,6 +85,23 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 ---
 
+# v0.3.4 — non-blocking bootstrap / lazy discovery hotfix
+
+v0.3.4 fixes a real-world zero-touch failure found during a Codex/MCP run: an explicit `session_bootstrap` on an unbound workspace could fall through to full workspace attachment, which may perform filesystem inventory and candidate Big-Bang discovery. That made a read-only bootstrap capable of blocking for minutes.
+
+Binding and discovery are now separate operations. Managed startup creates only a volatile `READ_ONLY_FAST_PATH` workspace binding. No filesystem scan, Big-Bang scan, Git archaeology, or canonical mutation occurs merely because MangoMe starts or a worker requests restore/reconciliation. Canonical restore is lazy at the recovery/effect boundary, while full discovery remains explicit through refresh/onboarding operations.
+
+The operational invariants are:
+
+```text
+MANGOME_MUST_NOT_BLOCK_COGNITION
+BINDING_IS_NOT_DISCOVERY
+BOOTSTRAP_PERFORMS_NO_FILESYSTEM_SCAN
+BINDING_FAILURE_BLOCKS_EFFECTS_NOT_REASONING
+```
+
+`workspace_status(refresh=True)` remains available when a host/operator explicitly wants a full attachment/discovery refresh.
+
 # v0.3.3 — zero-touch assignment reconciliation
 
 v0.3.3 removes the worker-facing **restore-first ritual** from the normal managed workflow. A worker may inspect, search, reason, classify and form a tentative decomposition before MangoMe involvement. MangoMe becomes mandatory at the **effect boundary**, not at the first thought.
@@ -101,7 +118,7 @@ existing WorkIdentity / baseline / unfinished state / authority
 governed productive effect
 ```
 
-The governing rule is **THINK FREELY, RECONCILE BEFORE EFFECT**. Managed clients already auto-attach the workspace and populate a read-only restore snapshot when MangoMe initializes; v0.3.3 therefore no longer tells agents to call `session_restore` merely because a session started. `session_restore` remains the explicit recovery/status primitive, while `reconcile_assignment` is the normal worker-facing bridge from tentative judgment to governed work.
+The governing rule is **THINK FREELY, RECONCILE BEFORE EFFECT**. Managed clients bind the workspace through a cheap read-only fast path when MangoMe initializes; canonical restore is resolved lazily when reconciliation/recovery or an effect gate actually needs it. Workers therefore do not call `session_restore` merely because a session started. `session_restore` remains the explicit recovery/status primitive, while `reconcile_assignment` is the normal worker-facing bridge from tentative judgment to governed work.
 
 The effect boundary includes durable code/file/database mutation, commits, deployment, external side effects, canonical MangoMe mutations, normative promotion and assurance claims. Tentative reasoning is never promoted automatically, and existing work is still reused before new work is admitted.
 

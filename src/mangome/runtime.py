@@ -3,14 +3,50 @@ from __future__ import annotations
 import os
 
 from .work_control import WorkGovernedMangoMeService
-from .service import MangoMeService
+from .service import MangoMeService, workspace_project_key
 from .storage.memory import InMemoryStore
 from .storage.mongo import MongoStore
-from .operability import OperabilityError, attach_workspace, enforce_expected_identity
+from .operability import OperabilityError, attach_workspace, enforce_expected_identity, resolve_workspace_root
 
 _service: MangoMeService | None = None
 _workspace_attachment: dict[str, object] | None = None
 _session_restore: dict[str, object] | None = None
+
+
+def bind_workspace_read_only(workspace_root: str | None = None) -> dict[str, object]:
+    """Bind the process to a workspace path without discovery, scanning, or persistence.
+
+    This is the zero-touch fast path used during MCP/runtime startup and recovery.
+    It deliberately does not call ``attach_workspace`` because attachment may perform
+    candidate inventory/Big-Bang discovery for an unadmitted workspace. Discovery is
+    an explicit maintenance/onboarding concern and must never block cognition.
+    """
+    root = resolve_workspace_root(workspace_root)
+    return {
+        "workspace_root": str(root),
+        "binding_mode": "READ_ONLY_FAST_PATH",
+        "discovery_deferred": True,
+        "canonical_mutations": 0,
+        "rule": "BINDING_IS_NOT_DISCOVERY; productive effects reconcile canonical state lazily.",
+    }
+
+
+def ensure_workspace_binding(workspace_root: str | None = None) -> dict[str, object]:
+    """Return a volatile read-only workspace binding, creating only that binding if absent."""
+    global _workspace_attachment
+    if _workspace_attachment is not None:
+        if workspace_root is None:
+            return _workspace_attachment
+        try:
+            from pathlib import Path
+            current = _workspace_attachment.get("workspace_root")
+            requested = resolve_workspace_root(workspace_root)
+            if current and Path(str(current)).resolve() == requested:
+                return _workspace_attachment
+        except OSError:
+            pass
+    _workspace_attachment = bind_workspace_read_only(workspace_root)
+    return _workspace_attachment
 
 
 def get_service() -> MangoMeService:
@@ -33,14 +69,10 @@ def get_service() -> MangoMeService:
         store = MongoStore(uri, database)
     _service = WorkGovernedMangoMeService(store)
     if os.environ.get("MANGOME_AUTO_ATTACH", "").strip().lower() in {"1", "true", "yes", "on"}:
-        max_files = int(os.environ.get("MANGOME_AUTO_ATTACH_MAX_FILES", "50000"))
-        _workspace_attachment = attach_workspace(
-            _service, os.environ.get("MANGOME_WORKSPACE_ROOT"), max_files=max_files
-        )
-        root = str((_workspace_attachment or {}).get("workspace_root") or os.environ.get("MANGOME_WORKSPACE_ROOT") or "").strip()
-        if root:
-            from .service import workspace_project_key
-            _session_restore = _service.session_restore(workspace_project_key(root))
+        # v0.3.4 hotfix: startup binding must be cheap and non-blocking.  Do not
+        # inventory the filesystem and do not run canonical recovery merely because
+        # the MCP process started.  Reconciliation is lazy at the effect boundary.
+        _workspace_attachment = bind_workspace_read_only(os.environ.get("MANGOME_WORKSPACE_ROOT"))
     return _service
 
 
@@ -57,22 +89,41 @@ def workspace_attachment_snapshot() -> dict[str, object] | None:
     return _workspace_attachment
 
 
+def restore_workspace_state(workspace_root: str | None = None) -> dict[str, object]:
+    """Read canonical recovery state using only the volatile workspace binding.
+
+    This function never performs filesystem inventory, Big-Bang discovery, or
+    repository scanning.  It is the bounded recovery primitive used by MCP restore,
+    assignment reconciliation, and effect gates.
+    """
+    current = workspace_attachment_snapshot() or ensure_workspace_binding(workspace_root)
+    root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
+    project_key = workspace_project_key(root)
+    result = get_service().session_restore(project_key)
+    set_session_restore_snapshot(result)
+    return result
+
+
 def refresh_workspace_attachment(workspace_root: str | None = None, *, force: bool = False) -> dict[str, object]:
     global _workspace_attachment
     # get_service() may perform the first automatic attachment. Reuse that result
     # instead of immediately attaching a second time and misreporting first_attach=False.
     service = get_service()
     if _workspace_attachment is not None and not force:
-        requested = workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT")
-        if requested is None:
-            return _workspace_attachment
-        try:
-            from pathlib import Path
-            current = _workspace_attachment.get("workspace_root")
-            if current and Path(str(current)).resolve() == Path(requested).expanduser().resolve():
+        # A volatile READ_ONLY_FAST_PATH binding is intentionally not a completed
+        # attachment. An explicit refresh request must promote it to the full
+        # candidate-only attachment/discovery path.
+        if _workspace_attachment.get("binding_mode") != "READ_ONLY_FAST_PATH":
+            requested = workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT")
+            if requested is None:
                 return _workspace_attachment
-        except OSError:
-            pass
+            try:
+                from pathlib import Path
+                current = _workspace_attachment.get("workspace_root")
+                if current and Path(str(current)).resolve() == Path(requested).expanduser().resolve():
+                    return _workspace_attachment
+            except OSError:
+                pass
     _workspace_attachment = attach_workspace(service, workspace_root)
     return _workspace_attachment
 

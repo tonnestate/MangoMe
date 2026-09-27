@@ -185,7 +185,7 @@ Discovery remains separate until explicitly admitted. This keeps the user experi
 
 ## Infrastructure boundary
 
-MangoMe is infrastructure. Agents may use it but must not modify MangoMe source/tests/configuration unless the assignment explicitly targets MangoMe. Managed hosts keep `MANGOME_REQUIRE_SESSION_RESTORE=1` as a compatibility gate, but managed runtime initialization now satisfies the read-only restore snapshot automatically. Workers are not required to invoke `session_restore` as a session-start ritual. Hard filesystem enforcement remains a host responsibility.
+MangoMe is infrastructure. Agents may use it but must not modify MangoMe source/tests/configuration unless the assignment explicitly targets MangoMe. Managed hosts keep `MANGOME_REQUIRE_SESSION_RESTORE=1` as a compatibility gate, but managed runtime initialization now performs only a volatile read-only workspace binding. Canonical restore is lazy at reconciliation/recovery or the effect boundary. Workers are not required to invoke `session_restore` as a session-start ritual. Hard filesystem enforcement remains a host responsibility.
 
 ## v0.3 WorkIdentity / controller boundary
 

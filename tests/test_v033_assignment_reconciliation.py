@@ -47,10 +47,11 @@ def test_skill_teaches_reconcile_before_effect_not_restore_first():
     assert "before repository exploration, planning or execution" not in skill
 
 
-def test_managed_gate_source_auto_bootstraps_restore_snapshot():
+def test_managed_gate_source_uses_lazy_restore_after_fast_binding():
     root = Path(__file__).resolve().parents[1]
     source = (root / "src" / "mangome" / "mcp_server.py").read_text(encoding="utf-8")
     assert 'os.environ.get("MANGOME_AUTO_ATTACH"' in source
     assert "get_service()" in source
+    assert "restore_workspace_state" in source
     assert "SESSION_RECONCILIATION_REQUIRED" in source
     assert "session_restore merely because a session started" in source

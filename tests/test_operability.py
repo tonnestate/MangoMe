@@ -189,8 +189,10 @@ def test_runtime_auto_attach_uses_managed_workspace_without_user_bigbang_command
     svc = runtime.get_service()
     attachment = runtime.workspace_attachment_snapshot()
 
-    assert svc.store.find("filesystem_roots")
+    assert svc.store.find("filesystem_roots") == []
     assert attachment is not None
     assert attachment["workspace_root"] == str(tmp_path.resolve())
-    assert attachment["first_attach"] is True
+    assert attachment["binding_mode"] == "READ_ONLY_FAST_PATH"
+    assert attachment["discovery_deferred"] is True
+    assert runtime.session_restore_snapshot() is None
     runtime.reset_service_for_tests()
