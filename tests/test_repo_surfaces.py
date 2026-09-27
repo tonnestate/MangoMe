@@ -31,3 +31,12 @@ def test_release_tree_has_no_process_helper_documents():
     forbidden = ["REPO_AUDIT_2026-09-24.md", "TEST_REPORT.md", "UPLOAD_DOTFILES.md"]
     present = [name for name in forbidden if (root / name).exists()]
     assert present == [], f"release tree contains process-only helper documents: {present}"
+
+
+def test_skill_treats_historical_host_memory_as_candidate_only():
+    root = Path(__file__).resolve().parents[1]
+    skill = (root / "skill" / "mangome" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Historical host memory is never current authority" in skill
+    assert "candidate-only discovery hints" in skill
+    assert "Never recover current WorkIdentity" in skill
+    assert "controller authority" in skill
