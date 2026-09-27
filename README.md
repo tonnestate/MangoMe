@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.1-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.2-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -82,6 +82,30 @@ A Claude session ends. Codex continues. Another agent sees a different database.
 MangoMe moves that problem out of the prompt and into durable, inspectable state.
 
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
+
+---
+
+# v0.3.2 — scoped recursive audit and impact closure
+
+v0.3.2 adds **SRA/1**, a bounded recursive audit layer for the normal engineering reality that a worker is competent inside a local assignment but does not and should not need to understand the entire system before acting.
+
+```text
+initial scope
+    ↓
+inspect current frontier
+    ↓
+persist finding / evidence / assumptions / unknowns
+    ↓
+material impact?
+  no → frontier shrinks
+  yes → follow bounded confirmed relations
+    ↓
+repeat until fixpoint or explicit boundary
+```
+
+SRA/1 separates **knowledge**, **inspection**, **mutation**, and **assurance** boundaries. The inspection frontier may grow when a finding has material impact; the mutation scope is frozen at audit start and never grows automatically. A closed audit therefore means only that the configured impact frontier has reached `FIXPOINT_REACHED` or `BOUNDED_FIXPOINT`. It never means the entire system is correct or that the audited object is `VERIFIED`.
+
+The active audit frontier is supplied to PCH/1 as additional cognitive roots, so the worker receives the currently relevant impact region without loading the entire historical graph. See `docs/scoped-recursive-audit.md`.
 
 ---
 
@@ -1049,7 +1073,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.1** adds Persistent Cognitive Hygiene on top of the durable `v0.3.0` WorkIdentity/persistence foundation.
+**v0.3.2** adds Scoped Recursive Audit/Impact Closure on top of the v0.3.1 Persistent Cognitive Hygiene layer.
 
 The current execution architecture is:
 
@@ -1059,6 +1083,8 @@ ordinary user intent / recovered WorkIdentity
 current WorkTurn + immutable NormativeBaseline
     ↓
 canonical Project / Family / Spec / Plan / Slice / Evidence graph
+    ↓
+SRA/1 bounded audit frontier (when auditing)
     ↓
 PCH/1 thermal working-set selection
     ↓
@@ -1077,9 +1103,11 @@ PCH/1 is deliberately projection-only. It does not delete history, alter assuran
 
 ## Important current limits
 
+- SRA/1 closes bounded impact scope, not whole-system correctness. A `BOUNDED_FIXPOINT` explicitly means configured depth/object limits prevented further traversal.
+- Audit scope expansion never grants additional mutation authority; external code/filesystem enforcement remains a host/runtime responsibility.
 - PCH/1 uses an explicit deterministic heuristic policy; its weights and thresholds are an inspectable baseline for evaluation, not a claim of optimal cognitive allocation.
 - The current graph-distance calculation is scoped to the Family execution context plus deterministic synthetic relations; it is not yet a host-wide graph navigator.
-- Freshness can consume explicit `CURRENT`, `STALE`, `SOURCE_CHANGED`, `ENVIRONMENT_CHANGED`, or `REVALIDATION_REQUIRED` markers, but v0.3.1 does not yet implement a general bitemporal truth-maintenance engine.
+- Freshness can consume explicit `CURRENT`, `STALE`, `SOURCE_CHANGED`, `ENVIRONMENT_CHANGED`, or `REVALIDATION_REQUIRED` markers, but v0.3.2 does not yet implement a general bitemporal truth-maintenance engine.
 - Temperature controls activation only. It cannot promote evidence, change normative authority, verify a Slice, or accept work.
 - MangoMe can only enforce writes that pass through MangoMe. Direct MongoDB/admin access remains outside the service trust boundary.
 - External model dispatch and verifier command execution remain host responsibilities.

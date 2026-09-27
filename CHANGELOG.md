@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.2 — 2026-09-27 — Scoped Recursive Audit / Impact Closure
+
+- Adds **SRA/1 Scoped Recursive Audit** for bounded system understanding: `initial scope → inspect → finding/evidence → affected frontier → bounded expansion → fixpoint`.
+- Persists `audit_runs` and `audit_findings` without creating a second truth or assurance system. Audit findings remain scoped observations; audit closure never implies `VERIFIED` underlying work or global system correctness.
+- Separates four boundaries explicitly: knowledge, inspection, mutation, and assurance. Inspection may expand; mutation authority is frozen at audit start and never expands recursively.
+- Adds `READ_ONLY` and `REPAIR_WITHIN_SCOPE`. The repair mode is only an audit boundary and never bypasses the normal MangoMe Plan/WorkTurn or host/runtime permissions.
+- Adds impact classes `NONE`, `LOCAL`, `EXPAND`, and `OUTSIDE_SCOPE`. Only `EXPAND` follows confirmed graph/structural relations; outside-scope effects are preserved as boundary findings instead of being silently absorbed.
+- Adds deterministic `FIXPOINT_REACHED` and `BOUNDED_FIXPOINT` closure semantics. Depth/object limits produce an explicit bounded result rather than a false complete-audit claim.
+- Adds MCP surfaces `start_scoped_audit`, `audit_context`, `audit_status`, `audit_mutation_allowed`, `record_audit_finding`, and `close_scoped_audit`.
+- Integrates the active audit frontier with PCH/1 as additional cognitive roots where the objects are present in the MangoMe graph. Audit priority remains activation only, never truth or assurance.
+- Extends PCH/1 bounded graph navigation to first-class Artifacts already bound to the Family context; no host-wide artifact scan is introduced.
+- Adds MongoDB indexes and regression coverage for recursive expansion, immutable mutation scope, depth-bounded closure, outside-scope reporting, and read-only enforcement.
+
 ## 0.3.1 — 2026-09-27 — Persistent Cognitive Hygiene / Thermal Working Set
 
 - Adds deterministic **PCH/1 Persistent Cognitive Hygiene** over the existing canonical MangoMe graph; no second truth store, memory database, or graph engine is introduced.

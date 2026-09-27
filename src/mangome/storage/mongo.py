@@ -92,7 +92,7 @@ class MongoStore(Store):
             "filesystem_entries", "filesystem_roots", "turn_bindings", "contract_heads",
             "contract_generations", "contract_generation_grants", "work_identities",
             "work_turn_bindings", "normative_baselines", "work_checkpoints", "playbooks",
-            "playbook_selections", "assurance_events", "work_views"
+            "playbook_selections", "assurance_events", "work_views", "audit_runs", "audit_findings"
         ):
             self.db[name].create_index([("entity_id", ASCENDING)], unique=True)
         self.db["projects"].create_index([("project_key", ASCENDING)])
@@ -132,6 +132,10 @@ class MongoStore(Store):
         self.db["playbook_selections"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
         self.db["assurance_events"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
         self.db["work_views"].create_index([("work_id", ASCENDING)], unique=True)
+        self.db["audit_runs"].create_index([("family_id", ASCENDING), ("status", ASCENDING), ("created_at", ASCENDING)])
+        self.db["audit_runs"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["audit_findings"].create_index([("audit_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["audit_findings"].create_index([("subject_id", ASCENDING), ("created_at", ASCENDING)])
 
     def health(self) -> dict[str, Any]:
         result = self.db.command("ping")

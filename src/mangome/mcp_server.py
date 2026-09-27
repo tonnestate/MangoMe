@@ -8,6 +8,7 @@ from mcp.server import MCPServer
 
 from .context import ContextCompiler
 from .hygiene import CognitiveHygieneService
+from .audit import ScopedAuditService
 from .authority import CapabilityDenied, require_controller, require_router
 from .importer import (
     BigBangReconciler,
@@ -52,9 +53,11 @@ mcp = MCPServer(
         "Plan is bound to an immutable NormativeBaseline and must stop on baseline drift. Progressive checkpoints may only reference "
         "an existing canonical WorkIdentity and may never promote themselves, filesystem findings, or agent prose into canonical truth. "
         "Contract generation promotion remains separately single-writer and MODIFY-turn governed. DONE is only a worker claim; "
-        "verification and acceptance remain separate privileged transitions, and assurance history is append-only across Spec/Playbook changes."
+        "verification and acceptance remain separate privileged transitions, and assurance history is append-only across Spec/Playbook changes. "
+        "Scoped recursive audits use bounded impact-closure: inspect the current frontier, persist findings/evidence, expand only on material impact, "
+        "never auto-expand mutation authority, and stop at a fixpoint or explicit depth/object boundary. Audit closure is scoped coverage, never global correctness."
     ),
-    version="0.3.1",
+    version="0.3.2",
 )
 
 
@@ -647,6 +650,89 @@ def attest_evidence(evidence_id: str, attested_by: str, capability_token: str | 
 def completion_review(slice_id: str, changed_paths: list[str] | None = None) -> dict[str, Any]:
     """Build an AV/1 adversarial verification brief from persisted DONE claims, plan/spec obligations, Evidence and an optional observed change set."""
     return get_service().completion_review(slice_id=slice_id, changed_paths=changed_paths)
+
+
+@mcp.tool()
+def start_scoped_audit(
+    family_id: str,
+    actor_id: str,
+    objective: str,
+    audit_kind: str = "GENERAL",
+    mode: str = "READ_ONLY",
+    target_ids: list[str] | None = None,
+    target_refs: list[str] | None = None,
+    slice_id: str | None = None,
+    plan_id: str | None = None,
+    mutation_scope_ids: list[str] | None = None,
+    mutation_scope_refs: list[str] | None = None,
+    assumptions: list[str] | None = None,
+    max_depth: int = 3,
+    max_objects: int = 64,
+    expansion_relations: list[str] | None = None,
+    turn_id: str | None = None,
+) -> dict[str, Any]:
+    """Start SRA/1 bounded recursive audit from a local scope. Scope may expand; mutation authority never does."""
+    blocked = _restore_gate("start_scoped_audit")
+    if blocked:
+        return blocked
+    blocked = _work_identity_gate_family(family_id, "start_scoped_audit")
+    if blocked:
+        return blocked
+    return _domain_call(
+        ScopedAuditService(get_service()).start,
+        family_id=family_id, actor_id=actor_id, objective=objective, audit_kind=audit_kind, mode=mode,
+        target_ids=target_ids, target_refs=target_refs, slice_id=slice_id, plan_id=plan_id,
+        mutation_scope_ids=mutation_scope_ids, mutation_scope_refs=mutation_scope_refs, assumptions=assumptions,
+        max_depth=max_depth, max_objects=max_objects, expansion_relations=expansion_relations, turn_id=turn_id,
+    )
+
+
+@mcp.tool()
+def audit_context(audit_id: str) -> dict[str, Any]:
+    """Return the bounded current audit frontier, findings, assumptions, mutation boundary and PCH working-set support."""
+    return _domain_call(ScopedAuditService(get_service()).context, audit_id)
+
+
+@mcp.tool()
+def audit_status(audit_id: str, frontier_limit: int = 16) -> dict[str, Any]:
+    """Return SRA/1 progress and whether impact closure reached a fixpoint or configured boundary."""
+    return _domain_call(ScopedAuditService(get_service()).status, audit_id, frontier_limit=frontier_limit)
+
+
+@mcp.tool()
+def audit_mutation_allowed(audit_id: str, entity_id: str | None = None, ref: str | None = None) -> dict[str, Any]:
+    """Check the audit's frozen mutation boundary. This does not replace normal Plan/WorkTurn or host permissions."""
+    return _domain_call(ScopedAuditService(get_service()).mutation_allowed, audit_id, entity_id=entity_id, ref=ref)
+
+
+@mcp.tool()
+def record_audit_finding(
+    audit_id: str,
+    actor_id: str,
+    summary: str,
+    finding_class: str,
+    impact: str = "NONE",
+    subject_id: str | None = None,
+    subject_ref: str | None = None,
+    evidence_ids: list[str] | None = None,
+    affected_ids: list[str] | None = None,
+    affected_refs: list[str] | None = None,
+    assumptions: list[str] | None = None,
+    unknowns: list[str] | None = None,
+) -> dict[str, Any]:
+    """Persist one scoped audit finding; EXPAND follows the configured graph frontier without expanding mutation authority."""
+    return _domain_call(
+        ScopedAuditService(get_service()).record_finding,
+        audit_id=audit_id, actor_id=actor_id, summary=summary, finding_class=finding_class, impact=impact,
+        subject_id=subject_id, subject_ref=subject_ref, evidence_ids=evidence_ids, affected_ids=affected_ids,
+        affected_refs=affected_refs, assumptions=assumptions, unknowns=unknowns,
+    )
+
+
+@mcp.tool()
+def close_scoped_audit(audit_id: str, actor_id: str, summary: str | None = None) -> dict[str, Any]:
+    """Close only after no pending frontier remains; closure never promotes underlying work to VERIFIED."""
+    return _domain_call(ScopedAuditService(get_service()).close, audit_id, actor_id=actor_id, summary=summary)
 
 
 @mcp.tool()

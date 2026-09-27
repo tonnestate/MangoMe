@@ -157,6 +157,19 @@ class CognitiveHygieneService:
         request_ids = {str(p.get("request_id")) for p in ctx.get("active_plans") or [] if p.get("request_id")}
         for request_id in request_ids:
             add("REQUEST", self.service.store.get("requests", request_id))
+
+        # Artifacts are first-class audit/navigation objects. Include only artifacts that are
+        # already bound to this family context or referenced by its Evidence; PCH never
+        # performs a host-wide artifact scan.
+        context_ids = set(nodes)
+        artifact_ids = {
+            str(e.get("artifact_id")) for e in ctx.get("evidence") or [] if e.get("artifact_id")
+        }
+        for artifact_id in artifact_ids:
+            add("ARTIFACT", self.service.store.get("artifacts", artifact_id))
+        for owner_id in list(context_ids):
+            for artifact in self.service.store.find("artifacts", {"belongs_to__contains": owner_id}):
+                add("ARTIFACT", artifact)
         return nodes
 
     def _adjacency(self, ctx: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> tuple[dict[str, set[str]], list[dict[str, Any]]]:
@@ -192,6 +205,13 @@ class CognitiveHygieneService:
                 connect(item.get("entity_id"), contract_id, "PLAN_USES_CONTRACT", synthetic=True)
         for item in ctx.get("evidence") or []:
             connect(item.get("entity_id"), item.get("subject_id"), "EVIDENCES", synthetic=True)
+            connect(item.get("entity_id"), item.get("artifact_id"), "EVIDENCES_ARTIFACT", synthetic=True)
+        for entry in nodes.values():
+            if entry.get("kind") != "ARTIFACT":
+                continue
+            artifact = entry.get("doc") or {}
+            for owner_id in artifact.get("belongs_to") or []:
+                connect(artifact.get("entity_id"), owner_id, "ARTIFACT_BELONGS_TO", synthetic=True)
         return adjacency, relations
 
     @staticmethod
@@ -218,6 +238,7 @@ class CognitiveHygieneService:
         *,
         query_text: str | None = None,
         max_active_objects: int | None = None,
+        extra_root_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         ctx = self.service.get_context(family_id)
         selected = self._selected_slice(ctx, slice_id)
@@ -248,6 +269,8 @@ class CognitiveHygieneService:
                 pin(entity_id, "CURRENT_VERIFICATION_EVIDENCE")
             for entity_id in selected.get("verification_observation_ids") or []:
                 pin(entity_id, "CURRENT_VERIFICATION_OBSERVATION")
+        for entity_id in extra_root_ids or []:
+            pin(str(entity_id), "AUDIT_SCOPE_ROOT")
 
         root_ids = set(roots)
         distances = self._distances(adjacency, root_ids)
@@ -306,6 +329,8 @@ class CognitiveHygieneService:
                 operational = 0.70
             elif kind == "EVIDENCE":
                 operational = 0.68
+            elif kind == "ARTIFACT":
+                operational = 0.74 if doc.get("exists", True) and doc.get("readable", True) else 0.40
 
             validity = _explicit_validity(doc)
             freshness = _VALIDITY_SCORES.get(validity or "UNKNOWN", 0.65)

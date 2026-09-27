@@ -69,6 +69,11 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 48. **Temperature is activation, never truth.** PCH/1 `HOT/WARM/COLD` and continuous temperature only control task-relative cognitive residency. They must never change normative truth, Evidence verdict, assurance, or authority.
 49. **COLD means non-resident, not forgotten.** Cognitive hygiene may suppress historical/superseded objects from the worker projection, but canonical history and provenance remain recoverable. A targeted query may reheat historical state without restoring its authority.
 50. **Hygiene precedes compilation.** Use the PCH/1 active working set before ContextCompiler/UAI reduction. Canonical execution roots are pinned and cannot be evicted merely to satisfy the active-object budget.
+51. **Audit locally, expand only on material impact.** For audit/review/reconciliation assignments, start from the named Ticket/Slice/Artifact/scope and expand SRA/1 only when a persisted finding identifies material downstream impact. Never scan the whole system merely because more context might exist.
+52. **Inspection scope and mutation scope are different.** SRA/1 may expand what the worker inspects, but it never expands what the worker may modify. Outside the explicit mutation scope: persist/report the finding and stop mutation.
+53. **State assumptions and unknowns.** A worker is not required to know the whole system. Persist assumptions and unknowns with audit findings instead of silently filling gaps from model intuition.
+54. **Audit closure is bounded coverage, not global correctness.** `FIXPOINT_REACHED` means no material frontier remains under the configured traversal policy. `BOUNDED_FIXPOINT` means a depth/object boundary was reached. Neither means the whole system is correct or the underlying work is VERIFIED.
+55. **Audit does not replace AV/1.** SRA/1 finds and closes an impact frontier; AV/1 still governs independent completion verification. Audit priority may heat PCH context, but never changes truth or assurance.
 
 ## WorkIdentity-first turn binding
 
@@ -346,6 +351,44 @@ RELATES_TO
 ```
 
 New work discovered during execution should become an additional slice or contract contribution without rewriting history.
+
+## Scoped recursive audit (SRA/1)
+
+Use SRA/1 for classification, architecture, artifact/code review, incident, reconciliation, impact, or security audits where the initial assignment is local but material dependencies may extend beyond it.
+
+```text
+start_scoped_audit(
+  family_id=...,
+  actor_id=...,
+  objective=...,
+  target_ids=[...],        # or target_refs
+  mode="READ_ONLY" | "REPAIR_WITHIN_SCOPE",
+  mutation_scope_ids=[...], # only for repair mode; subset of initial scope
+  max_depth=...,
+  max_objects=...,
+  turn_id=...
+)
+
+audit_context / audit_status
+    ↓
+inspect the returned frontier in the real system
+    ↓
+record_audit_finding(
+  finding_class="NO_ISSUE" | "INFO" | "ISSUE" | "CONFLICT" | "ASSUMPTION" | "UNKNOWN",
+  impact="NONE" | "LOCAL" | "EXPAND" | "OUTSIDE_SCOPE",
+  assumptions=[...],
+  unknowns=[...],
+  evidence_ids=[...]
+)
+    ↓
+repeat only while frontier remains
+    ↓
+close_scoped_audit
+```
+
+Before repairing something found during an audit, `audit_mutation_allowed` may confirm whether the target is inside the audit's frozen mutation boundary. A positive answer is not sufficient authorization by itself: the normal Plan/WorkTurn and host/filesystem permissions still apply.
+
+Do not turn `OUTSIDE_SCOPE` findings into implicit scope or mutation authority. They are durable handoff signals for a separate assignment, audit, or authorized follow-up.
 
 ## Completion
 

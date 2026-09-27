@@ -27,7 +27,8 @@ def test_mcp_v2_surface_lists_core_tools(monkeypatch):
                 "enter_work", "begin_work", "compile_uai_context", "expand_uai_context", "decode_uai_result", "render_uai_result",
                 "filesystem_scan", "filesystem_references", "build_reproduction_binding", "evidence_freshness",
                 "backfill_work_identity", "bind_work_turn", "work_context", "checkpoint_work", "register_playbook", "select_playbook",
-                "cognitive_hygiene",
+                "cognitive_hygiene", "start_scoped_audit", "audit_context", "audit_status",
+                "audit_mutation_allowed", "record_audit_finding", "close_scoped_audit",
             }
             assert required.issubset(names)
 
