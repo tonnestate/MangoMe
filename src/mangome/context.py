@@ -4,6 +4,7 @@ import json
 import os
 from typing import Any
 
+from .hygiene import CognitiveHygieneService
 from .service import MangoMeService
 
 
@@ -56,12 +57,23 @@ class ContextCompiler:
                 next_id = ctx["status"]["next_known_slice_ids"][0]
                 selected = next((s for s in slices if s["entity_id"] == next_id), None)
 
+        hygiene = CognitiveHygieneService(self.service).evaluate(
+            family_id, selected.get("entity_id") if selected else None
+        )
+        resident_ids = set(hygiene.get("working_set_ids") or [])
+
         contract_ids = set(selected.get("contract_ids", [])) if selected else set()
-        relevant_contracts = [c for c in ctx["contracts"] if not contract_ids or c["entity_id"] in contract_ids]
+        relevant_contracts = [
+            c for c in ctx["contracts"]
+            if (not contract_ids or c["entity_id"] in contract_ids) and c["entity_id"] in resident_ids
+        ]
         evidence_subjects = {family_id}
         if selected:
             evidence_subjects.add(selected["entity_id"])
-        evidence = [e for e in ctx["evidence"] if e.get("subject_id") in evidence_subjects]
+        evidence = [
+            e for e in ctx["evidence"]
+            if e.get("subject_id") in evidence_subjects and e["entity_id"] in resident_ids
+        ]
         payload = {
             "family": {
                 "entity_id": ctx["family"]["entity_id"],
@@ -85,6 +97,15 @@ class ContextCompiler:
             "active_plan_id": selected.get("active_plan_id") if selected else None,
             "relevant_contracts": relevant_contracts,
             "evidence": evidence,
+            "cognitive_hygiene": {
+                "policy": hygiene.get("policy"),
+                "task_query": hygiene.get("task_query"),
+                "roots": hygiene.get("roots"),
+                "working_set_ids": hygiene.get("working_set_ids"),
+                "counts": hygiene.get("counts"),
+                "relations_considered": hygiene.get("relations_considered"),
+                "rule": hygiene.get("rule"),
+            },
             "instruction": (
                 "Treat worker completion statements as claims. Mutations must stay bound to the active plan. "
                 "Do not infer VERIFIED from DONE_CLAIMED and do not treat un-attested evidence as verification proof."
@@ -185,7 +206,21 @@ class ContextCompiler:
             return payload
 
         # Never truncate normative state, current Slice identity, gates or acceptance semantics.
-        # First remove bulky optional Evidence payloads and Contract storage detail.
+        # PCH/1 telemetry is disposable: compact it before historical Evidence/Contract payload detail.
+        hygiene_projection = payload.get("cognitive_hygiene") or {}
+        if hygiene_projection:
+            policy = hygiene_projection.get("policy") or {}
+            payload["cognitive_hygiene"] = {
+                "policy": {
+                    "version": policy.get("version"),
+                    "configured_active_budget": policy.get("configured_active_budget"),
+                    "effective_active_budget": policy.get("effective_active_budget"),
+                    "pinned_budget_override": policy.get("pinned_budget_override"),
+                },
+                "counts": hygiene_projection.get("counts"),
+                "rule": "COLD means non-resident, never deleted; temperature is not truth or assurance.",
+            }
+        # Then remove bulky optional Evidence payloads and Contract storage detail.
         payload["evidence"] = [_compact_evidence(item) for item in payload["evidence"]]
         payload["relevant_contracts"] = [_compact_contract(item) for item in payload["relevant_contracts"]]
         omitted = 0

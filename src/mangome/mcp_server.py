@@ -7,6 +7,7 @@ from typing import Any
 from mcp.server import MCPServer
 
 from .context import ContextCompiler
+from .hygiene import CognitiveHygieneService
 from .authority import CapabilityDenied, require_controller, require_router
 from .importer import (
     BigBangReconciler,
@@ -53,7 +54,7 @@ mcp = MCPServer(
         "Contract generation promotion remains separately single-writer and MODIFY-turn governed. DONE is only a worker claim; "
         "verification and acceptance remain separate privileged transitions, and assurance history is append-only across Spec/Playbook changes."
     ),
-    version="0.3.0",
+    version="0.3.1",
 )
 
 
@@ -803,8 +804,21 @@ def read_context(family_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def cognitive_hygiene(
+    family_id: str,
+    slice_id: str | None = None,
+    query_text: str | None = None,
+    max_active_objects: int | None = None,
+) -> dict[str, Any]:
+    """Compute the PCH/1 thermal map and bounded active working set without mutating canonical truth."""
+    return CognitiveHygieneService(get_service()).evaluate(
+        family_id, slice_id, query_text=query_text, max_active_objects=max_active_objects
+    )
+
+
+@mcp.tool()
 def compile_execution_context(family_id: str, slice_id: str | None = None) -> dict[str, Any]:
-    """Produce a compact deterministic execution package for IntakeGov/CogC or a worker."""
+    """Produce a compact deterministic execution package after PCH/1 working-set selection."""
     return ContextCompiler(get_service()).compile(family_id, slice_id)
 
 

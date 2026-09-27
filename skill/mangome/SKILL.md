@@ -66,6 +66,9 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 45. **A changed local Contract file is an observation, not canonical truth.** Local, Git, DMS, or other physical copies may change. MangoMe retains immutable canonical Contract generations plus their physical storage bindings.
 46. **Only the bound MODIFY path may change normative truth.** Work-bound Specs/contract relations require a MODIFY WorkTurn; Contract-body generation promotion additionally requires the existing single-writer generation grant.
 47. **Persistence levels are explicit.** `VOLATILE` Playbook/transient context is trimmed first, `PROGRESSIVE` recovery state is non-normative, and `CANONICAL` identity/baseline/assurance survives context reduction.
+48. **Temperature is activation, never truth.** PCH/1 `HOT/WARM/COLD` and continuous temperature only control task-relative cognitive residency. They must never change normative truth, Evidence verdict, assurance, or authority.
+49. **COLD means non-resident, not forgotten.** Cognitive hygiene may suppress historical/superseded objects from the worker projection, but canonical history and provenance remain recoverable. A targeted query may reheat historical state without restoring its authority.
+50. **Hygiene precedes compilation.** Use the PCH/1 active working set before ContextCompiler/UAI reduction. Canonical execution roots are pinned and cannot be evicted merely to satisfy the active-object budget.
 
 ## WorkIdentity-first turn binding
 

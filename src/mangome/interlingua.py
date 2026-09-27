@@ -20,6 +20,8 @@ _RULES = [
     "COLLISION_WARNING=CONTINUE_ALLOWED",
     "PLAYBOOK!=NORMATIVE_TRUTH",
     "PROGRESSIVE!=CANONICAL",
+    "TEMPERATURE!=TRUTH",
+    "COLD!=DELETED",
 ]
 
 _RESULT_STATUSES = {"SUCCESS", "PARTIAL", "BLOCKED", "FAILED"}
@@ -133,7 +135,27 @@ class UAICompiler:
             ],
             "rules": list(_RULES),
             "persistence": None,
+            "hygiene": None,
         }
+
+        hygiene = packet.get("cognitive_hygiene") or {}
+        if hygiene:
+            policy = hygiene.get("policy") or {}
+            counts = hygiene.get("counts") or {}
+            projection["hygiene"] = {
+                "policy": policy.get("version"),
+                "configured_budget": policy.get("configured_active_budget"),
+                "effective_budget": policy.get("effective_active_budget"),
+                "pinned_budget_override": bool(policy.get("pinned_budget_override")),
+                "working_set_ids": list(hygiene.get("working_set_ids") or []),
+                "counts": {
+                    "candidates": counts.get("candidates", 0),
+                    "resident": counts.get("resident", 0),
+                    "hot": counts.get("hot", 0),
+                    "warm": counts.get("warm", 0),
+                    "cold": counts.get("cold", 0),
+                },
+            }
 
         persistence = packet.get("persistence")
         if persistence:
@@ -245,7 +267,16 @@ class UAICompiler:
             "e": [[e["id"], e["class"], e["verdict"], e["trust"], e["source"], e["result"]] for e in projection["evidence"]],
             "r": projection["rules"],
             "pl": None,
+            "hy": None,
         }
+        hygiene = projection.get("hygiene")
+        if hygiene:
+            counts = hygiene.get("counts") or {}
+            compact["hy"] = [
+                hygiene.get("policy"), hygiene.get("configured_budget"), hygiene.get("effective_budget"),
+                hygiene.get("pinned_budget_override"), hygiene.get("working_set_ids") or [],
+                [counts.get("candidates", 0), counts.get("resident", 0), counts.get("hot", 0), counts.get("warm", 0), counts.get("cold", 0)],
+            ]
         persistence = projection.get("persistence")
         if persistence:
             pc = persistence["canonical"]
@@ -301,7 +332,21 @@ class UAICompiler:
                 ],
                 "rules": list(data.get("r", [])),
                 "persistence": None,
+                "hygiene": None,
             }
+            hy = data.get("hy")
+            if hy is not None:
+                hc = hy[5]
+                projection["hygiene"] = {
+                    "policy": hy[0],
+                    "configured_budget": hy[1],
+                    "effective_budget": hy[2],
+                    "pinned_budget_override": bool(hy[3]),
+                    "working_set_ids": hy[4],
+                    "counts": {
+                        "candidates": hc[0], "resident": hc[1], "hot": hc[2], "warm": hc[3], "cold": hc[4],
+                    },
+                }
             pl = data.get("pl")
             if pl is not None:
                 pc, pp, pv = pl

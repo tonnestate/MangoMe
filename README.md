@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.1-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -82,6 +82,42 @@ A Claude session ends. Codex continues. Another agent sees a different database.
 MangoMe moves that problem out of the prompt and into durable, inspectable state.
 
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
+
+---
+
+# v0.3.1 — persistent cognitive hygiene and thermal working sets
+
+v0.3.1 adds a deterministic homeostasis layer above MangoMe's durable v0.3 work graph and below the existing `ContextCompiler`. It does not create another memory system. Canonical MongoDB state remains the historical record; PCH/1 computes only which objects should be cognitively resident for the present task.
+
+```text
+Persistent canonical history H_t
+        ↓
+PCH/1 Cognitive Hygiene
+  graph reachability + task relevance
+  + authority + freshness + support
+        ↓
+Bounded active working set A_t
+  HOT / WARM / COLD
+        ↓
+existing ContextCompiler
+        ↓
+worker / UAI context C_t
+```
+
+The central invariants are:
+
+```text
+temperature != truth
+temperature != assurance
+COLD != deleted
+|C_t| <= B_context
+|A_t| <= B_active
+H_t remains historically recoverable
+```
+
+`HOT`, `WARM`, and `COLD` are buckets over a continuous task-relative temperature in `[0,1]`. Current canonical execution roots are pinned. Superseded or historical state normally cools, but a targeted historical query can reheat it for inspection/revalidation without restoring normative authority. The GC analogy is deliberately non-destructive: PCH/1 borrows reachability, generations and residency pressure, but "collection" only removes objects from the active worker set.
+
+The full diagnostic surface is available through `cognitive_hygiene`; normal worker execution receives only the bounded selection summary through `ContextCompiler` and UAI/1.
 
 ---
 
@@ -962,6 +998,7 @@ restore
 ├── src/mangome/
 │   ├── service.py            # canonical domain operations / assignment preparation
 │   ├── integrity.py          # assurance and authority invariants
+│   ├── hygiene.py            # PCH/1 thermal working-set / cognitive homeostasis
 │   ├── context.py            # bounded execution context / hard envelope
 │   ├── interlingua.py        # UAI/1 compile/decode/render
 │   ├── importer.py           # Big-Bang discovery/reconciliation
@@ -1012,51 +1049,40 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.2.2** hardens execution integrity on top of the `v0.1.9rc4` recovery/governance foundation.
+**v0.3.1** adds Persistent Cognitive Hygiene on top of the durable `v0.3.0` WorkIdentity/persistence foundation.
 
-The most important changes are:
-
-- assignment execution can internally reuse or bootstrap Slices without exposing them to the user;
-- `prepare_assignment` separates internal execution organization from the human-visible result;
-- audit/review work cannot complete on planning prose alone;
-- observation Evidence is required before audit-like completion claims;
-- observe/reconcile precedes repair;
-- managed runtimes fail closed when the selected MongoDB database differs from the expected database;
-- future schema versions fail closed instead of being silently interpreted;
-- execution-context projections can be bounded deterministically without truncating canonical truth;
-- graph/evidence reads use more targeted MongoDB predicates and indexes before introducing any second graph/cache layer.
-
-The architecture remains:
+The current execution architecture is:
 
 ```text
-ordinary user intent
+ordinary user intent / recovered WorkIdentity
     ↓
-managed binding / restore
+current WorkTurn + immutable NormativeBaseline
     ↓
-canonical Project + Family + Spec
+canonical Project / Family / Spec / Plan / Slice / Evidence graph
     ↓
-internal Plan + Slice execution
+PCH/1 thermal working-set selection
     ↓
-observed reality + Evidence
+existing ContextCompiler hard envelope
     ↓
-worker DONE_CLAIMED
+UAI/1 or normal worker context
     ↓
-independent AV/1 verification
+execution / Evidence / DONE_CLAIMED
     ↓
-VERIFIED
+independent verification
     ↓
-optional authorized ACCEPTED
+VERIFIED / optional ACCEPTED
 ```
+
+PCH/1 is deliberately projection-only. It does not delete history, alter assurance, infer correctness, or create a second source of truth. `HOT/WARM/COLD` express current cognitive residency; canonical state remains governed by MangoMe's existing truth, authority and verification paths.
 
 ## Important current limits
 
+- PCH/1 uses an explicit deterministic heuristic policy; its weights and thresholds are an inspectable baseline for evaluation, not a claim of optimal cognitive allocation.
+- The current graph-distance calculation is scoped to the Family execution context plus deterministic synthetic relations; it is not yet a host-wide graph navigator.
+- Freshness can consume explicit `CURRENT`, `STALE`, `SOURCE_CHANGED`, `ENVIRONMENT_CHANGED`, or `REVALIDATION_REQUIRED` markers, but v0.3.1 does not yet implement a general bitemporal truth-maintenance engine.
+- Temperature controls activation only. It cannot promote evidence, change normative authority, verify a Slice, or accept work.
 - MangoMe can only enforce writes that pass through MangoMe. Direct MongoDB/admin access remains outside the service trust boundary.
-- External model dispatch remains external. The host/orchestrator must enforce MangoMe authorization decisions at the real dispatch boundary.
-- MangoMe does not execute verification commands itself; verifier/host execution remains external.
-- The hard context envelope is byte-based, not provider-tokenizer-specific.
-- The graph remains MongoDB-backed; v0.2.2 intentionally optimizes query access before considering an in-memory mirror.
-- Multi-document semantic operations still deserve further transaction/atomicity review where a logical mutation spans several documents.
-- Runtime/source/database identity must be enforced consistently on every actual agent path; configuration alone is not proof that every external launcher obeys it.
+- External model dispatch and verifier command execution remain host responsibilities.
 
 
 ---

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1 — 2026-09-27 — Persistent Cognitive Hygiene / Thermal Working Set
+
+- Adds deterministic **PCH/1 Persistent Cognitive Hygiene** over the existing canonical MangoMe graph; no second truth store, memory database, or graph engine is introduced.
+- Adds `CognitiveHygieneService` with task-relative continuous temperature `T(x|q,t) ∈ [0,1]` and inspectable `HOT`, `WARM`, `COLD` bands.
+- Treats `HOT/WARM/COLD` as disposable activation/residency, never as truth, assurance, or persistence. `COLD` means non-resident, not deleted.
+- Uses canonical roots, graph reachability, task relevance, operational authority, freshness, epistemic support, conflict attention, supersession and representation cost to derive a bounded active working set.
+- Pins current canonical execution roots so active-budget pressure cannot evict the Family, current Spec/Slice/Plan dependencies, or effective Contract truth required for execution.
+- Adds GC-inspired generation labels (`HOT=0`, `WARM=1`, `COLD=2`) without destructive collection; historical state remains recoverable in MongoDB.
+- Allows explicitly targeted historical/superseded state to reheat for inspection or revalidation without restoring its normative authority.
+- Integrates PCH/1 **before** the existing `ContextCompiler`: `History → Hygiene Active Set → ContextCompiler → Worker/UAI`.
+- Adds MCP `cognitive_hygiene` for a full thermal map and working-set diagnostics.
+- Extends UAI/1 semantic projection with compact hygiene semantics and the invariants `TEMPERATURE!=TRUTH` and `COLD!=DELETED`.
+- Adds regression coverage for non-destructive supersession, targeted reheating, pinned-root budget protection, compiler filtering, and UAI round-trip hygiene semantics.
+
 ## 0.3.0 — 2026-09-27 — Durable WorkIdentity / Progressive Persistence
 
 - Promotes **WorkIdentity** to the durable authority anchor above replaceable Playbooks and evolving Specifications.
