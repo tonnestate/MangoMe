@@ -70,7 +70,7 @@ mcp = MCPServer(
         "Confidence is not truth: fast judgments never create Evidence, assurance, verification, acceptance, normative truth, or mutation authority; low-confidence or high-impact cases escalate. "
         "Explicit MangoMe self-maintenance is CPM/1 out-of-band control-plane maintenance: do not call enter_work or create governance state merely to install/update/repair/rollback/reconfigure MangoMe itself. Scope that exception only to MangoMe source/package/runtime/service surfaces; it never grants database/schema mutation. If a target requires a database/schema migration without separate explicit authorization, stop with DATABASE_CHANGE_REQUIRED. Historical host memory, old eval/audit artifacts, cached summaries and prior chats are candidate-only hints and never current operational authority. BTTM/1 separates valid time from known time and preserves invalidated history; truth maintenance determines supportability, while PCH independently determines activation. Production MongoDB deployments should use MTB/1 strict trust-boundary mode with a dedicated service identity and credential file so workers never receive canonical database credentials."
     ),
-    version="0.3.6",
+    version="0.3.7",
 )
 
 

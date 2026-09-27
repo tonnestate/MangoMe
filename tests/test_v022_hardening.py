@@ -151,7 +151,7 @@ def test_release_version_surfaces_are_consistent():
     server_match = re.search(r'\bversion\s*=\s*"([^"]+)"', server_text)
     assert init_match and init_match.group(1) == expected
     assert server_match and server_match.group(1) == expected
-    assert expected == "0.3.6"
+    assert expected == "0.3.7"
 
 
 def test_mangome_runtime_does_not_manage_host_network_configuration():

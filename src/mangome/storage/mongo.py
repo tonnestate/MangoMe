@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from ..schema import upgrade_document
@@ -17,7 +18,20 @@ class MongoStore(Store):
     def __init__(self, uri: str, database: str = "mangome") -> None:
         if MongoClient is None:
             raise RuntimeError("PyMongo is not installed. Install mangome-mcp with its default dependencies.")
-        self.client = MongoClient(uri)
+        def _timeout(name: str, default: int) -> int:
+            raw = os.environ.get(name, str(default)).strip()
+            try:
+                return max(100, int(raw))
+            except ValueError:
+                return default
+
+        self.client = MongoClient(
+            uri,
+            serverSelectionTimeoutMS=_timeout("MANGOME_MONGO_SERVER_SELECTION_TIMEOUT_MS", 2000),
+            connectTimeoutMS=_timeout("MANGOME_MONGO_CONNECT_TIMEOUT_MS", 1000),
+            socketTimeoutMS=_timeout("MANGOME_MONGO_SOCKET_TIMEOUT_MS", 2000),
+            appname="MangoMe",
+        )
         self.db = self.client[database]
 
     def insert(self, collection: str, doc: dict[str, Any]) -> dict[str, Any]:

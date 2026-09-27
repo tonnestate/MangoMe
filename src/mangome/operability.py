@@ -42,6 +42,8 @@ CONTROL-PLANE SELF-MAINTENANCE RULE: when the current user explicitly asks to in
 
 USER-INTENT RULE: do not inflate a casual status remark, acknowledgement, or observation into a new work order. Only actual requested work enters IntakeGov/governed execution.
 
+DATABASE-BINDING RULE: database identity is deployment state, never agent-discovered state. For ordinary managed work the canonical local database is `mangome`. Never search host memory, old contracts, alternate databases, or eval databases to recover database identity. `mangome_uai_eval` is legacy eval state and requires explicit eval opt-in; otherwise report the binding error and stop.
+
 DELEGATION RULE: fan-out width, model tier, capability, cost and authority are independent. Cheap/standard fan-out may be broad. Expensive/premium work requires explicit bounded authorization; importance, difficulty or capability loss never imply premium escalation. A capability downgrade means checkpoint and hand off only the missing capability. MangoMe authorizes/checkpoints delegation but the external orchestrator must enforce it at the real dispatch boundary.
 
 Human-visible control-plane narration inherits the current user/session language unless the user explicitly changes it. `DONE_CLAIMED` is only a claim; verifier/owner authority remains separate.
@@ -324,6 +326,11 @@ def _server_identity(workspace: Path, *, backend: str, database: str) -> dict[st
         "MANGOME_BACKEND": backend,
         "MANGOME_DATABASE": database,
         "MANGOME_EXPECTED_DATABASE": database,
+        "MANGOME_ALLOW_EVAL_DATABASE": "0",
+        "MANGOME_DEPLOYMENT_ID": os.environ.get("MANGOME_DEPLOYMENT_ID", "managed-local"),
+        "MANGOME_MONGO_SERVER_SELECTION_TIMEOUT_MS": os.environ.get("MANGOME_MONGO_SERVER_SELECTION_TIMEOUT_MS", "2000"),
+        "MANGOME_MONGO_CONNECT_TIMEOUT_MS": os.environ.get("MANGOME_MONGO_CONNECT_TIMEOUT_MS", "1000"),
+        "MANGOME_MONGO_SOCKET_TIMEOUT_MS": os.environ.get("MANGOME_MONGO_SOCKET_TIMEOUT_MS", "2000"),
         "MANGOME_CONTEXT_MAX_BYTES": os.environ.get("MANGOME_CONTEXT_MAX_BYTES", "65536"),
         "MANGOME_RUNTIME_ROLE": "WORKER",
         "MANGOME_WORKSPACE_ROOT": str(workspace),
@@ -652,7 +659,7 @@ def _codex_block(workspace: Path, *, backend: str, database: str) -> str:
         f"args = {_toml_array(entry['args'])}",
         f"cwd = {_toml_string(entry['cwd'])}",
         "enabled = true",
-        "startup_timeout_sec = 20",
+        "startup_timeout_sec = 8",
         "",
         "[mcp_servers.mangome.env]",
     ]

@@ -6,6 +6,7 @@ import mangome.runtime as runtime
 def test_health_snapshot_survives_bootstrap_failure_without_leaking_message(monkeypatch):
     monkeypatch.setenv("MANGOME_BACKEND", "mongo")
     monkeypatch.setenv("MANGOME_DATABASE", "mangome_uai_eval")
+    monkeypatch.setenv("MANGOME_ALLOW_EVAL_DATABASE", "1")
 
     class SecretBearingFailure(RuntimeError):
         pass

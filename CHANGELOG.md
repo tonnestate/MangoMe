@@ -1,3 +1,12 @@
+## 0.3.7 — 2026-09-27 — Deterministic Runtime Database Binding
+
+- Treats database identity as deployment state, never agent-discovered state.
+- Rejects the legacy `mangome_uai_eval` binding for ordinary managed work unless `MANGOME_ALLOW_EVAL_DATABASE=1` is explicitly set.
+- `health()` now exposes `process_ready`, `database_ready`, and a sanitized `database_binding` block so the effective DB is visible in one call.
+- Managed Codex/Claude configuration pins the canonical database and short MongoDB connection timeouts.
+- MongoDB server selection/connect/socket timeouts are bounded to prevent multi-minute startup stalls.
+- Re-running managed setup/doctor removes stale `mangome_eval` client entries and rebinds to the current `mangome` server.
+
 ## 0.3.6 — 2026-09-27 — Bitemporal Truth Maintenance & MongoDB Trust Boundary
 
 - Added `BTTM/1` canonical truth assertions with separate valid-time and known-time intervals.

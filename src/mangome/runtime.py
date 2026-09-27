@@ -13,6 +13,43 @@ _service: MangoMeService | None = None
 _workspace_attachment: dict[str, object] | None = None
 _session_restore: dict[str, object] | None = None
 
+_LEGACY_EVAL_DATABASES = {"mangome_uai_eval"}
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+def database_binding_snapshot() -> dict[str, object]:
+    backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
+    if backend == "memory":
+        return {
+            "backend": "memory",
+            "database": None,
+            "expected_database": None,
+            "source": "MEMORY",
+            "state": "BOUND",
+            "legacy_eval": False,
+        }
+    configured = os.environ.get("MANGOME_DATABASE", "mangome").strip() or "mangome"
+    expected = os.environ.get("MANGOME_EXPECTED_DATABASE", "").strip() or configured
+    legacy_eval = configured in _LEGACY_EVAL_DATABASES
+    allow_eval = _truthy_env("MANGOME_ALLOW_EVAL_DATABASE")
+    if configured != expected:
+        state = "MISMATCH"
+    elif legacy_eval and not allow_eval:
+        state = "LEGACY_EVAL_REQUIRES_OPT_IN"
+    else:
+        state = "BOUND"
+    return {
+        "backend": "mongodb",
+        "database": configured,
+        "expected_database": expected,
+        "source": "MANGOME_DATABASE" if "MANGOME_DATABASE" in os.environ else "DEFAULT_MANGOME",
+        "state": state,
+        "legacy_eval": legacy_eval,
+        "eval_opt_in": allow_eval,
+        "rule": "DATABASE_IDENTITY_IS_DEPLOYMENT_STATE_NOT_AGENT_DISCOVERY",
+    }
+
 
 def bind_workspace_read_only(workspace_root: str | None = None) -> dict[str, object]:
     """Bind the process to a workspace path without discovery, scanning, or persistence.
@@ -55,13 +92,19 @@ def get_service() -> MangoMeService:
     if _service is not None:
         return _service
     enforce_expected_identity()
+    binding = database_binding_snapshot()
     backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
-    database = os.environ.get("MANGOME_DATABASE", "mangome")
-    expected_database = os.environ.get("MANGOME_EXPECTED_DATABASE", "").strip()
-    if backend != "memory" and expected_database and database != expected_database:
+    database = str(binding.get("database") or "mangome")
+    expected_database = str(binding.get("expected_database") or database)
+    if backend != "memory" and binding.get("state") == "MISMATCH":
         raise OperabilityError(
             "WRONG_MANGOME_DATABASE",
             f"managed MangoMe binding expects database {expected_database!r}, running configuration selects {database!r}",
+        )
+    if backend != "memory" and binding.get("state") == "LEGACY_EVAL_REQUIRES_OPT_IN":
+        raise OperabilityError(
+            "LEGACY_EVAL_DATABASE_REQUIRES_OPT_IN",
+            "legacy eval database binding is not valid for ordinary managed work; bind the runtime to 'mangome' or explicitly opt into eval mode",
         )
     if backend == "memory":
         store = InMemoryStore()
@@ -142,7 +185,8 @@ def health_snapshot() -> dict[str, object]:
     from .schema import CURRENT_SCHEMA_VERSION
 
     backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
-    database = os.environ.get("MANGOME_DATABASE", "mangome") if backend != "memory" else None
+    binding = database_binding_snapshot()
+    database = binding.get("database") if backend != "memory" else None
     backend_name = "memory" if backend == "memory" else "mongodb"
     trust_boundary = None
     if backend != "memory":
@@ -182,16 +226,23 @@ def health_snapshot() -> dict[str, object]:
             store["database"] = database
         return {
             "ok": False,
+            "process_ready": True,
+            "database_ready": False,
             "version": __version__,
             "schema_version": CURRENT_SCHEMA_VERSION,
+            "database_binding": binding,
             "store": store,
             "trust_boundary": trust_boundary,
+            "workspace_attachment": _workspace_attachment,
         }
 
     return {
         "ok": bool(store_health.get("ok")),
+        "process_ready": True,
+        "database_ready": bool(store_health.get("ok")),
         "version": __version__,
         "schema_version": CURRENT_SCHEMA_VERSION,
+        "database_binding": binding,
         "store": store_health,
         "trust_boundary": trust_boundary,
         "workspace_attachment": _workspace_attachment,
