@@ -24,3 +24,10 @@ def test_operational_language_policy_is_present_in_skill_and_mcp_source():
     assert "Operational language follows the user/session" in skill
     assert "INHERIT_CURRENT_USER_SESSION_LANGUAGE" in mcp_source
     assert "silent_language_switch" in mcp_source
+
+
+def test_release_tree_has_no_process_helper_documents():
+    root = Path(__file__).resolve().parents[1]
+    forbidden = ["REPO_AUDIT_2026-09-24.md", "TEST_REPORT.md", "UPLOAD_DOTFILES.md"]
+    present = [name for name in forbidden if (root / name).exists()]
+    assert present == [], f"release tree contains process-only helper documents: {present}"

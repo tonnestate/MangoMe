@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -70,5 +70,17 @@ def upgrade_document(collection: str, document: dict[str, Any]) -> tuple[dict[st
             doc.setdefault("verified_by", None)
         doc["schema_version"] = 4
         changes.append("schema 3 -> 4")
+        version = 4
+
+    if version < 5:
+        if collection == "plans":
+            doc.setdefault("work_id", None)
+            doc.setdefault("turn_id", None)
+            doc.setdefault("normative_baseline_id", None)
+        elif collection in {"evidence", "claims"}:
+            doc.setdefault("work_id", None)
+            doc.setdefault("normative_baseline_id", None)
+        doc["schema_version"] = 5
+        changes.append("schema 4 -> 5")
 
     return doc, changes

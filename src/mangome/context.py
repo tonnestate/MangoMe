@@ -96,6 +96,71 @@ class ContextCompiler:
             },
         }
 
+        # v0.3 persistence boundary: durable identity/assurance is mandatory context,
+        # progressive checkpoints are recoverable but non-normative, and Playbooks are
+        # procedural/replaceable. Playbooks never participate in effective truth.
+        work = None
+        resolver = getattr(self.service, "_work_for_family", None)
+        if callable(resolver):
+            work = resolver(family_id)
+        if work is not None and hasattr(self.service, "work_context"):
+            wc = self.service.work_context(work["entity_id"])
+            view = wc.get("work_view") or {}
+            baseline = (wc.get("canonical") or {}).get("normative_baseline") or {}
+            assurance = (wc.get("canonical") or {}).get("assurance_history") or []
+            latest_assurance = assurance[-1] if assurance else None
+            latest_turn = self.service.store.get("work_turn_bindings", view.get("latest_turn_id")) if view.get("latest_turn_id") else None
+            payload["persistence"] = {
+                "canonical": {
+                    "persistence_level": "CANONICAL",
+                    "work_identity": {
+                        "entity_id": work.get("entity_id"),
+                        "work_key": work.get("work_key"),
+                        "status": work.get("status"),
+                    },
+                    "normative_baseline": {
+                        "entity_id": baseline.get("entity_id"),
+                        "semantic_hash": baseline.get("semantic_hash"),
+                        "source": (baseline.get("semantics") or {}).get("source"),
+                    },
+                    "turn_binding": {
+                        "entity_id": (latest_turn or {}).get("entity_id"),
+                        "mode": (latest_turn or {}).get("mode"),
+                        "actor_id": (latest_turn or {}).get("actor_id"),
+                        "status": (latest_turn or {}).get("status"),
+                    } if latest_turn else None,
+                    "active_plan_ids": list(view.get("active_plan_ids") or []),
+                    "assurance": {
+                        "event_count": view.get("assurance_event_count", 0),
+                        "cursor": view.get("assurance_cursor"),
+                        "latest": None if latest_assurance is None else {
+                            "event_type": latest_assurance.get("event_type"),
+                            "subject_id": latest_assurance.get("subject_id"),
+                            "baseline_id": latest_assurance.get("normative_baseline_id"),
+                            "actor_id": latest_assurance.get("actor_id"),
+                            "created_at": latest_assurance.get("created_at"),
+                        },
+                    },
+                },
+                "progressive": {
+                    "persistence_level": "PROGRESSIVE",
+                    "latest_checkpoint": (wc.get("progressive") or {}).get("latest_checkpoint"),
+                },
+                "volatile": {
+                    "persistence_level": "VOLATILE",
+                    "playbook": (wc.get("volatile") or {}).get("playbook"),
+                    "authority": "PROCEDURAL_NON_NORMATIVE",
+                },
+                "promotion_rule": (
+                    "Progressive state can only reference an existing canonical WorkIdentity; "
+                    "Discovery/recovery/playbooks never promote themselves to canonical truth."
+                ),
+            }
+            payload["instruction"] += (
+                " WorkIdentity, normative baseline bindings and assurance history are canonical. "
+                "Progressive checkpoints and Playbooks must never overwrite or reconstruct them."
+            )
+
         configured = max_bytes
         if configured is None:
             raw = os.environ.get("MANGOME_CONTEXT_MAX_BYTES", "").strip()
@@ -124,6 +189,24 @@ class ContextCompiler:
         payload["evidence"] = [_compact_evidence(item) for item in payload["evidence"]]
         payload["relevant_contracts"] = [_compact_contract(item) for item in payload["relevant_contracts"]]
         omitted = 0
+        # Context reduction order is explicit: volatile -> progressive detail -> old evidence.
+        # Canonical WorkIdentity/baseline/assurance summary is never removed.
+        if _json_bytes(payload) > max(0, budget - 512) and payload.get("persistence"):
+            volatile = payload["persistence"].get("volatile") or {}
+            if volatile.get("playbook") is not None:
+                playbook = volatile.get("playbook") or {}
+                volatile["playbook"] = {
+                    "entity_id": playbook.get("entity_id"),
+                    "playbook_key": playbook.get("playbook_key"),
+                    "version": playbook.get("version"),
+                    "content_hash": playbook.get("content_hash"),
+                }
+        if _json_bytes(payload) > max(0, budget - 512) and payload.get("persistence"):
+            checkpoint = (payload["persistence"].get("progressive") or {}).get("latest_checkpoint")
+            if isinstance(checkpoint, dict) and checkpoint.get("payload") is not None:
+                checkpoint = dict(checkpoint)
+                checkpoint["payload"] = {"omitted": True}
+                payload["persistence"]["progressive"]["latest_checkpoint"] = checkpoint
         while payload["evidence"] and _json_bytes(payload) > max(0, budget - 512):
             payload["evidence"].pop(0)
             omitted += 1

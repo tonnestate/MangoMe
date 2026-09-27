@@ -262,7 +262,7 @@ def test_schema_v4_adds_verification_fields_without_inventing_provenance():
             "assurance_state": "VERIFIED",
         },
     )
-    assert upgraded["schema_version"] == 4
+    assert upgraded["schema_version"] == 5
     assert upgraded["verification_evidence_ids"] == []
     assert upgraded["verification_observation_ids"] == []
     assert upgraded["verified_by"] is None

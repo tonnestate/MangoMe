@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.2-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -32,9 +32,11 @@ DOCUMENT STORE
     +
 WORK GRAPH
     +
+DURABLE WORK IDENTITY
+    +
 STATE MACHINE
     +
-CONTRACT / SPECIFICATION HISTORY
+SPECIFICATION / NORMATIVE BASELINE HISTORY
     +
 EVIDENCE / PROVENANCE LEDGER
     +
@@ -80,6 +82,68 @@ A Claude session ends. Codex continues. Another agent sees a different database.
 MangoMe moves that problem out of the prompt and into durable, inspectable state.
 
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
+
+---
+
+# v0.3.0 — durable WorkIdentity, progressive persistence, and playbook isolation
+
+v0.3.0 changes MangoMe's primary architectural anchor. Contracts and Specifications remain important normative inputs, but they no longer define the identity of the work. Playbooks remain procedural inputs and are explicitly non-normative.
+
+> **Playbooks may change.  
+> Specs may evolve.  
+> Workers and sessions may disappear.  
+> The identity of the work and its assurance history must survive them all.**
+
+The governing model is:
+
+```text
+Intent-first
+    ↓
+Identity-bound
+    ↓
+Playbook-guided
+    ↓
+Spec-governed
+    ↓
+Assurance-preserving
+```
+
+MangoMe now separates three persistence levels:
+
+```text
+VOLATILE
+  selected Playbook body / transient execution context
+
+PROGRESSIVE
+  crash-recovery checkpoint / working cursor / non-normative selection state
+
+CANONICAL
+  WorkIdentity / NormativeBaseline binding / Plan authority / Evidence / Claims / Assurance history
+```
+
+A prompt may admit a durable WorkIdentity, but it does **not** automatically become a Specification or Contract. Productive Plans are bound to the current immutable `NormativeBaseline`; if the effective Spec/Contract truth changes, an older Plan stops with `BASELINE_DRIFT` rather than silently inheriting the new target.
+
+Playbooks are deliberately weaker than canonical state:
+
+```text
+Playbook = HOW work is normally performed
+Specification = WHAT must become true
+MangoMe = WHAT survives: identity, persistence, provenance, execution binding, and independent assurance
+```
+
+The hard recovery rule is therefore:
+
+```text
+filesystem / Git / Playbook / prior agent prose
+        ↓
+may guide or corroborate
+        ↓
+MUST NOT reconstruct WorkIdentity, current normative truth, or assurance
+```
+
+For managed MCP operation, first admission after `STATE_NOT_FOUND` may trust the current client-relayed user intent. Once canonical workspace state exists, minting additional durable work authority or a new WorkTurn belongs to the host/control-plane capability boundary. Recovered workers consume a bound turn; they do not self-authorize current-user intent. Direct library use remains a lower-level integration boundary and must be isolated from untrusted workers in high-assurance deployments.
+
+The ContextCompiler and UAI projection now expose the persistence boundary explicitly so canonical identity/assurance survives context reduction while volatile Playbook material is trimmed first.
 
 ---
 

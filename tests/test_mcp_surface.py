@@ -26,6 +26,7 @@ def test_mcp_v2_surface_lists_core_tools(monkeypatch):
                 "effective_family_view", "bigbang_scan", "reconcile_bigbang", "migrate_schema",
                 "enter_work", "begin_work", "compile_uai_context", "expand_uai_context", "decode_uai_result", "render_uai_result",
                 "filesystem_scan", "filesystem_references", "build_reproduction_binding", "evidence_freshness",
+                "backfill_work_identity", "bind_work_turn", "work_context", "checkpoint_work", "register_playbook", "select_playbook",
             }
             assert required.issubset(names)
 

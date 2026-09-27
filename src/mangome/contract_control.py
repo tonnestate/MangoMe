@@ -352,7 +352,7 @@ class ContractGovernedMangoMeService(IntegrityMangoMeService):
         if turn.get("status") != "BOUND" or turn.get("mode") != "MODIFY":
             raise TurnBindingError("CONTRACT_PROMOTION_REQUIRES_BOUND_MODIFY_TURN")
         if turn.get("actor_id") != actor_id or turn.get("contract_id") != contract["entity_id"]:
-            raise TurnBindingError("turn actor/contract does not match contract promotion request")
+            raise ContractGenerationConflict("turn/actor/contract does not match contract promotion request")
 
         grant = self._must_get("contract_generation_grants", grant_id)
         if grant.get("status") != "ACTIVE":

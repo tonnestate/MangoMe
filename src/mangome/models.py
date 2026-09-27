@@ -20,7 +20,7 @@ from .enums import (
 )
 from .ids import new_id
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def utcnow() -> datetime:
@@ -193,8 +193,11 @@ class ProposedSlice(BaseModel):
 class Plan(BaseEntity):
     family_id: str
     request_id: str
-    spec_id: str
+    spec_id: str | None = None
     actor_id: str
+    work_id: str | None = None
+    turn_id: str | None = None
+    normative_baseline_id: str | None = None
     intent: str
     contract_ids: list[str] = Field(default_factory=list)
     proposed_slices: list[ProposedSlice] = Field(default_factory=list)

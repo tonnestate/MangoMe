@@ -21,7 +21,10 @@ class MangoMaintainer:
     COLLECTIONS = (
         "requests", "projects", "families", "contracts", "specs", "slices", "plans", "claims",
         "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts",
-        "filesystem_entries", "filesystem_roots",
+        "filesystem_entries", "filesystem_roots", "turn_bindings", "contract_heads",
+        "contract_generations", "contract_generation_grants", "work_identities", "work_turn_bindings",
+        "normative_baselines", "work_checkpoints", "playbooks", "playbook_selections",
+        "assurance_events", "work_views",
     )
 
     def __init__(self, service: MangoMeService) -> None:

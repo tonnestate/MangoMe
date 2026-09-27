@@ -45,3 +45,18 @@ This is a pragmatic self-hosted control plane, not a replacement for transport-n
 MangoMe's state-machine guarantees apply to writes that pass through MangoMe. A worker with direct MongoDB write/admin access can bypass those guarantees.
 
 For untrusted workers, isolate the canonical database credential behind the MangoMe service/runtime boundary and do not expose that credential through the worker process environment, shell, or readable configuration.
+
+## v0.3 control-plane authority
+
+Durable WorkIdentity/WorkTurn authority is distinct from worker identity.
+
+```text
+MANGOME_RUNTIME_ROLE=CONTROL
+MANGOME_RUNTIME_ACTOR=control-plane
+```
+
+or configure `MANGOME_CONTROLLER_TOKEN` plus optional `MANGOME_CONTROLLER_ACTORS`.
+
+A first `enter_work` admission after `STATE_NOT_FOUND` may trust the current client-relayed user intent so zero-touch onboarding remains possible. Once canonical workspace state exists, additional work admission and `bind_work_turn` require the control-plane capability. A recovered worker therefore cannot infer `CONTINUE`/`EXECUTE` from ACTIVE state and cannot mint a new authoritative turn for itself.
+
+High-assurance deployments must keep controller credentials outside worker prompts and direct model-visible state.

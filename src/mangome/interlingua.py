@@ -18,6 +18,8 @@ _RULES = [
     "MUTATE_REQUIRES_ACTIVE_PLAN",
     "UNATTESTED_EVIDENCE!=PROOF",
     "COLLISION_WARNING=CONTINUE_ALLOWED",
+    "PLAYBOOK!=NORMATIVE_TRUTH",
+    "PROGRESSIVE!=CANONICAL",
 ]
 
 _RESULT_STATUSES = {"SUCCESS", "PARTIAL", "BLOCKED", "FAILED"}
@@ -130,7 +132,45 @@ class UAICompiler:
                 for e in packet.get("evidence", [])
             ],
             "rules": list(_RULES),
+            "persistence": None,
         }
+
+        persistence = packet.get("persistence")
+        if persistence:
+            canonical = persistence.get("canonical") or {}
+            progressive = persistence.get("progressive") or {}
+            volatile = persistence.get("volatile") or {}
+            wid = canonical.get("work_identity") or {}
+            baseline = canonical.get("normative_baseline") or {}
+            turn = canonical.get("turn_binding") or {}
+            assurance = canonical.get("assurance") or {}
+            checkpoint = progressive.get("latest_checkpoint") or {}
+            playbook = volatile.get("playbook") or {}
+            projection["persistence"] = {
+                "canonical": {
+                    "level": "CANONICAL",
+                    "work_id": wid.get("entity_id"),
+                    "work_key": wid.get("work_key"),
+                    "baseline_id": baseline.get("entity_id"),
+                    "baseline_hash": baseline.get("semantic_hash"),
+                    "turn_id": turn.get("entity_id"),
+                    "turn_mode": turn.get("mode"),
+                    "plan_ids": list(canonical.get("active_plan_ids") or []),
+                    "assurance_count": assurance.get("event_count", 0),
+                    "assurance_cursor": assurance.get("cursor"),
+                },
+                "progressive": {
+                    "level": "PROGRESSIVE",
+                    "checkpoint_id": checkpoint.get("entity_id"),
+                    "checkpoint_kind": checkpoint.get("kind"),
+                },
+                "volatile": {
+                    "level": "VOLATILE",
+                    "playbook_id": playbook.get("entity_id"),
+                    "playbook_key": playbook.get("playbook_key"),
+                    "playbook_version": playbook.get("version"),
+                },
+            }
 
         if spec:
             projection["spec"] = {
@@ -204,7 +244,18 @@ class UAICompiler:
             "c": [[c["id"], c["declared"], c["kind"], c["title"]] for c in projection["contracts"]],
             "e": [[e["id"], e["class"], e["verdict"], e["trust"], e["source"], e["result"]] for e in projection["evidence"]],
             "r": projection["rules"],
+            "pl": None,
         }
+        persistence = projection.get("persistence")
+        if persistence:
+            pc = persistence["canonical"]
+            pp = persistence["progressive"]
+            pv = persistence["volatile"]
+            compact["pl"] = [
+                [pc["work_id"], pc["work_key"], pc["baseline_id"], pc["baseline_hash"], pc["turn_id"], pc["turn_mode"], pc["plan_ids"], pc["assurance_count"], pc["assurance_cursor"]],
+                [pp["checkpoint_id"], pp["checkpoint_kind"]],
+                [pv["playbook_id"], pv["playbook_key"], pv["playbook_version"]],
+            ]
         if sl is not None:
             compact["w"] = [
                 sl["id"], sl["declared"], sl["title"], sl["objective"], sl["execution"], sl["assurance"],
@@ -249,7 +300,21 @@ class UAICompiler:
                     for row in data.get("e", [])
                 ],
                 "rules": list(data.get("r", [])),
+                "persistence": None,
             }
+            pl = data.get("pl")
+            if pl is not None:
+                pc, pp, pv = pl
+                projection["persistence"] = {
+                    "canonical": {
+                        "level": "CANONICAL", "work_id": pc[0], "work_key": pc[1],
+                        "baseline_id": pc[2], "baseline_hash": pc[3], "turn_id": pc[4],
+                        "turn_mode": pc[5], "plan_ids": pc[6], "assurance_count": pc[7],
+                        "assurance_cursor": pc[8],
+                    },
+                    "progressive": {"level": "PROGRESSIVE", "checkpoint_id": pp[0], "checkpoint_kind": pp[1]},
+                    "volatile": {"level": "VOLATILE", "playbook_id": pv[0], "playbook_key": pv[1], "playbook_version": pv[2]},
+                }
             if sp is not None:
                 projection["spec"] = {
                     "id": sp[0], "version": sp[1], "objective": sp[2], "deliverables": sp[3],

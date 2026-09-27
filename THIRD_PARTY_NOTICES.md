@@ -20,3 +20,22 @@ MangoMe v0.1.7's adversarial completion-verification design was informed by `fab
 MangoMe implements these concepts independently within its own existing Evidence, Verification and Acceptance model. MangoMe does not incorporate Fable's verdict state machine and does not bundle Fable's source files or evaluation fixtures.
 
 The Fable Method repository is distributed under the MIT License. Its license text is available in the upstream repository at the URL above.
+
+
+## Design acknowledgements for v0.3.0 (no bundled code)
+
+MangoMe v0.3.0 also acknowledges external ideas that informed architecture discussions without becoming runtime dependencies or copied source code.
+
+### Anthropic Agent Skills
+
+Anthropic's Agent Skills model informed the distinction between reusable procedural guidance and durable project truth, particularly progressive disclosure of instructions/resources. MangoMe does not bundle Anthropic Skill code. In MangoMe, a Playbook/Skill remains procedural and non-normative; it cannot define WorkIdentity, effective Specification truth, or assurance.
+
+### OpenSpec ecosystem
+
+OpenSpec-style separation between specifications (what should become true) and execution procedure informed MangoMe's decision to keep Specifications as evolving normative inputs while Plans/Playbooks remain execution concerns. MangoMe does not copy or vendor OpenSpec source code in this release.
+
+### External architecture review
+
+Review feedback supplied through Grok was considered for deterministic effective views, assurance/evidence policy, and read-path performance. It is treated as advisory design input, not a dependency, library, or source-code contribution.
+
+The project distinguishes **INSPIRED BY** from **DEPENDS ON**, **BUNDLES CODE FROM**, and **OPTIONALLY INTEGRATES WITH**. v0.3.0 adds no new third-party runtime dependency for WorkIdentity, persistence levels, Playbooks, or normative baselines.

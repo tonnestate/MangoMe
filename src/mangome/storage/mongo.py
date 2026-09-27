@@ -90,7 +90,9 @@ class MongoStore(Store):
             "requests", "projects", "families", "contracts", "specs", "slices", "plans", "claims",
             "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts",
             "filesystem_entries", "filesystem_roots", "turn_bindings", "contract_heads",
-            "contract_generations", "contract_generation_grants"
+            "contract_generations", "contract_generation_grants", "work_identities",
+            "work_turn_bindings", "normative_baselines", "work_checkpoints", "playbooks",
+            "playbook_selections", "assurance_events", "work_views"
         ):
             self.db[name].create_index([("entity_id", ASCENDING)], unique=True)
         self.db["projects"].create_index([("project_key", ASCENDING)])
@@ -119,6 +121,17 @@ class MongoStore(Store):
         self.db["contract_generations"].create_index([("content_hash", ASCENDING)])
         self.db["contract_generation_grants"].create_index([("contract_id", ASCENDING), ("status", ASCENDING)])
         self.db["contract_generation_grants"].create_index([("turn_id", ASCENDING)])
+        self.db["work_identities"].create_index([("work_key", ASCENDING)], unique=True)
+        self.db["work_identities"].create_index([("family_id", ASCENDING)], unique=True)
+        self.db["work_turn_bindings"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["work_turn_bindings"].create_index([("actor_id", ASCENDING), ("status", ASCENDING)])
+        self.db["normative_baselines"].create_index([("work_id", ASCENDING), ("semantic_hash", ASCENDING)], unique=True)
+        self.db["normative_baselines"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["work_checkpoints"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["playbooks"].create_index([("playbook_key", ASCENDING), ("version", ASCENDING)], unique=True)
+        self.db["playbook_selections"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["assurance_events"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
+        self.db["work_views"].create_index([("work_id", ASCENDING)], unique=True)
 
     def health(self) -> dict[str, Any]:
         result = self.db.command("ping")

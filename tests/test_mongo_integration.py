@@ -73,13 +73,15 @@ def test_mongo_mcp_create_project_returns_serializable_result(monkeypatch):
     monkeypatch.setenv("MANGOME_BACKEND", "mongo")
     monkeypatch.setenv("MANGOME_MONGODB_URI", URI)
     monkeypatch.setenv("MANGOME_DATABASE", database)
+    monkeypatch.setenv("MANGOME_RUNTIME_ROLE", "CONTROL")
+    monkeypatch.setenv("MANGOME_RUNTIME_ACTOR", "control-plane")
     reset_service_for_tests()
 
     async def run():
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "create_project",
-                {"project_key": "MCP-WIRE", "title": "MCP wire regression"},
+                {"project_key": "MCP-WIRE", "title": "MCP wire regression", "controller_actor_id": "control-plane"},
             )
             assert result.is_error is False
             assert result.structured_content is not None

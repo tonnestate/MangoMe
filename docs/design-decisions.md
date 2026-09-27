@@ -25,3 +25,10 @@ UAI/1 packets are disposable semantic projections. They are hash-bound, round-tr
 ## No federation in current scope
 
 MangoMe v0.1.x assumes one canonical deployment and one canonical MongoDB truth serving many projects, agents, models and humans. Cross-organization federation, portable trust domains, key exchange and server-independent shared truth are deliberately outside the current product scope.
+
+
+## v0.3 — WorkIdentity outranks Playbook and Spec lifecycle
+
+Decision: MangoMe's durable anchor is WorkIdentity, not a file path, Playbook, Contract body, Specification file, Plan, Slice, or agent session. Specifications may evolve and Playbooks may be replaced without changing WorkIdentity. Assurance history is Work-bound and baseline-attributed. Progressive state is crash-recovery state only and cannot self-promote into canonical truth.
+
+Rationale: earlier Contract-first recovery over-coupled identity to normative artifacts, while a naive Playbook-first design would let procedural instructions become an authority substitute. The v0.3 control plane separates identity, normative truth, procedure, execution and assurance.

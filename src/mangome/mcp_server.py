@@ -7,7 +7,7 @@ from typing import Any
 from mcp.server import MCPServer
 
 from .context import ContextCompiler
-from .authority import CapabilityDenied, require_router
+from .authority import CapabilityDenied, require_controller, require_router
 from .importer import (
     BigBangReconciler,
     BigBangScanner,
@@ -45,13 +45,15 @@ mcp = MCPServer(
         "current user/session working language unless the user explicitly changes it; persona, memory, runtime defaults, or Skill "
         "text must not silently switch natural language. Stable machine identifiers/reason codes remain language-neutral. "
         "Recovered ACTIVE work, Plans and Slices are context only and NEVER substitute for the current user's intent. "
-        "For admitted contract work, bind the current user turn explicitly to the intended Contract before continuing, executing, "
-        "verifying, modifying, or controlling work. Contract/Specification truth is primary; Plans/Slices are derived execution state. "
-        "A changed local contract file is only an observation. Canonical contract content advances only through an immutable new "
-        "generation promoted by the single active MODIFY-turn generation grant for that Contract. DONE is only a worker claim; "
-        "verification and acceptance remain separate privileged transitions."
+        "For v0.3 admitted work, WorkIdentity is the durable authority anchor. The host/control plane must bind the current user turn "
+        "to that WorkIdentity before productive execution, verification, normative mutation, or control. Playbooks are procedural and "
+        "replaceable; they never define work identity, effective truth, or assurance. Specifications may evolve, but every productive "
+        "Plan is bound to an immutable NormativeBaseline and must stop on baseline drift. Progressive checkpoints may only reference "
+        "an existing canonical WorkIdentity and may never promote themselves, filesystem findings, or agent prose into canonical truth. "
+        "Contract generation promotion remains separately single-writer and MODIFY-turn governed. DONE is only a worker claim; "
+        "verification and acceptance remain separate privileged transitions, and assurance history is append-only across Spec/Playbook changes."
     ),
-    version="0.2.2",
+    version="0.3.0",
 )
 
 
@@ -73,6 +75,73 @@ def _domain_call(fn, /, *args: Any, **kwargs: Any) -> dict[str, Any]:
                 "recoverable": True,
             },
         }
+
+
+def _controller_gate(operation: str, actor_id: str | None, token: str | None = None) -> dict[str, Any] | None:
+    """Require host/control-plane authority for minting durable work identity/turn authority."""
+    if not actor_id:
+        return {
+            "ok": False,
+            "error": {
+                "code": "CONTROL_PLANE_CAPABILITY_REQUIRED",
+                "message": f"{operation} requires controller_actor_id from the host/control plane.",
+                "recoverable": True,
+            },
+        }
+    try:
+        require_controller(actor_id, token)
+    except CapabilityDenied as exc:
+        return {
+            "ok": False,
+            "error": {
+                "code": "CONTROL_PLANE_CAPABILITY_REQUIRED",
+                "message": str(exc),
+                "recoverable": True,
+            },
+        }
+    return None
+
+
+def _work_identity_gate_family(family_id: str, operation: str) -> dict[str, Any] | None:
+    """Managed v0.3 productive/assurance paths require admitted WorkIdentity."""
+    svc = get_service()
+    resolver = getattr(svc, "_work_for_family", None)
+    work = resolver(family_id) if callable(resolver) else None
+    if work is not None:
+        return None
+    return {
+        "ok": False,
+        "error": {
+            "code": "WORK_IDENTITY_ADMISSION_REQUIRED",
+            "message": (
+                f"{operation} is blocked for legacy family {family_id}; explicitly backfill/admit WorkIdentity "
+                "before productive or assurance mutation."
+            ),
+            "recoverable": True,
+        },
+    }
+
+
+def _work_identity_gate_slice(slice_id: str, operation: str) -> dict[str, Any] | None:
+    svc = get_service()
+    try:
+        sl = svc.store.get("slices", slice_id)
+    except Exception:
+        sl = None
+    if sl is None:
+        return None  # domain call will return the canonical unknown-slice error
+    return _work_identity_gate_family(str(sl.get("family_id")), operation)
+
+
+def _work_identity_gate_plan(plan_id: str, operation: str) -> dict[str, Any] | None:
+    svc = get_service()
+    try:
+        plan = svc.store.get("plans", plan_id)
+    except Exception:
+        plan = None
+    if plan is None:
+        return None
+    return _work_identity_gate_family(str(plan.get("family_id")), operation)
 
 
 def _restore_gate(operation: str, *, allow_new_work: bool = False) -> dict[str, Any] | None:
@@ -230,12 +299,18 @@ def intake_request(request_text: str, classification: str | None = None, classif
 
 
 @mcp.tool()
-def create_spec(family_id: str, objective: str, contract_ids: list[str] | None = None, deliverables: list[str] | None = None, constraints: list[str] | None = None, acceptance_criteria: list[str] | None = None, out_of_scope: list[str] | None = None, required_evidence: list[str] | None = None, supersedes_spec_id: str | None = None) -> dict[str, Any]:
-    """Append an immutable specification version for a family."""
+def create_spec(family_id: str, objective: str, actor_id: str | None = None, work_id: str | None = None, turn_id: str | None = None, controller_actor_id: str | None = None, controller_token: str | None = None, contract_ids: list[str] | None = None, deliverables: list[str] | None = None, constraints: list[str] | None = None, acceptance_criteria: list[str] | None = None, out_of_scope: list[str] | None = None, required_evidence: list[str] | None = None, supersedes_spec_id: str | None = None) -> dict[str, Any]:
+    """Append normative Specification truth. Work-bound families require a MODIFY WorkTurn."""
     blocked = _restore_gate("create_spec")
     if blocked:
         return blocked
-    return get_service().create_spec(family_id=family_id, objective=objective, contract_ids=contract_ids, deliverables=deliverables, constraints=constraints, acceptance_criteria=acceptance_criteria, out_of_scope=out_of_scope, required_evidence=required_evidence, supersedes_spec_id=supersedes_spec_id)
+    svc = get_service()
+    work = getattr(svc, "_work_for_family", lambda _fid: None)(family_id)
+    if work is None:
+        blocked = _controller_gate("create_spec(legacy)", controller_actor_id, controller_token)
+        if blocked:
+            return blocked
+    return _domain_call(svc.create_spec, family_id=family_id, objective=objective, actor_id=actor_id, work_id=work_id, turn_id=turn_id, contract_ids=contract_ids, deliverables=deliverables, constraints=constraints, acceptance_criteria=acceptance_criteria, out_of_scope=out_of_scope, required_evidence=required_evidence, supersedes_spec_id=supersedes_spec_id)
 
 
 @mcp.tool()
@@ -245,35 +320,55 @@ def resolve(query: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def create_project(project_key: str, title: str, description: str | None = None) -> dict[str, Any]:
-    """Create or return a project container."""
+def create_project(project_key: str, title: str, description: str | None = None, controller_actor_id: str | None = None, controller_token: str | None = None) -> dict[str, Any]:
+    """Administrative identity creation; requires control-plane authority."""
     blocked = _restore_gate("create_project")
+    if blocked:
+        return blocked
+    blocked = _controller_gate("create_project", controller_actor_id, controller_token)
     if blocked:
         return blocked
     return get_service().create_project(project_key, title, description)
 
 
 @mcp.tool()
-def create_family(family_key: str, title: str, project_ids: list[str] | None = None, scope_ids: list[str] | None = None) -> dict[str, Any]:
-    """Create or return a durable contract/work family."""
+def create_family(family_key: str, title: str, project_ids: list[str] | None = None, scope_ids: list[str] | None = None, controller_actor_id: str | None = None, controller_token: str | None = None) -> dict[str, Any]:
+    """Administrative durable-family creation; requires control-plane authority."""
     blocked = _restore_gate("create_family")
+    if blocked:
+        return blocked
+    blocked = _controller_gate("create_family", controller_actor_id, controller_token)
     if blocked:
         return blocked
     return get_service().create_family(family_key, title, project_ids, scope_ids)
 
 
 @mcp.tool()
-def register_contract(declared_id: str, family_id: str, title: str, kind: str = "BASE", actor_id: str | None = None, storage_system: str | None = None, physical_location: str | None = None, checksum: str | None = None) -> dict[str, Any]:
-    """Append a contract contribution; declared-id collisions are preserved and warned."""
+def register_contract(declared_id: str, family_id: str, title: str, kind: str = "BASE", actor_id: str | None = None, work_id: str | None = None, turn_id: str | None = None, controller_actor_id: str | None = None, controller_token: str | None = None, storage_system: str | None = None, physical_location: str | None = None, checksum: str | None = None) -> dict[str, Any]:
+    """Append normative Contract truth; work-bound families require a MODIFY WorkTurn."""
     blocked = _restore_gate("register_contract")
     if blocked:
         return blocked
-    return get_service().register_contract(declared_id=declared_id, family_id=family_id, title=title, kind=kind, actor_id=actor_id, storage_system=storage_system, physical_location=physical_location, checksum=checksum)
+    svc = get_service()
+    work = getattr(svc, "_work_for_family", lambda _fid: None)(family_id)
+    if work is None:
+        blocked = _controller_gate("register_contract(legacy)", controller_actor_id, controller_token)
+        if blocked:
+            return blocked
+    return _domain_call(svc.register_contract, declared_id=declared_id, family_id=family_id, title=title, kind=kind, actor_id=actor_id, work_id=work_id, turn_id=turn_id, storage_system=storage_system, physical_location=physical_location, checksum=checksum)
 
 
 @mcp.tool()
-def import_contract_bundle(family_key: str, family_title: str, declared_id: str, contract_title: str, actor_id: str, slices: list[dict[str, Any]], kind: str = "BASE", project_ids: list[str] | None = None, scope_ids: list[str] | None = None, storage_system: str | None = None, physical_location: str | None = None) -> dict[str, Any]:
-    """Onboard an existing contract plus its existing slices in one explicit operation."""
+def import_contract_bundle(family_key: str, family_title: str, declared_id: str, contract_title: str, actor_id: str, slices: list[dict[str, Any]], kind: str = "BASE", project_ids: list[str] | None = None, scope_ids: list[str] | None = None, storage_system: str | None = None, physical_location: str | None = None, controller_actor_id: str | None = None, controller_token: str | None = None) -> dict[str, Any]:
+    """Controller-authorized onboarding of historical contract/slice state.
+
+    This is explicit import/backfill, never restore. When exactly one project is supplied,
+    the imported family is immediately bound to historical WorkIdentity without inventing
+    user intent; productive execution still requires an admitted normative target + WorkTurn.
+    """
+    blocked = _controller_gate("import_contract_bundle", controller_actor_id, controller_token)
+    if blocked:
+        return blocked
     svc = get_service()
     family = svc.create_family(family_key, family_title, project_ids, scope_ids)
     contract = svc.register_contract(declared_id=declared_id, family_id=family["entity_id"], title=contract_title, kind=kind, actor_id=actor_id, storage_system=storage_system, physical_location=physical_location)
@@ -283,7 +378,18 @@ def import_contract_bundle(family_key: str, family_title: str, declared_id: str,
         payload.setdefault("contract_ids", [contract["entity_id"]])
         payload["family_id"] = family["entity_id"]
         imported.append(svc.import_slice(**payload))
-    return {"family": family, "contract": contract, "slices": imported, "status": svc.status(family["entity_id"])}
+    work_identity = None
+    unique_projects = list(dict.fromkeys(project_ids or []))
+    if len(unique_projects) == 1 and hasattr(svc, "backfill_work_identity"):
+        work_identity = svc.backfill_work_identity(
+            family_id=family["entity_id"], project_id=unique_projects[0],
+            title=family_title, admitted_by=controller_actor_id, source_ref=f"import:{declared_id}",
+        )
+    return {
+        "family": family, "contract": contract, "slices": imported,
+        "work_identity": work_identity, "status": svc.status(family["entity_id"]),
+        "rule": "Historical import is explicit backfill, never reconstructed current-user intent.",
+    }
 
 
 @mcp.tool()
@@ -296,30 +402,37 @@ def attach_artifact(logical_name: str, artifact_type: str, storage_system: str, 
 
 
 @mcp.tool()
-def link_entities(from_type: str, from_id: str, relation: str, to_type: str, to_id: str, status: str = "CONFIRMED", source_actor_id: str | None = None, confidence: float | None = None) -> dict[str, Any]:
-    """Create a validated typed relation such as ADDS_TO, AMENDS, EXTENDS, REPAIRS or SUPERSEDES."""
+def link_entities(from_type: str, from_id: str, relation: str, to_type: str, to_id: str, status: str = "CONFIRMED", source_actor_id: str | None = None, work_id: str | None = None, turn_id: str | None = None, confidence: float | None = None, controller_actor_id: str | None = None, controller_token: str | None = None) -> dict[str, Any]:
+    """Create a typed relation; normative contract evolution requires a MODIFY WorkTurn."""
     blocked = _restore_gate("link_entities")
     if blocked:
         return blocked
-    return get_service().link(from_type=from_type, from_id=from_id, relation=relation, to_type=to_type, to_id=to_id, status=status, source_actor_id=source_actor_id, confidence=confidence)
+    svc = get_service()
+    evolution = str(relation).upper() in {"ADDS_TO", "AMENDS", "EXTENDS", "REPAIRS", "RECOVERS", "SUPERSEDES", "CONFLICTS_WITH", "VALIDATES"}
+    if evolution and str(from_type).upper() == "CONTRACT":
+        contract = svc.store.get("contracts", from_id)
+        if contract is not None:
+            work = getattr(svc, "_work_for_family", lambda _fid: None)(contract.get("family_id"))
+            if work is None:
+                blocked = _controller_gate("link_entities(legacy normative)", controller_actor_id, controller_token)
+                if blocked:
+                    return blocked
+    return _domain_call(svc.link, from_type=from_type, from_id=from_id, relation=relation, to_type=to_type, to_id=to_id, status=status, source_actor_id=source_actor_id, work_id=work_id, turn_id=turn_id, confidence=confidence)
 
 
 @mcp.tool()
-def submit_plan(family_id: str, request_id: str, spec_id: str, actor_id: str, intent: str, proposed_slices: list[dict[str, Any]], contract_ids: list[str] | None = None, expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None, estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None) -> dict[str, Any]:
-    """Record the mandatory pre-execution plan.
-
-    Each proposed slice needs a title. `declared_id` is optional in v0.1.8.1;
-    MangoMe creates a stable AUTO-* id when an ordinary worker omits it.
-    Expected domain/input failures are returned as structured `error` data.
-    """
+def submit_plan(family_id: str, request_id: str, actor_id: str, intent: str, proposed_slices: list[dict[str, Any]], spec_id: str | None = None, work_id: str | None = None, turn_id: str | None = None, normative_baseline_id: str | None = None, contract_ids: list[str] | None = None, expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None, estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None) -> dict[str, Any]:
+    """Record a plan. v0.3 work requires WorkIdentity + controller-minted EXECUTE/CONTINUE turn + current baseline."""
     blocked = _restore_gate("submit_plan")
     if blocked:
         return blocked
+    blocked = _work_identity_gate_family(family_id, "submit_plan")
+    if blocked:
+        return blocked
     return _domain_call(
-        get_service().submit_plan,
-        family_id=family_id, request_id=request_id, spec_id=spec_id, actor_id=actor_id,
-        intent=intent, proposed_slices=proposed_slices, contract_ids=contract_ids,
-        expected_artifacts=expected_artifacts, expected_scope=expected_scope, estimate=estimate,
+        get_service().submit_plan, family_id=family_id, request_id=request_id, spec_id=spec_id, actor_id=actor_id,
+        intent=intent, proposed_slices=proposed_slices, work_id=work_id, turn_id=turn_id, normative_baseline_id=normative_baseline_id,
+        contract_ids=contract_ids, expected_artifacts=expected_artifacts, expected_scope=expected_scope, estimate=estimate,
         acceptance_expectations=acceptance_expectations,
     )
 
@@ -328,6 +441,8 @@ def submit_plan(family_id: str, request_id: str, spec_id: str, actor_id: str, in
 def enter_work(
     actor_id: str,
     request_text: str,
+    controller_actor_id: str | None = None,
+    controller_token: str | None = None,
     intent: str | None = None,
     slice_title: str | None = None,
     slice_objective: str | None = None,
@@ -339,13 +454,21 @@ def enter_work(
 ) -> dict[str, Any]:
     """Enter governed work from ordinary user intent with no MangoMe identifiers required.
 
-    The managed workspace becomes a deterministic operational Project/Family. The current
-    user request becomes the authoritative Specification for this work. Discovery candidates
-    are never promoted automatically. The normal Request -> Plan -> Slice binding is preserved.
+    The managed workspace becomes a deterministic operational Project/Family + WorkIdentity.
+    The current user request is admitted as an operational-intent baseline, not automatically as
+    a Specification or Contract. Discovery candidates are never promoted automatically.
     """
     blocked = _restore_gate("enter_work", allow_new_work=True)
     if blocked:
         return blocked
+    # First admission may trust the current client-relayed user intent. Once canonical
+    # workspace state already exists, minting additional durable work authority requires
+    # the external control plane instead of letting a recovered worker self-authorize.
+    restored = session_restore_snapshot()
+    if restored and str(restored.get("restore_state") or "") == "STATE_FOUND":
+        blocked = _controller_gate("enter_work(existing workspace)", controller_actor_id, controller_token)
+        if blocked:
+            return blocked
     attachment = workspace_attachment_snapshot() or refresh_workspace_attachment()
     root = str(attachment.get("workspace_root") or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     result = _domain_call(
@@ -379,6 +502,8 @@ def prepare_assignment(
     expected_artifacts: list[str] | None = None,
     expected_scope: list[str] | None = None,
     estimate: dict[str, Any] | None = None,
+    work_id: str | None = None,
+    turn_id: str | None = None,
 ) -> dict[str, Any]:
     """Prepare internal execution for an admitted assignment without exposing MangoMe orchestration to the user.
 
@@ -388,6 +513,9 @@ def prepare_assignment(
     or producing another contract/specification is not completion.
     """
     blocked = _restore_gate("prepare_assignment")
+    if blocked:
+        return blocked
+    blocked = _work_identity_gate_family(family_id, "prepare_assignment")
     if blocked:
         return blocked
     return _domain_call(
@@ -401,6 +529,8 @@ def prepare_assignment(
         expected_artifacts=expected_artifacts,
         expected_scope=expected_scope,
         estimate=estimate,
+        work_id=work_id,
+        turn_id=turn_id,
     )
 
 
@@ -413,6 +543,7 @@ def begin_work(
     spec_id: str | None = None, contract_ids: list[str] | None = None,
     expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None,
     estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None,
+    work_id: str | None = None, turn_id: str | None = None,
 ) -> dict[str, Any]:
     """Compose intake -> plan -> start for ordinary work without MangoMe jargon.
 
@@ -433,12 +564,16 @@ def begin_work(
     blocked = _restore_gate("begin_work")
     if blocked:
         return blocked
+    blocked = _work_identity_gate_family(family_id, "begin_work")
+    if blocked:
+        return blocked
     return _domain_call(
         get_service().begin_work,
         family_id=family_id, actor_id=actor_id, request_text=request_text, intent=intent,
         proposed_slice=payload, classification=classification, classification_source=classification_source,
         spec_id=spec_id, contract_ids=contract_ids, expected_artifacts=expected_artifacts,
         expected_scope=expected_scope, estimate=estimate, acceptance_expectations=acceptance_expectations,
+        work_id=work_id, turn_id=turn_id,
     )
 
 
@@ -448,6 +583,9 @@ def start_slice(slice_id: str, actor_id: str, plan_id: str) -> dict[str, Any]:
     blocked = _restore_gate("start_slice")
     if blocked:
         return blocked
+    blocked = _work_identity_gate_slice(slice_id, "start_slice")
+    if blocked:
+        return blocked
     return _domain_call(get_service().start_slice, slice_id=slice_id, actor_id=actor_id, plan_id=plan_id)
 
 
@@ -455,6 +593,9 @@ def start_slice(slice_id: str, actor_id: str, plan_id: str) -> dict[str, Any]:
 def update_slice_progress(slice_id: str, actor_id: str, plan_id: str, current_step: int | None = None, total_steps: int | None = None, blocker: str | None = None, execution_state: str | None = None) -> dict[str, Any]:
     """Persist slice progress; the same active plan that started the slice is mandatory."""
     blocked = _restore_gate("update_slice_progress")
+    if blocked:
+        return blocked
+    blocked = _work_identity_gate_slice(slice_id, "update_slice_progress")
     if blocked:
         return blocked
     return _domain_call(
@@ -469,6 +610,9 @@ def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None =
     blocked = _restore_gate("claim_done")
     if blocked:
         return blocked
+    blocked = _work_identity_gate_slice(slice_id, "claim_done")
+    if blocked:
+        return blocked
     return _domain_call(
         get_service().claim_done, slice_id=slice_id, actor_id=actor_id, plan_id=plan_id, summary=summary
     )
@@ -478,6 +622,9 @@ def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None =
 def close_plan(plan_id: str, actor_id: str) -> dict[str, Any]:
     """Close an unbound plan so it stops generating collision traffic."""
     blocked = _restore_gate("close_plan")
+    if blocked:
+        return blocked
+    blocked = _work_identity_gate_plan(plan_id, "close_plan")
     if blocked:
         return blocked
     return get_service().close_plan(plan_id, actor_id)
@@ -516,8 +663,12 @@ def submit_verification_observation(
     artifact_id: str | None = None,
     reproduction: dict[str, Any] | None = None,
     details: dict[str, Any] | None = None,
+    turn_id: str | None = None,
 ) -> dict[str, Any]:
     """Persist an independent AV/1 verifier observation. REPLAY requires an intact RB/1 binding; MangoMe does not execute the check itself."""
+    blocked = _work_identity_gate_slice(slice_id, "submit_verification_observation")
+    if blocked:
+        return blocked
     return get_service().submit_verification_observation(
         slice_id=slice_id,
         verifier_actor_id=verifier_actor_id,
@@ -532,13 +683,17 @@ def submit_verification_observation(
         artifact_id=artifact_id,
         reproduction=reproduction,
         details=details,
+        turn_id=turn_id,
     )
 
 
 @mcp.tool()
-def set_gate(slice_id: str, gate_id: str, status: str, actor_id: str | None = None, evidence_ids: list[str] | None = None, approval_id: str | None = None) -> dict[str, Any]:
+def set_gate(slice_id: str, gate_id: str, status: str, actor_id: str | None = None, turn_id: str | None = None, evidence_ids: list[str] | None = None, approval_id: str | None = None) -> dict[str, Any]:
     """Set a gate. PASS requires attested PASS evidence; WAIVED requires approved owner decision."""
-    return get_service().set_gate(slice_id=slice_id, gate_id=gate_id, status=status, actor_id=actor_id, evidence_ids=evidence_ids, approval_id=approval_id)
+    blocked = _work_identity_gate_slice(slice_id, "set_gate")
+    if blocked:
+        return blocked
+    return get_service().set_gate(slice_id=slice_id, gate_id=gate_id, status=status, actor_id=actor_id, turn_id=turn_id, evidence_ids=evidence_ids, approval_id=approval_id)
 
 
 @mcp.tool()
@@ -548,9 +703,12 @@ def set_gate_controlled(slice_id: str, gate_id: str, status: str, actor_id: str,
 
 
 @mcp.tool()
-def verify_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, evidence_ids: list[str] | None = None) -> dict[str, Any]:
+def verify_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, evidence_ids: list[str] | None = None, turn_id: str | None = None) -> dict[str, Any]:
     """Verify DONE_CLAIMED only when PASS gates (or gateless proof) include independent AV/1 observed PASS Evidence."""
-    return get_service().verify_slice(slice_id=slice_id, verifier_actor_id=verifier_actor_id, verifier_token=verifier_token, evidence_ids=evidence_ids)
+    blocked = _work_identity_gate_slice(slice_id, "verify_slice")
+    if blocked:
+        return blocked
+    return get_service().verify_slice(slice_id=slice_id, verifier_actor_id=verifier_actor_id, verifier_token=verifier_token, evidence_ids=evidence_ids, turn_id=turn_id)
 
 
 @mcp.tool()
@@ -578,9 +736,12 @@ def list_approvals(status: str | None = None, subject_id: str | None = None) -> 
 
 
 @mcp.tool()
-def accept_slice(slice_id: str, approval_id: str, accepted_by: str | None = None) -> dict[str, Any]:
+def accept_slice(slice_id: str, approval_id: str, accepted_by: str | None = None, turn_id: str | None = None) -> dict[str, Any]:
     """Move VERIFIED to ACCEPTED using a trusted approved ACCEPT_SLICE decision."""
-    return get_service().accept_slice(slice_id=slice_id, approval_id=approval_id, accepted_by=accepted_by)
+    blocked = _work_identity_gate_slice(slice_id, "accept_slice")
+    if blocked:
+        return blocked
+    return get_service().accept_slice(slice_id=slice_id, approval_id=approval_id, accepted_by=accepted_by, turn_id=turn_id)
 
 
 @mcp.tool()
@@ -912,6 +1073,54 @@ def build_reproduction_binding(
 def evidence_freshness(evidence_id: str, live_check: bool = True) -> dict[str, Any]:
     """Check whether attested PASS evidence remains current under legacy hash bindings or RB/1 reproduction bindings. Never reruns commands or changes assurance state."""
     return FilesystemScanner(get_service()).evidence_freshness(evidence_id, live_check=live_check)
+
+
+@mcp.tool()
+def backfill_work_identity(family_id: str, project_id: str, controller_actor_id: str, controller_token: str | None = None, title: str | None = None, source_ref: str | None = None) -> dict[str, Any]:
+    """Explicitly bind historical canonical family state to WorkIdentity without inventing user intent."""
+    blocked = _controller_gate("backfill_work_identity", controller_actor_id, controller_token)
+    if blocked:
+        return blocked
+    return _domain_call(
+        get_service().backfill_work_identity, family_id=family_id, project_id=project_id,
+        title=title, admitted_by=controller_actor_id, source_ref=source_ref,
+    )
+
+
+@mcp.tool()
+def bind_work_turn(work_ref: str, request_text: str, mode: str, actor_id: str, controller_actor_id: str, controller_token: str | None = None) -> dict[str, Any]:
+    """Control-plane bind the current user turn to durable WorkIdentity. Workers cannot self-mint authority."""
+    blocked = _restore_gate("bind_work_turn")
+    if blocked:
+        return blocked
+    blocked = _controller_gate("bind_work_turn", controller_actor_id, controller_token)
+    if blocked:
+        return blocked
+    return _domain_call(get_service().bind_work_turn, work_ref=work_ref, request_text=request_text, mode=mode, actor_id=actor_id, authorized_by=controller_actor_id)
+
+
+@mcp.tool()
+def work_context(work_ref: str) -> dict[str, Any]:
+    """Read identity-bound canonical/progressive/volatile context without filesystem reconstruction."""
+    return _domain_call(get_service().work_context, work_ref)
+
+
+@mcp.tool()
+def checkpoint_work(work_ref: str, actor_id: str, payload: dict[str, Any], kind: str = "EXECUTION_CHECKPOINT", plan_id: str | None = None, turn_id: str | None = None) -> dict[str, Any]:
+    """Persist PROGRESSIVE crash-recovery state. It can only reference an existing canonical WorkIdentity."""
+    return _domain_call(get_service().checkpoint_work, work_ref=work_ref, actor_id=actor_id, payload=payload, kind=kind, plan_id=plan_id, turn_id=turn_id)
+
+
+@mcp.tool()
+def register_playbook(playbook_key: str, version: str, description: str, source: str, content_hash: str | None = None, applicability: list[str] | None = None, required_capabilities: list[str] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Register procedural Playbook metadata. Playbooks never become normative project truth."""
+    return _domain_call(get_service().register_playbook, playbook_key=playbook_key, version=version, description=description, source=source, content_hash=content_hash, applicability=applicability, required_capabilities=required_capabilities, metadata=metadata)
+
+
+@mcp.tool()
+def select_playbook(work_ref: str, playbook_id: str, actor_id: str, turn_id: str | None = None, reason: str | None = None) -> dict[str, Any]:
+    """Select a replaceable procedural Playbook for a WorkIdentity; selection is PROGRESSIVE/non-normative."""
+    return _domain_call(get_service().select_playbook, work_ref=work_ref, playbook_id=playbook_id, actor_id=actor_id, turn_id=turn_id, reason=reason)
 
 
 @mcp.tool()

@@ -1,18 +1,31 @@
 # Changelog
-## 0.2.2 — 2026-09-26 
-Package/Layout v0.2.2      PASS
-Root-Shadowing             PASS
-Version consistency        PASS
-v0.2.2 hardening code      PASS
-v0.2.2 regression test     PASS/PRESENT
 
-.gitignore                 MISSING
-GitHub CI workflow         MISSING
-GitHub Skill mirror        MISSING
-Claude Skill mirror        MISSING
-CHANGELOG v0.2.2           MISSING
+## 0.3.0 — 2026-09-27 — Durable WorkIdentity / Progressive Persistence
 
+- Promotes **WorkIdentity** to the durable authority anchor above replaceable Playbooks and evolving Specifications.
+- Adds explicit persistence levels: `VOLATILE`, `PROGRESSIVE`, and `CANONICAL`.
+- Changes `enter_work`: the user request may admit durable WorkIdentity, but it no longer becomes a Specification automatically.
+- Adds immutable `NormativeBaseline` snapshots and binds new productive Plans to `work_id + turn_id + normative_baseline_id`.
+- Stops stale execution with `BASELINE_DRIFT` when effective normative truth changes after a Plan was created.
+- Adds controller-minted WorkTurn authority at the managed MCP boundary so workers cannot treat recovered state, a Playbook, filesystem state, or their own prose as current execution authorization.
+- Adds a non-normative Playbook registry/selection path; Playbooks may guide procedure but never affect effective truth.
+- Adds `PROGRESSIVE` work checkpoints that can only reference an already canonical WorkIdentity; checkpoints/discovery cannot invent or promote identity.
+- Adds append-only Work-bound assurance events so `DONE_CLAIMED`, `VERIFIED`, and `ACCEPTED` history survives Spec and Playbook changes and remains baseline-attributed.
+- Extends ContextCompiler and UAI projection with explicit canonical/progressive/volatile boundaries; context reduction discards volatile/progressive detail before canonical identity/assurance.
+- Adds materialized WorkView read paths and avoids recompute-and-write on the v0.3 `status()` hot path when a current projection exists.
+- Closes the v0.2.2 contract-generation error-class mismatch: forged actor/turn promotion now fails as `ContractGenerationConflict`, matching the intended grant invariant.
+- Advances schema to v5 and adds MongoDB indexes for WorkIdentity, WorkTurn, NormativeBaseline, checkpoints, Playbooks, assurance events, and WorkView.
+- Restores required GitHub/Claude Skill mirrors and CI release surfaces in the generated v0.3 tree.
+- External review feedback from **Grok** was considered selectively, especially around deterministic effective truth, evidence/assurance separation, and materialized read paths. Ideas were adopted only where they matched observed code and MangoMe invariants; no Grok code was incorporated.
 
+## 0.2.2 — 2026-09-26 — Execution Integrity Hardening
+
+- Separates current user intent from recovered ACTIVE work; restore never implies continue/execute.
+- Adds Contract turn binding and immutable Contract generations with single-writer MODIFY grants.
+- Reuses existing Slices and materializes only the minimum internal Slice when admitted work has none.
+- Requires real observational Evidence before audit/review work can claim completion.
+- Adds hard ContextCompiler byte budgets, future-schema fail-closed behavior, expected-database binding, and repository root-shadow regression checks.
+- Keeps `DONE_CLAIMED != VERIFIED != ACCEPTED` and preserves independent AV/1 verification.
 
 ## 0.1.9rc4 — 2026-09-26 — Portable Discovery, Native Session Restore & Tiered Fan-Out
 

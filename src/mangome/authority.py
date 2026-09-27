@@ -66,3 +66,15 @@ def require_router(actor_id: str, token: str | None = None) -> None:
         "MANGOME_ROUTER_TOKEN", "MANGOME_ROUTER_ACTORS",
         actor_id, token, "router", "ROUTER",
     )
+
+
+def require_controller(actor_id: str, token: str | None = None) -> None:
+    """Authorize control-plane creation/binding of durable work authority.
+
+    Workers may consume a WorkTurn issued by the control plane, but they must not
+    self-mint current-user intent, WorkIdentity, or normative mutation authority.
+    """
+    _require(
+        "MANGOME_CONTROLLER_TOKEN", "MANGOME_CONTROLLER_ACTORS",
+        actor_id, token, "control-plane", "CONTROL",
+    )

@@ -1,17 +1,17 @@
 ---
 name: mangome
-description: Use MangoMe automatically for durable multi-agent project work, including resuming existing work, reconciling normative and observed truth, planning mutations, evidence, verification, and handoff. Apply whenever work may change or continue a MangoMe-managed project; the user does not need to know MangoMe commands or vocabulary.
+description: Use MangoMe automatically for durable multi-agent work: WorkIdentity, current-user turn binding, normative baselines, progressive checkpoints, Playbooks, evidence, independent verification, recovery, and handoff. Apply whenever work may change or continue a MangoMe-managed project; the user does not need to know MangoMe commands or vocabulary.
 ---
 
 # MangoMe Agent Skill
 
-MangoMe is the canonical operational-memory system for durable multi-agent projects: document store, work graph, state machine, evidence/provenance ledger and execution context source.
+MangoMe is the canonical operational-memory system for durable multi-agent work. Playbooks may change, Specs may evolve, and workers/sessions may disappear; WorkIdentity and assurance history must survive them all.
 
 ## Zero-touch user rule
 
 Zero-touch applies to the **user interface**, not to MangoMe's governance. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, or otherwise operate MangoMe vocabulary manually. On every new or recovered session, call `session_restore` (or `session_bootstrap`) before project-changing work; use `workspace_status` as a status surface, not as a restore substitute. Unknown managed workspaces are attached/discovered automatically, but discovery remains `CANDIDATE_ONLY` and must never be mistaken for canonical project truth.
 
-If restore returns `STATE_NOT_FOUND`, preserve that fact. Never create Project/Family/Specification state and call it recovered. Only genuinely new work may use `enter_work` with the user's actual request before productive mutation; historical/resume work requires explicit import/backfill distinct from restore. `enter_work` may create canonical operational state backed by the **user intent relayed by the client**; it does not promote discovered legacy contracts, reports, or audit prose. High-assurance hosts may bind that intake to a trusted user principal outside the worker process. For known admitted work, reuse the existing family/specification through `begin_work` or the lower-level lifecycle.
+If restore returns `STATE_NOT_FOUND`, preserve that fact. Never create Project/Family/Specification state and call it recovered. Only genuinely new work may use `enter_work` with the user's actual request before productive mutation; historical/resume work requires explicit import/backfill distinct from restore. `enter_work` admits a canonical **WorkIdentity** and an operational-intent baseline; it does **not** turn the prompt into a Specification or Contract. On first admission after `STATE_NOT_FOUND`, the current client-relayed user intent may authorize `enter_work`. Once canonical workspace state exists, the host/control plane mints the WorkTurn that authorizes resumed/new productive execution. Discovered legacy contracts, reports, filesystem paths and audit prose remain observations/candidates until explicitly admitted.
 
 Do not treat a missing prior Big-Bang command as a user error. If the managed MangoMe tools are missing, stale, or report a deterministic binding/readiness problem, run `mangome doctor --repair` yourself when safe before asking the user to edit configuration. Ask the user only when intent is genuinely ambiguous or a protected authorization/acceptance decision is required. Verification and acceptance remain separate privileged transitions; a worker reaching `DONE_CLAIMED` is a valid durable state, not a reason to fabricate verifier authority.
 
@@ -20,10 +20,10 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 1. **Restore first.** On a new/recovered session, call `session_restore`/`session_bootstrap` before repository exploration, planning or execution. `STATE_NOT_FOUND` is not permission to synthesize recovery state.
 2. **Categorize every assignment.** Call `intake_request`; reuse IntakeGov classification when available.
 3. **Resolve before creating.** Search existing project/family/contract/slice identity before creating a new one.
-4. **A prompt is not a contract.** Register only durable contract contributions.
-5. **Spec before execution.** Ensure objective, deliverables, constraints, acceptance criteria and evidence expectations are explicit.
-6. **Plan before mutate.** Submit a plan before productive work.
-7. **Stay bound to the plan.** After `start_slice`, every progress mutation and `claim_done` must use the same active `plan_id`.
+4. **A prompt is not a Contract or Specification.** A user turn may admit durable WorkIdentity, but normative truth requires its own admission path.
+5. **WorkIdentity before productive work.** New durable work must have a canonical WorkIdentity before any productive Plan starts.
+6. **Plan binding is structural.** A v0.3 Plan binds WorkIdentity + controller-minted WorkTurn + immutable NormativeBaseline before mutation.
+7. **Stay bound to the plan and baseline.** After `start_slice`, every progress mutation and `claim_done` uses the same active `plan_id`; `BASELINE_DRIFT` stops the old Plan rather than silently adopting new normative truth.
 8. **Preserve existing slices.** Import/reuse existing phases/slices/workstreams instead of casually replanning them.
 9. **Collision warnings never block.** Observe traffic, re-read overlapping artifacts where useful, and continue.
 10. **Persist meaningful progress.** Do not rely on chat/session memory.
@@ -58,27 +58,35 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 37. **Observe before repair.** Audit/reconciliation first compares normative truth with observed implementation and persists evidence. Only after a concrete deviation is established may the worker repair/adapt/correct within the current authorized scope. Explicit read-only assignments remain read-only.
 38. **Do not mutate normative truth to make implementation pass.** Audit findings may update execution state/evidence and may lead to repair work, but Contract/Specification truth changes only when the user explicitly requested a normative change or the authorized amendment path approves it.
 39. **Current user intent is primary.** Recovered MangoMe state is context for the current turn; it never substitutes for the current user's request. `STATE_FOUND`, ACTIVE work, an active Plan, or an active Slice never means “continue now”.
-40. **Bind the turn to the Contract first.** For admitted contract work, establish the current turn mode (`QUERY`, `CONTINUE`, `EXECUTE`, `VERIFY`, `MODIFY`, or `CONTROL`) and the exact canonical Contract before productive action. A question about a Contract is not an execution order.
-41. **Contract/Specification truth outranks execution decomposition.** Recovery and reconciliation start from the effective Contract/Specification and observed Artifact/Evidence state. Plans and Slices are derived, replaceable execution state used only for the remaining delta. Never continue a Slice merely because it is active.
-42. **A changed local Contract file is an observation, not canonical truth.** Local, Git, DMS, or other physical copies may change. MangoMe retains immutable canonical Contract generations plus their physical storage bindings. Path changes, renames, duplicates, or disappearance must not destroy normative truth.
-43. **Only the bound MODIFY turn may promote a Contract generation.** MangoMe permits at most one active generation-promotion grant per Contract. The grant is bound to Contract, base generation/hash, turn, and actor. Concurrent or stale promotion attempts fail closed; no automatic merge or silent overwrite is allowed.
+40. **Bind the turn to WorkIdentity first.** For v0.3 admitted work, establish the current turn mode (`QUERY`, `CONTINUE`, `EXECUTE`, `VERIFY`, `MODIFY`, or `CONTROL`) against canonical WorkIdentity before productive action. Managed workers consume controller-minted authority; they do not self-authorize the current user turn.
+41. **Playbooks are procedural, never authoritative project truth.** Playbooks may guide HOW work runs, but must never define WorkIdentity, effective normative truth, completion, or assurance.
+42. **Effective normative truth is deterministic.** Every productive Plan binds an immutable NormativeBaseline derived from the admitted operational intent or current effective Spec/Contract generations. A later normative change causes `BASELINE_DRIFT`; it does not rewrite the old Plan.
+43. **Progressive state cannot create canonical truth.** Checkpoints and Playbook selections may survive a crash, but they can only reference an existing WorkIdentity. Recovery/discovery may never promote them into identity, Specification, Contract, or assurance.
+44. **Assurance history is Work-bound and append-only.** Claims, verification, and acceptance remain historically attached to WorkIdentity and the baseline under which they were produced, even when Specs or Playbooks later change.
+45. **A changed local Contract file is an observation, not canonical truth.** Local, Git, DMS, or other physical copies may change. MangoMe retains immutable canonical Contract generations plus their physical storage bindings.
+46. **Only the bound MODIFY path may change normative truth.** Work-bound Specs/contract relations require a MODIFY WorkTurn; Contract-body generation promotion additionally requires the existing single-writer generation grant.
+47. **Persistence levels are explicit.** `VOLATILE` Playbook/transient context is trimmed first, `PROGRESSIVE` recovery state is non-normative, and `CANONICAL` identity/baseline/assurance survives context reduction.
 
-## Contract-first turn binding
+## WorkIdentity-first turn binding
 
-For admitted Contract work, the governing order is:
+For v0.3 admitted work, the governing order is:
 
 ```text
 CURRENT USER TURN
     ↓
-bind_contract_turn(mode, actor, contract)
+controller-minted bind_work_turn(mode, actor, work_id)
     ↓
-CANONICAL CONTRACT + EFFECTIVE SPECIFICATION
+CANONICAL WORK IDENTITY
     ↓
-OBSERVED ARTIFACTS / EVIDENCE
+CURRENT NORMATIVE BASELINE
     ↓
-UNRESOLVED DELTA
+PLAYBOOK-GUIDED EXECUTION (non-normative)
     ↓
-reuse or derive minimal Plans/Slices only if execution is actually requested
+PROGRESSIVE CHECKPOINTS
+    ↓
+CANONICAL CLAIMS / EVIDENCE
+    ↓
+INDEPENDENT ASSURANCE
 ```
 
 Turn modes have distinct semantics:
@@ -123,7 +131,7 @@ STATE_FOUND?
                  └─ historical/resume work → explicit import/backfill, not fake restore
 ```
 
-`enter_work` is the zero-touch entry point for ordinary new work. It does not weaken governance and it does not admit discovery candidates. `begin_work` remains the convenience path for an already admitted family with an effective specification. Both paths must end with a persisted Plan before productive mutation.
+`enter_work` is the zero-touch entry point for ordinary new work. In v0.3 it admits WorkIdentity and an operational-intent baseline without manufacturing a Specification from the prompt. `begin_work` remains the convenience path for already admitted work. Productive Plans must be bound to WorkIdentity, current WorkTurn and current NormativeBaseline before mutation.
 
 `prepare_assignment` is the zero-touch path for an already admitted assignment when the worker must execute/reconcile work rather than invent a new user-facing planning artifact. It reuses existing Slices; only an admitted Family with no Slices may receive a minimal internal Slice. Slice/Plan details stay internal.
 

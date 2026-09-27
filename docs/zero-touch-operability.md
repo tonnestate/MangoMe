@@ -158,3 +158,9 @@ Discovery remains separate until explicitly admitted. This keeps the user experi
 ## Infrastructure boundary
 
 MangoMe is infrastructure. Agents may use it but must not modify MangoMe source/tests/configuration unless the assignment explicitly targets MangoMe. Managed hosts enable restore gating with `MANGOME_REQUIRE_SESSION_RESTORE=1`; hard filesystem enforcement remains a host responsibility.
+
+## v0.3 WorkIdentity / controller boundary
+
+`enter_work` after `STATE_NOT_FOUND` performs the first explicit WorkIdentity admission from the current client-relayed user request. It no longer manufactures a Specification from that prompt.
+
+After a workspace already has canonical state, resumed/new productive authority is not inferred from restore. The host/control plane must bind the current turn with `bind_work_turn`; workers consume that binding. If no controller integration is available, MangoMe fails closed rather than interpreting recovered ACTIVE work as current intent.

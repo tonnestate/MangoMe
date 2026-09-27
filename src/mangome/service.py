@@ -1929,7 +1929,7 @@ class MangoMeService:
         previous = self.store.find("project_views", {"family_id": family_id})
         payload = view.model_dump(mode="python")
         payload["entity_id"] = previous[0]["entity_id"] if previous else family_id
-        payload["schema_version"] = 4
+        payload["schema_version"] = 5
         payload["updated_at"] = now
         if previous:
             payload.pop("revision", None)
