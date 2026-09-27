@@ -24,7 +24,7 @@ class MangoMaintainer:
         "filesystem_entries", "filesystem_roots", "turn_bindings", "contract_heads",
         "contract_generations", "contract_generation_grants", "work_identities", "work_turn_bindings",
         "normative_baselines", "work_checkpoints", "playbooks", "playbook_selections",
-        "assurance_events", "work_views",
+        "assurance_events", "work_views", "audit_runs", "audit_findings", "fast_judgments",
     )
 
     def __init__(self, service: MangoMeService) -> None:

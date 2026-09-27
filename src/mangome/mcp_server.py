@@ -8,6 +8,7 @@ from mcp.server import MCPServer
 
 from .context import ContextCompiler
 from .hygiene import CognitiveHygieneService
+from .fast_judgment import FastJudgmentService
 from .audit import ScopedAuditService
 from .authority import CapabilityDenied, require_controller, require_router
 from .importer import (
@@ -25,13 +26,19 @@ from .runtime import (
     set_session_restore_snapshot, session_restore_snapshot,
 )
 from .service import MangoMeError, workspace_project_key
+from .reconciliation import assignment_reconciliation_result
 
 mcp = MCPServer(
     "MangoMe",
     description="Canonical operational memory and verification substrate for multi-agent work.",
     instructions=(
         "Zero-touch applies to the user interface, not to governance. Never ask the user to operate Big Bang, "
-        "contracts, slices, plans, or other MangoMe internals. Before project-changing work, call session_restore (or session_bootstrap) first. "
+        "contracts, slices, plans, or other MangoMe internals. THINK FREELY, RECONCILE BEFORE EFFECT: a worker may inspect, "
+        "reason, form hypotheses, and draft a tentative decomposition before consulting MangoMe, but must reconcile the current "
+        "assignment with MangoMe before productive mutation, canonical state changes, external side effects, or assurance claims. "
+        "Managed clients bootstrap read-only restore state automatically; do not call session_restore merely because a session started. "
+        "Use reconcile_assignment as the normal assignment bridge; use explicit session_restore/session_bootstrap for recovery/status or "
+        "when automatic managed bootstrap is unavailable. "
         "Discovery is candidate-only and is only an onboarding mechanism for work that is not yet admitted. Once a "
         "workspace/project is admitted, current work identity and recovery state MUST come from MangoMe canonical state, "
         "never from broad filesystem/repository scans, Git/worktree archaeology, contract/evidence directories, or prior "
@@ -55,9 +62,11 @@ mcp = MCPServer(
         "Contract generation promotion remains separately single-writer and MODIFY-turn governed. DONE is only a worker claim; "
         "verification and acceptance remain separate privileged transitions, and assurance history is append-only across Spec/Playbook changes. "
         "Scoped recursive audits use bounded impact-closure: inspect the current frontier, persist findings/evidence, expand only on material impact, "
-        "never auto-expand mutation authority, and stop at a fixpoint or explicit depth/object boundary. Audit closure is scoped coverage, never global correctness."
+        "never auto-expand mutation authority, and stop at a fixpoint or explicit depth/object boundary. Audit closure is scoped coverage, never global correctness. "
+        "FJD/1 fast judgments are optional typed BOOL/SCORE/CHOICE worker signals for classification, triage, routing, activation or prioritization. "
+        "Confidence is not truth: fast judgments never create Evidence, assurance, verification, acceptance, normative truth, or mutation authority; low-confidence or high-impact cases escalate."
     ),
-    version="0.3.2",
+    version="0.3.3",
 )
 
 
@@ -158,12 +167,33 @@ def _restore_gate(operation: str, *, allow_new_work: bool = False) -> dict[str, 
     if str(os.environ.get("MANGOME_REQUIRE_SESSION_RESTORE", "")).strip().lower() not in {"1", "true", "yes", "on"}:
         return None
     restored = session_restore_snapshot()
+    if restored is None and str(os.environ.get("MANGOME_AUTO_ATTACH", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        # v0.3.3 managed zero-touch: initialize/attach and populate the read-only
+        # canonical restore snapshot automatically. This also covers a process where
+        # the service was initialized before the restore snapshot was populated.
+        get_service()
+        restored = session_restore_snapshot()
+        if restored is None:
+            current = workspace_attachment_snapshot() or refresh_workspace_attachment()
+            root = str(
+                (current or {}).get("workspace_root")
+                or os.environ.get("MANGOME_WORKSPACE_ROOT")
+                or os.getcwd()
+            )
+            restored = get_service().session_restore(
+                workspace_project_key(str(Path(root).expanduser().resolve()))
+            )
+            set_session_restore_snapshot(restored)
     if restored is None:
         return {
             "ok": False,
             "error": {
-                "code": "SESSION_RESTORE_REQUIRED",
-                "message": f"{operation} is blocked until session_restore/session_bootstrap runs.",
+                "code": "SESSION_RECONCILIATION_REQUIRED",
+                "message": (
+                    f"{operation} is blocked until the assignment is reconciled with MangoMe. "
+                    "Managed clients do this automatically; otherwise call reconcile_assignment "
+                    "or session_restore/session_bootstrap before productive effect."
+                ),
                 "recoverable": True,
             },
         }
@@ -439,6 +469,46 @@ def submit_plan(family_id: str, request_id: str, actor_id: str, intent: str, pro
         contract_ids=contract_ids, expected_artifacts=expected_artifacts, expected_scope=expected_scope, estimate=estimate,
         acceptance_expectations=acceptance_expectations,
     )
+
+
+def _reconcile_assignment_impl(
+    request_text: str,
+    workspace_root: str | None = None,
+) -> dict[str, Any]:
+    """Read-only implementation for RAE/1 assignment reconciliation."""
+    # request_text is intentionally not persisted here. It is worker/current-turn input
+    # used to frame reconciliation, not canonical truth.
+    if not str(request_text or "").strip():
+        raise ValueError("request_text is required for assignment reconciliation")
+    current = workspace_attachment_snapshot() or refresh_workspace_attachment(workspace_root)
+    root = str(
+        (current or {}).get("workspace_root")
+        or workspace_root
+        or os.environ.get("MANGOME_WORKSPACE_ROOT")
+        or os.getcwd()
+    )
+    project_key = workspace_project_key(str(Path(root).expanduser().resolve()))
+    restored = get_service().session_restore(project_key)
+    set_session_restore_snapshot(restored)
+    return assignment_reconciliation_result(
+        restored,
+        workspace_root=str(Path(root).expanduser().resolve()),
+    )
+
+
+@mcp.tool()
+def reconcile_assignment(
+    request_text: str,
+    workspace_root: str | None = None,
+) -> dict[str, Any]:
+    """Bridge free worker reasoning into governed MangoMe work without creating truth.
+
+    The worker may inspect/reason and form a tentative decomposition before this call.
+    This operation is read-only with respect to canonical work identity and normative
+    truth: it resolves the managed workspace's canonical restore state and tells the
+    worker which governed transition is appropriate before productive effect.
+    """
+    return _domain_call(_reconcile_assignment_impl, request_text, workspace_root)
 
 
 @mcp.tool()
@@ -900,6 +970,59 @@ def cognitive_hygiene(
     return CognitiveHygieneService(get_service()).evaluate(
         family_id, slice_id, query_text=query_text, max_active_objects=max_active_objects
     )
+
+
+@mcp.tool()
+def assess_fast_judgment(
+    purpose: str,
+    decisions: list[dict[str, Any]],
+    source: str = "HOST",
+    model_ref: str | None = None,
+    use_signal_confidence: float = 0.80,
+    review_confidence: float = 0.60,
+    high_impact: bool = False,
+) -> dict[str, Any]:
+    """Validate and gate provider-neutral typed fast judgments without persisting them.
+
+    Use for cheap BOOL/SCORE/CHOICE signals such as routing, triage, relevance or
+    activation. The result is worker judgment only and never grants truth, Evidence,
+    assurance, verification or mutation authority.
+    """
+    return _domain_call(
+        FastJudgmentService().assess,
+        purpose=purpose, decisions=decisions, source=source, model_ref=model_ref,
+        use_signal_confidence=use_signal_confidence, review_confidence=review_confidence,
+        high_impact=high_impact,
+    )
+
+
+@mcp.tool()
+def record_fast_judgment(
+    work_id: str,
+    actor_id: str,
+    purpose: str,
+    decisions: list[dict[str, Any]],
+    source: str = "HOST",
+    model_ref: str | None = None,
+    context_refs: list[str] | None = None,
+    use_signal_confidence: float = 0.80,
+    review_confidence: float = 0.60,
+    high_impact: bool = False,
+) -> dict[str, Any]:
+    """Persist an FJD/1 result as PROGRESSIVE WORKER_JUDGMENT bound to WorkIdentity."""
+    return _domain_call(
+        FastJudgmentService(get_service()).record,
+        work_id=work_id, actor_id=actor_id, purpose=purpose, decisions=decisions,
+        source=source, model_ref=model_ref, context_refs=context_refs,
+        use_signal_confidence=use_signal_confidence, review_confidence=review_confidence,
+        high_impact=high_impact,
+    )
+
+
+@mcp.tool()
+def fast_judgment_status(judgment_id: str) -> dict[str, Any]:
+    """Read one persisted FJD/1 progressive judgment and its confidence/fallback disposition."""
+    return _domain_call(FastJudgmentService(get_service()).status, judgment_id)
 
 
 @mcp.tool()

@@ -84,6 +84,9 @@ def test_claude_code_setup_defaults_to_local_scope_and_preserves_other_servers(t
     assert "NEVER reconstruct current work state" in rule_text
     assert "MangoMe is infrastructure" in rule_text
     assert "STATE_NOT_FOUND" in rule_text
+    assert "THINK FREELY, RECONCILE BEFORE EFFECT" in rule_text
+    assert "reconcile_assignment" in rule_text
+    assert "do not call `session_restore` merely because a session started" in rule_text
 
     attested = attest_client(
         "claude-code", str(tmp_path), backend="memory", database="mangome_test",

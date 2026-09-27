@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.2-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.3-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -82,6 +82,30 @@ A Claude session ends. Codex continues. Another agent sees a different database.
 MangoMe moves that problem out of the prompt and into durable, inspectable state.
 
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
+
+---
+
+# v0.3.3 — zero-touch assignment reconciliation
+
+v0.3.3 removes the worker-facing **restore-first ritual** from the normal managed workflow. A worker may inspect, search, reason, classify and form a tentative decomposition before MangoMe involvement. MangoMe becomes mandatory at the **effect boundary**, not at the first thought.
+
+```text
+user request
+    ↓
+free local understanding / tentative decomposition
+    ↓
+reconcile_assignment
+    ↓
+existing WorkIdentity / baseline / unfinished state / authority
+    ↓
+governed productive effect
+```
+
+The governing rule is **THINK FREELY, RECONCILE BEFORE EFFECT**. Managed clients already auto-attach the workspace and populate a read-only restore snapshot when MangoMe initializes; v0.3.3 therefore no longer tells agents to call `session_restore` merely because a session started. `session_restore` remains the explicit recovery/status primitive, while `reconcile_assignment` is the normal worker-facing bridge from tentative judgment to governed work.
+
+The effect boundary includes durable code/file/database mutation, commits, deployment, external side effects, canonical MangoMe mutations, normative promotion and assurance claims. Tentative reasoning is never promoted automatically, and existing work is still reused before new work is admitted.
+
+v0.3.3 also adds **FJD/1 Fast Judgment Decisions**, a deliberately small provider-neutral typed-decision layer for cheap repeated judgments. It accepts strict `BOOL`, `SCORE`, and `CHOICE` outputs with explicit confidence and returns `USE_SIGNAL`, `REVIEW`, `REVIEW_REQUIRED`, or `ESCALATE`. FJD/1 performs no model inference itself; a host may use a heuristic, small local classifier, specialized decision engine, or stronger model. Every result remains `WORKER_JUDGMENT`: confidence can guide classification, triage, routing, activation, or prioritization, but can never create truth, Evidence, assurance, verification, acceptance, normative promotion, or mutation authority. See `docs/fast-judgment.md`.
 
 ---
 
@@ -373,18 +397,18 @@ Zero-touch is a **user-interface property**, not a weaker truth model.
 ```text
 user gives a normal task
         ↓
-managed MangoMe binding
+worker understands / inspects / forms tentative decomposition
         ↓
-session_restore / session_bootstrap
+reconcile_assignment
         ↓
 STATE_FOUND | STATE_PARTIAL | STATE_NOT_FOUND
         ↓
-STATE_FOUND   → use canonical executable / assurance delta
+STATE_FOUND   → reconcile with existing WorkIdentity/baseline/work
 STATE_PARTIAL → bounded validation/backfill only
 STATE_NOT_FOUND → never synthesize recovery state
         ↓
 new work?       → enter_work
-admitted work?  → prepare_assignment / begin_work
+admitted work?  → bind current turn + prepare_assignment / begin_work
         ↓
 Plan-bound internal Slice execution
         ↓
@@ -780,6 +804,10 @@ UAI/1 packets include a semantic hash, and UAI/1R worker results bind back to th
 
 # Assignment surfaces
 
+## `reconcile_assignment`
+
+Read-only RAE/1 bridge from tentative worker understanding to governed work. It resolves canonical restore state and returns whether the worker should reconcile with existing work, perform bounded recovery/backfill, or admit genuinely new work. It never canonicalizes the worker's tentative decomposition.
+
 ## `enter_work`
 
 Zero-touch admission for genuinely new ordinary work.
@@ -814,6 +842,7 @@ The v0.2.2 MCP surface includes the existing MangoMe tools plus the hardened ass
 Session / recovery
   health
   workspace_status
+  reconcile_assignment
   session_restore
   session_bootstrap
   recovery_context
@@ -875,6 +904,11 @@ Runtime / delegation
   authorize_delegation
   complete_delegation
   delegation_status
+
+Fast judgment / decision gating
+  assess_fast_judgment
+  record_fast_judgment
+  fast_judgment_status
 
 Economics
   register_model
@@ -957,10 +991,12 @@ skill/mangome/SKILL.md
 
 The project keeps mirrored Skill surfaces for packaging and supported clients. They must remain synchronized.
 
-The v0.2.2 Skill explicitly teaches the execution rule:
+The v0.3.3 Skill explicitly teaches the normal worker path:
 
-- restore first;
-- resolve/reuse before creating;
+- think freely and form only a tentative local decomposition;
+- reconcile with MangoMe before productive effect;
+- use `reconcile_assignment` instead of a ritual restore-first step;
+- resolve/reuse existing WorkIdentity, plans and evidence before creating new work;
 - keep Slice/Plan mechanics internal;
 - use `prepare_assignment` for admitted assignments;
 - planning is never a substitute for execution;
@@ -975,7 +1011,8 @@ The v0.2.2 Skill explicitly teaches the execution rule:
 Ordinary new work:
 
 ```text
-session_restore
+understand locally
+→ reconcile_assignment
 → STATE_NOT_FOUND for genuinely new work
 → enter_work
 → internal Plan/Slice execution
@@ -987,9 +1024,10 @@ session_restore
 Existing admitted work:
 
 ```text
-session_restore
+understand locally
+→ reconcile_assignment
 → STATE_FOUND
-→ prepare_assignment
+→ bind current turn / prepare_assignment
 → reuse existing Slice(s)
 → execute
 → persist Evidence
@@ -1002,7 +1040,7 @@ session_restore
 Audit/review path:
 
 ```text
-restore
+reconcile_assignment
 → prepare_assignment
 → inspect actual system
 → persist observations
@@ -1107,8 +1145,9 @@ PCH/1 is deliberately projection-only. It does not delete history, alter assuran
 - Audit scope expansion never grants additional mutation authority; external code/filesystem enforcement remains a host/runtime responsibility.
 - PCH/1 uses an explicit deterministic heuristic policy; its weights and thresholds are an inspectable baseline for evaluation, not a claim of optimal cognitive allocation.
 - The current graph-distance calculation is scoped to the Family execution context plus deterministic synthetic relations; it is not yet a host-wide graph navigator.
-- Freshness can consume explicit `CURRENT`, `STALE`, `SOURCE_CHANGED`, `ENVIRONMENT_CHANGED`, or `REVALIDATION_REQUIRED` markers, but v0.3.2 does not yet implement a general bitemporal truth-maintenance engine.
+- Freshness can consume explicit `CURRENT`, `STALE`, `SOURCE_CHANGED`, `ENVIRONMENT_CHANGED`, or `REVALIDATION_REQUIRED` markers, but v0.3.3 does not yet implement a general bitemporal truth-maintenance engine.
 - Temperature controls activation only. It cannot promote evidence, change normative authority, verify a Slice, or accept work.
+- FJD/1 confidence is advisory worker judgment only. The default 0.80/0.60 thresholds are inspectable operational defaults, not calibrated truth guarantees; high-impact decisions still require review.
 - MangoMe can only enforce writes that pass through MangoMe. Direct MongoDB/admin access remains outside the service trust boundary.
 - External model dispatch and verifier command execution remain host responsibilities.
 

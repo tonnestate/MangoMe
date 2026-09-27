@@ -39,3 +39,13 @@ OpenSpec-style separation between specifications (what should become true) and e
 Review feedback supplied through Grok was considered for deterministic effective views, assurance/evidence policy, and read-path performance. It is treated as advisory design input, not a dependency, library, or source-code contribution.
 
 The project distinguishes **INSPIRED BY** from **DEPENDS ON**, **BUNDLES CODE FROM**, and **OPTIONALLY INTEGRATES WITH**. v0.3.0 adds no new third-party runtime dependency for WorkIdentity, persistence levels, Playbooks, or normative baselines.
+
+## Laya design acknowledgement for v0.3.3 (no bundled code)
+
+Project: **NandhaKishorM/laya**
+Repository: https://github.com/NandhaKishorM/laya
+License: Apache License 2.0
+
+Laya's public typed-decision approach informed the discussion that led to MangoMe FJD/1, particularly the usefulness of bounded choice/score/yes-no style outputs, explicit confidence, and fallback/gating for repeated low-cost decisions.
+
+MangoMe does **not** depend on Laya, does not bundle Laya models or source files, and does not reproduce Laya's API. FJD/1 is an independently implemented MangoMe protocol using `BOOL`, `SCORE`, and `CHOICE` worker judgments, progressive provenance, and MangoMe-specific epistemic/authority boundaries.

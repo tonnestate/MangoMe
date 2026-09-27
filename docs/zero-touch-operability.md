@@ -1,15 +1,19 @@
-# Zero-touch operability — MangoMe v0.1.8.1
+# Zero-touch operability — MangoMe v0.3.3
 
-MangoMe's governance vocabulary is an implementation detail for the **user**, not something the runtime may ignore. v0.1.8.1 makes that boundary explicit.
+MangoMe's governance vocabulary is an implementation detail for the **user**, not something the runtime may ignore. v0.3.3 moves governance to the effect boundary: workers may reason freely, while productive effects must be reconciled with canonical state and authority.
 
 The product goal is:
 
 ```text
 ordinary user request
     ↓
-client/runtime performs MangoMe lifecycle internally
+worker may inspect / reason / form tentative decomposition
     ↓
-governed canonical work
+reconcile_assignment
+    ↓
+client/runtime performs governed MangoMe lifecycle
+    ↓
+governed productive work
 ```
 
 It is **not**:
@@ -19,6 +23,28 @@ ordinary user request
     ↓
 skip planning / evidence / verification
 ```
+
+## v0.3.3 reconciliation-before-effect
+
+Managed MangoMe clients already use `MANGOME_AUTO_ATTACH=1`. When the MangoMe runtime initializes, it attaches the workspace and computes a read-only restore snapshot. Therefore the worker-facing default is no longer "restore before repository exploration".
+
+```text
+THINK FREELY
+    ↓
+reconcile_assignment
+    ↓
+RECONCILE CANONICAL STATE + AUTHORITY
+    ↓
+PRODUCTIVE EFFECT
+```
+
+`reconcile_assignment` is read-only. It may return:
+
+- `RECONCILE_WITH_EXISTING_WORK` for `STATE_FOUND`;
+- `BOUNDED_RECOVERY_REQUIRED` for `STATE_PARTIAL`; or
+- `NEW_OR_UNADMITTED_WORK` for `STATE_NOT_FOUND`.
+
+It never promotes tentative worker judgment into canonical truth. Explicit `session_restore` remains useful for dedicated recovery/status workflows and unmanaged hosts.
 
 ## Three different kinds of truth
 
@@ -33,17 +59,19 @@ Automatic workspace attachment, filesystem inventory and Big-Bang discovery obse
 For an ordinary new task, the current user request relayed by the client is sufficient to create **new operational state** through `enter_work`:
 
 ```text
-session_restore / session_bootstrap
+tentative local understanding
+    ↓
+reconcile_assignment(request_text)
     ↓
 STATE_NOT_FOUND + genuinely new work
     ↓
 enter_work(actor_id, request_text, ...)
     ↓
-workspace Project / task-specific Family
+workspace Project / task-specific Family / WorkIdentity
     ↓
-current-request Specification
+operational-intent NormativeBaseline
     ↓
-Request → Plan → Slice → ACTIVE
+WorkTurn → Plan → Slice → ACTIVE
 ```
 
 `enter_work` is deliberately narrow. It does not promote discovered legacy contracts, reports or audits. It only admits the current task into the normal MangoMe state machine. The Plan-before-mutate invariant remains intact.
@@ -145,7 +173,7 @@ A worker with direct MongoDB write/admin access is outside MangoMe's protection 
 
 ## Why there is no lightweight truth mode
 
-v0.1.8.1 deliberately does **not** add a second lightweight/ephemeral state model. Two truth stores would make handoff and promotion semantics harder, not simpler.
+v0.3.3 deliberately does **not** add a second lightweight/ephemeral state model. Two truth stores would make handoff and promotion semantics harder, not simpler.
 
 The product instead keeps one governed model with two different ingress paths:
 
@@ -157,7 +185,7 @@ Discovery remains separate until explicitly admitted. This keeps the user experi
 
 ## Infrastructure boundary
 
-MangoMe is infrastructure. Agents may use it but must not modify MangoMe source/tests/configuration unless the assignment explicitly targets MangoMe. Managed hosts enable restore gating with `MANGOME_REQUIRE_SESSION_RESTORE=1`; hard filesystem enforcement remains a host responsibility.
+MangoMe is infrastructure. Agents may use it but must not modify MangoMe source/tests/configuration unless the assignment explicitly targets MangoMe. Managed hosts keep `MANGOME_REQUIRE_SESSION_RESTORE=1` as a compatibility gate, but managed runtime initialization now satisfies the read-only restore snapshot automatically. Workers are not required to invoke `session_restore` as a session-start ritual. Hard filesystem enforcement remains a host responsibility.
 
 ## v0.3 WorkIdentity / controller boundary
 

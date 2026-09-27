@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.3 — 2026-09-27 — Zero-Touch Assignment Reconciliation / Effect Boundary
+
+- Replaced the worker-facing restore-first ritual with **THINK FREELY, RECONCILE BEFORE EFFECT**.
+- Added read-only MCP `reconcile_assignment` (`RAE/1`) as the default bridge from tentative worker understanding to governed MangoMe work.
+- Managed clients now satisfy the read-only restore snapshot lazily/automatically when MangoMe initializes; productive gates no longer require a manual `session_restore` call solely because a session started.
+- Updated the Agent Skill with a prominent default agent loop and open-ended-assignment behavior for requests such as “understand the system and proceed”.
+- Preserved recovery semantics: `STATE_NOT_FOUND` is never synthesized into recovered state; `STATE_PARTIAL` remains bounded recovery/backfill only.
+- Preserved authority semantics: tentative decomposition is worker judgment and never becomes canonical Plan/Spec/Contract truth without the normal admission/binding path.
+- Added `docs/assignment-reconciliation.md` and aligned zero-touch/runtime instructions with the effect-boundary model.
+- Added **FJD/1 Fast Judgment Decisions** as a MangoMe-native, provider-neutral typed-signal layer: strict `BOOL`, `SCORE`, and `CHOICE` values with explicit confidence and deterministic `USE_SIGNAL` / `REVIEW` / `ESCALATE` gating.
+- FJD/1 performs no model inference and adds no Laya runtime dependency or vendored Laya code. It deliberately reuses only the general typed-decision/confidence/fallback pattern.
+- Persisted fast judgments are `PROGRESSIVE` `WORKER_JUDGMENT` bound to an existing WorkIdentity; they can guide classification, triage, routing, activation or prioritization but never create canonical truth, Evidence, assurance, verification, acceptance or mutation authority.
+- Added MCP tools `assess_fast_judgment`, `record_fast_judgment`, and `fast_judgment_status` plus `docs/fast-judgment.md`.
+
 ## 0.3.2 — 2026-09-27 — Scoped Recursive Audit / Impact Closure
 
 - Adds **SRA/1 Scoped Recursive Audit** for bounded system understanding: `initial scope → inspect → finding/evidence → affected frontier → bounded expansion → fixpoint`.

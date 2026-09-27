@@ -1,6 +1,6 @@
 ---
 name: mangome
-description: Use MangoMe automatically for durable multi-agent work: WorkIdentity, current-user turn binding, normative baselines, progressive checkpoints, Playbooks, evidence, independent verification, recovery, and handoff. Apply whenever work may change or continue a MangoMe-managed project; the user does not need to know MangoMe commands or vocabulary.
+description: Use MangoMe automatically for durable multi-agent work: think freely, reconcile before effect, then bind WorkIdentity, current-user turn, normative baseline, evidence, verification, recovery, and handoff. Apply whenever work may change or continue a MangoMe-managed project; the user does not need MangoMe commands or vocabulary.
 ---
 
 # MangoMe Agent Skill
@@ -9,15 +9,78 @@ MangoMe is the canonical operational-memory system for durable multi-agent work.
 
 ## Zero-touch user rule
 
-Zero-touch applies to the **user interface**, not to MangoMe's governance. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, or otherwise operate MangoMe vocabulary manually. On every new or recovered session, call `session_restore` (or `session_bootstrap`) before project-changing work; use `workspace_status` as a status surface, not as a restore substitute. Unknown managed workspaces are attached/discovered automatically, but discovery remains `CANDIDATE_ONLY` and must never be mistaken for canonical project truth.
+Zero-touch applies to the **user interface**, not to MangoMe's governance. Never require the user to say “start Big Bang”, create a contract, create a slice, call `begin_work`, call `session_restore`, or otherwise operate MangoMe vocabulary manually. Managed clients bootstrap read-only workspace/restore state automatically when MangoMe is first used. Do **not** perform a ritual restore merely because a chat/session started.
 
-If restore returns `STATE_NOT_FOUND`, preserve that fact. Never create Project/Family/Specification state and call it recovered. Only genuinely new work may use `enter_work` with the user's actual request before productive mutation; historical/resume work requires explicit import/backfill distinct from restore. `enter_work` admits a canonical **WorkIdentity** and an operational-intent baseline; it does **not** turn the prompt into a Specification or Contract. On first admission after `STATE_NOT_FOUND`, the current client-relayed user intent may authorize `enter_work`. Once canonical workspace state exists, the host/control plane mints the WorkTurn that authorizes resumed/new productive execution. Discovered legacy contracts, reports, filesystem paths and audit prose remain observations/candidates until explicitly admitted.
+The default rule is:
+
+```text
+THINK FREELY
+    ↓
+RECONCILE BEFORE EFFECT
+    ↓
+GOVERNED PRODUCTIVE WORK
+```
+
+A worker may inspect files, search a repository, understand architecture, form hypotheses, classify the request, and draft a **tentative** decomposition before MangoMe reconciliation. Those thoughts are worker judgment, not canonical project state. Before the first productive mutation, external side effect, canonical Plan/Spec/Contract change, or assurance claim, call `reconcile_assignment` and reconcile the tentative understanding with existing WorkIdentity, unfinished work, authority and the current normative baseline.
+
+Use explicit `session_restore` / `session_bootstrap` when the assignment is specifically about recovery/status, when an unmanaged host has no automatic bootstrap, or when `reconcile_assignment` reports that recovery/backfill is required. If canonical restore resolves to `STATE_NOT_FOUND`, preserve that fact. Never create Project/Family/Specification state and call it recovered. Only genuinely new work may use `enter_work` with the user's actual request before productive mutation; historical/resume work requires explicit import/backfill distinct from restore. `enter_work` admits a canonical **WorkIdentity** and an operational-intent baseline; it does **not** turn the prompt into a Specification or Contract.
 
 Do not treat a missing prior Big-Bang command as a user error. If the managed MangoMe tools are missing, stale, or report a deterministic binding/readiness problem, run `mangome doctor --repair` yourself when safe before asking the user to edit configuration. Ask the user only when intent is genuinely ambiguous or a protected authorization/acceptance decision is required. Verification and acceptance remain separate privileged transitions; a worker reaching `DONE_CLAIMED` is a valid durable state, not a reason to fabricate verifier authority.
 
+## Default agent loop
+
+For ordinary assignments in a MangoMe-managed workspace:
+
+```text
+USER REQUEST
+   ↓
+understand the local problem
+inspect/search/read as needed
+form assumptions + tentative decomposition
+   ↓
+reconcile_assignment(request_text)
+   ↓
+STATE_FOUND   → map candidate work onto existing WorkIdentity/baseline/unfinished state
+STATE_PARTIAL → bounded recovery/backfill only
+STATE_NOT_FOUND → genuinely new work may enter_work; historical work uses explicit import/backfill
+   ↓
+bind current turn / authority
+   ↓
+productive effects
+   ↓
+persist progress + evidence
+   ↓
+claim / independent assurance
+```
+
+This is the normal path. Do not make the agent rediscover MangoMe procedure from dozens of lower-level tools. `reconcile_assignment` is read-only and does not canonicalize the worker's tentative decomposition.
+
+## Open-ended assignments
+
+When the user says things such as “understand the system”, “make reasonable assumptions”, “fix it”, “review this”, or “just get started”:
+
+- inspect enough of the local system to understand the assignment;
+- make assumptions and unknowns explicit internally;
+- form a tentative local plan/decomposition if useful;
+- do **not** treat that tentative plan as canonical project truth;
+- before productive effect, run `reconcile_assignment`;
+- reuse existing WorkIdentity, Plans, Slices, baselines and evidence where applicable;
+- expand inspection when material impact requires it, but never silently expand mutation authority;
+- if wider impact is found, record a finding or use SRA/1 rather than casually repairing unrelated areas.
+
+The effect boundary includes code/file/database writes, commits, deployments, external messages/actions, canonical MangoMe mutations, normative promotion, DONE/VERIFIED claims, and other durable project-changing operations. Reading, searching, reasoning, local classification and tentative planning are not themselves productive effects.
+
+## Fast bounded judgments (FJD/1)
+
+Use FJD/1 only when a bounded typed decision would save expensive reasoning: classification, triage, routing, activation, relevance or prioritization. A host may produce the value with a heuristic, small local classifier, specialized decision model, or other cheap engine; MangoMe itself does not require a particular inference provider.
+
+Prefer strict `BOOL`, `SCORE`, or `CHOICE` results with explicit confidence. `assess_fast_judgment` validates/gates a transient result; `record_fast_judgment` may persist a result as `PROGRESSIVE` `WORKER_JUDGMENT` after WorkIdentity exists. Do not call FJD/1 merely because it exists, and do not replace ordinary deterministic checks with model scoring.
+
+Never treat confidence as truth. FJD/1 may guide which path to inspect or which context to heat, but it cannot create Evidence, normative truth, verification, acceptance, or mutation authority. Low-confidence signals escalate to stronger reasoning/deterministic inspection. High-impact decisions require review even at high confidence.
+
 ## Non-negotiable rules
 
-1. **Restore first.** On a new/recovered session, call `session_restore`/`session_bootstrap` before repository exploration, planning or execution. `STATE_NOT_FOUND` is not permission to synthesize recovery state.
+1. **Think freely; reconcile before effect.** Repository exploration, reasoning, classification and tentative decomposition may happen before MangoMe reconciliation. Before productive mutation, canonical state change, external side effect or assurance claim, call `reconcile_assignment` (or use explicit restore on an unmanaged/recovery path). Managed clients auto-bootstrap read-only restore state; `STATE_NOT_FOUND` is never permission to synthesize recovery state.
 2. **Categorize every assignment.** Call `intake_request`; reuse IntakeGov classification when available.
 3. **Resolve before creating.** Search existing project/family/contract/slice identity before creating a new one.
 4. **A prompt is not a Contract or Specification.** A user turn may admit durable WorkIdentity, but normative truth requires its own admission path.
@@ -74,6 +137,9 @@ Do not treat a missing prior Big-Bang command as a user error. If the managed Ma
 53. **State assumptions and unknowns.** A worker is not required to know the whole system. Persist assumptions and unknowns with audit findings instead of silently filling gaps from model intuition.
 54. **Audit closure is bounded coverage, not global correctness.** `FIXPOINT_REACHED` means no material frontier remains under the configured traversal policy. `BOUNDED_FIXPOINT` means a depth/object boundary was reached. Neither means the whole system is correct or the underlying work is VERIFIED.
 55. **Audit does not replace AV/1.** SRA/1 finds and closes an impact frontier; AV/1 still governs independent completion verification. Audit priority may heat PCH context, but never changes truth or assurance.
+56. **Fast judgment is advisory only.** FJD/1 `BOOL`/`SCORE`/`CHOICE` outputs are `WORKER_JUDGMENT`; confidence never creates canonical truth, Evidence, assurance, verification, acceptance, or mutation authority.
+57. **Escalate uncertainty instead of hiding it.** Low-confidence FJD/1 results must route to stronger reasoning or a deterministic check. `high_impact=true` always requires review even when confidence is high.
+58. **Keep the decision engine replaceable.** FJD/1 defines typed decision semantics and gating, not a required model/runtime. Do not add a provider dependency where a heuristic or existing local model is sufficient.
 
 ## WorkIdentity-first turn binding
 
@@ -129,15 +195,23 @@ Contract content is versioned by immutable generations. A local edit remains a w
 Default decision path:
 
 ```text
-session_restore / session_bootstrap
+local understanding / tentative decomposition
+   ↓
+reconcile_assignment(request_text)
    ↓
 STATE_FOUND?
-   ├─ yes → use canonical next_executable_items / pending assurance delta
+   ├─ yes → reconcile with canonical WorkIdentity / baseline / unfinished work
    ├─ partial → bounded validation/backfill only; no productive mutation
    └─ not found → preserve RESTORE_STATE_NOT_FOUND
                  ├─ genuinely NEW work → enter_work(...)
                  └─ historical/resume work → explicit import/backfill, not fake restore
+   ↓
+current-turn binding / authority
+   ↓
+productive effect
 ```
+
+Managed runtimes may have already populated the read-only restore snapshot automatically. `reconcile_assignment` is therefore the preferred worker-facing bridge; it is not another persistence layer and does not make tentative worker judgment canonical. Explicit `session_restore` remains the recovery/status primitive.
 
 `enter_work` is the zero-touch entry point for ordinary new work. In v0.3 it admits WorkIdentity and an operational-intent baseline without manufacturing a Specification from the prompt. `begin_work` remains the convenience path for already admitted work. Productive Plans must be bound to WorkIdentity, current WorkTurn and current NormativeBaseline before mutation.
 
