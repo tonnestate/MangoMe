@@ -27,6 +27,7 @@ from .runtime import (
 )
 from .service import MangoMeError, workspace_project_key
 from .reconciliation import assignment_reconciliation_result
+from .control_plane import is_mangome_self_maintenance_request, control_plane_maintenance_result
 
 mcp = MCPServer(
     "MangoMe",
@@ -64,9 +65,10 @@ mcp = MCPServer(
         "Scoped recursive audits use bounded impact-closure: inspect the current frontier, persist findings/evidence, expand only on material impact, "
         "never auto-expand mutation authority, and stop at a fixpoint or explicit depth/object boundary. Audit closure is scoped coverage, never global correctness. "
         "FJD/1 fast judgments are optional typed BOOL/SCORE/CHOICE worker signals for classification, triage, routing, activation or prioritization. "
-        "Confidence is not truth: fast judgments never create Evidence, assurance, verification, acceptance, normative truth, or mutation authority; low-confidence or high-impact cases escalate."
+        "Confidence is not truth: fast judgments never create Evidence, assurance, verification, acceptance, normative truth, or mutation authority; low-confidence or high-impact cases escalate. "
+        "Explicit MangoMe self-maintenance is CPM/1 out-of-band control-plane maintenance: do not call enter_work or create governance state merely to install/update/repair/rollback/reconfigure MangoMe itself. Scope that exception only to MangoMe source/package/runtime/service surfaces; it never grants database/schema mutation. If a target requires a database/schema migration without separate explicit authorization, stop with DATABASE_CHANGE_REQUIRED. Historical host memory, old eval/audit artifacts, cached summaries and prior chats are candidate-only hints and never current operational authority."
     ),
-    version="0.3.4",
+    version="0.3.5",
 )
 
 
@@ -466,6 +468,7 @@ def submit_plan(family_id: str, request_id: str, actor_id: str, intent: str, pro
 def _reconcile_assignment_impl(
     request_text: str,
     workspace_root: str | None = None,
+    target: str | None = None,
 ) -> dict[str, Any]:
     """Read-only implementation for RAE/1 assignment reconciliation."""
     # request_text is intentionally not persisted here. It is worker/current-turn input
@@ -479,10 +482,17 @@ def _reconcile_assignment_impl(
         or os.environ.get("MANGOME_WORKSPACE_ROOT")
         or os.getcwd()
     )
+    resolved_root = str(Path(root).expanduser().resolve())
+    # v0.3.5: explicit maintenance of MangoMe itself is out-of-band control-plane
+    # maintenance, not ordinary project work.  Do not make repair/update of the
+    # governance substrate depend on admitting a WorkIdentity or writing an approval
+    # into that same substrate.  The disposition is read-only and tightly scoped.
+    if is_mangome_self_maintenance_request(request_text, target=target):
+        return control_plane_maintenance_result(request_text, workspace_root=resolved_root)
     restored = restore_workspace_state(root)
     return assignment_reconciliation_result(
         restored,
-        workspace_root=str(Path(root).expanduser().resolve()),
+        workspace_root=resolved_root,
     )
 
 
@@ -490,15 +500,19 @@ def _reconcile_assignment_impl(
 def reconcile_assignment(
     request_text: str,
     workspace_root: str | None = None,
+    target: str | None = None,
 ) -> dict[str, Any]:
     """Bridge free worker reasoning into governed MangoMe work without creating truth.
 
     The worker may inspect/reason and form a tentative decomposition before this call.
     This operation is read-only with respect to canonical work identity and normative
     truth: it resolves the managed workspace's canonical restore state and tells the
-    worker which governed transition is appropriate before productive effect.
+    worker which governed transition is appropriate before productive effect. For an
+    elliptical follow-up maintenance request, `target` may carry the target already
+    resolved from the current conversation (for example `MangoMe`) without searching
+    historical host memory.
     """
-    return _domain_call(_reconcile_assignment_impl, request_text, workspace_root)
+    return _domain_call(_reconcile_assignment_impl, request_text, workspace_root, target)
 
 
 @mcp.tool()

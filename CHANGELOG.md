@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.5 — 2026-09-27 — Out-of-Band Control-Plane Self-Maintenance
+
+- Added `CPM/1`: explicit operator requests to install/update/repair/hotfix/rollback/reconfigure MangoMe itself are classified as out-of-band control-plane maintenance rather than ordinary project work.
+- `reconcile_assignment` now short-circuits canonical restore/admission for explicit MangoMe self-maintenance and returns a read-only maintenance disposition. It does not require `enter_work`, WorkIdentity, Contracts, Plans, Slices, or a MangoMe-persisted self-approval.
+- `CPM/1` is tightly scoped to MangoMe source checkout, package/venv, MCP launcher/runtime configuration, and MangoMe service/autostart surfaces. It does not authorize unrelated application mutations.
+- Database/schema mutation is never granted by `CPM/1`. If the target update requires a database/schema migration without separate explicit operator authorization, the worker must stop with `DATABASE_CHANGE_REQUIRED`.
+- Promoted source-precedence hygiene into always-on managed-client instructions: old Claude/Codex memory, prior chats, cached summaries, and historical audit/eval artifacts are candidate-only hints, never current installation/workspace/controller authority.
+- Clarified intent discipline: status remarks, acknowledgements, and observations are not automatically new assignments.
+
+
 ## 0.3.4 — 2026-09-27 — Non-Blocking Bootstrap / Lazy Discovery Hotfix
 
 - Separates **workspace binding** from filesystem/Big-Bang discovery. A managed MCP process now creates only a volatile read-only workspace binding at startup; it does not inventory files, scan repositories, or run onboarding discovery.

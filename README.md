@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.4-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.5-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -84,6 +84,12 @@ MangoMe moves that problem out of the prompt and into durable, inspectable state
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
 
 ---
+
+# v0.3.5 — out-of-band control-plane self-maintenance
+
+v0.3.5 closes a real control-plane deadlock found during live Codex operation. An explicit operator request to update/repair MangoMe itself must not require `enter_work`, a new WorkIdentity, or a self-approval persisted into the same MangoMe control plane being repaired. `reconcile_assignment` now returns the read-only `CPM/1` disposition for explicit MangoMe self-maintenance and short-circuits canonical restore/admission.
+
+`CPM/1` is deliberately narrow: it covers only MangoMe source/package/runtime/service maintenance named by the current user. It never authorizes canonical MongoDB/schema mutation. If the requested target requires a database/schema migration without separate explicit authorization, the worker must stop with `DATABASE_CHANGE_REQUIRED`. Historical host memory and old eval/audit artifacts remain candidate-only hints; current user intent plus current repository/runtime observation outrank them for maintenance state. Casual status remarks are not work orders.
 
 # v0.3.4 — non-blocking bootstrap / lazy discovery hotfix
 

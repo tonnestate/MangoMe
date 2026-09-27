@@ -40,3 +40,14 @@ def test_skill_treats_historical_host_memory_as_candidate_only():
     assert "candidate-only discovery hints" in skill
     assert "Never recover current WorkIdentity" in skill
     assert "controller authority" in skill
+
+
+def test_skill_has_out_of_band_control_plane_self_maintenance_rule():
+    root = Path(__file__).resolve().parents[1]
+    skill = (root / "skill" / "mangome" / "SKILL.md").read_text(encoding="utf-8")
+    operability = (root / "src" / "mangome" / "operability.py").read_text(encoding="utf-8")
+    assert "Explicit MangoMe self-maintenance" in skill
+    assert "Self-maintenance does not self-admit" in skill
+    assert "DATABASE_CHANGE_REQUIRED" in skill
+    assert "CONTROL-PLANE SELF-MAINTENANCE RULE" in operability
+    assert "candidate-only discovery hints" in operability
