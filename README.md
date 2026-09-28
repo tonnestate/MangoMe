@@ -21,6 +21,19 @@
 
 ---
 
+## New to MangoMe? Start here
+
+If this is your first time using MangoMe, begin with the beginner documentation before diving into the architecture and protocol references:
+
+- [Start Here](docs/START_HERE.md) — MangoMe in a few minutes: what it is, what problem it solves, and the basic mental model.
+- [Getting Started](docs/getting-started.md) — installation, client setup, first health check, and the first governed task.
+- [Troubleshooting](docs/troubleshooting.md) — common integration and runtime errors such as `STATE_NOT_FOUND`, `WRONG_MANGOME_DATABASE`, `WORKSPACE_BINDING_AMBIGUOUS`, and Skill/MCP readiness issues.
+- [Why MangoMe?](docs/WHY_MANGOME.md) — concrete agent failure modes and how MangoMe changes the operational behavior.
+
+The rest of this README and the documents under `docs/` describe the deeper architecture, protocols, governance model, verification semantics, and research foundations.
+
+---
+
 ## MangoMe is not just a state machine
 
 MangoMe is the **canonical operational memory** underneath long-running AI work.
