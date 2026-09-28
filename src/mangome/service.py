@@ -1276,7 +1276,14 @@ class MangoMeService:
             raise ValueError(f"unknown cost_ceiling {cost_ceiling}")
         profile = self._current_worker_runtime(worker_key)
         if profile is None:
-            return {"eligible": False, "reason_codes": ["RUNTIME_PROFILE_REQUIRED"], "worker_key": worker_key}
+            return {
+                "eligible": False,
+                "reason_codes": ["RUNTIME_PROFILE_REQUIRED"],
+                "worker_key": worker_key,
+                "decision_scope": "EXTERNAL_DISPATCH_OR_CAPABILITY_SENSITIVE_HOST_ACTION",
+                "ordinary_local_work_blocked": False,
+                "next_action": "Host/router must publish the runtime profile before dispatch; the worker must not self-publish one.",
+            }
         reasons: list[str] = []
         required = sorted({str(c).strip().upper() for c in (required_capabilities or []) if str(c).strip()})
         available = set(profile.get("capabilities") or [])
@@ -1309,6 +1316,8 @@ class MangoMeService:
             "required_capabilities": required, "available_capabilities": sorted(available),
             "missing_capabilities": missing, "cost_ceiling": ceiling,
             "handoff_policy": "CHECKPOINT_AND_HANDOFF_MISSING_CAPABILITY_ONLY" if missing else None,
+            "decision_scope": "EXTERNAL_DISPATCH_OR_CAPABILITY_SENSITIVE_HOST_ACTION",
+            "ordinary_local_work_blocked": False,
         }
 
     def authorize_delegation(

@@ -202,3 +202,13 @@ def test_high_cost_owner_approval_is_bound_to_one_delegation_task(monkeypatch):
     )
     assert second["authorized"] is False
     assert "OWNER_APPROVAL_REQUIRED" in second["eligibility"]["reason_codes"]
+
+
+def test_missing_runtime_profile_is_dispatch_metadata_gap_not_local_work_gate():
+    svc = IntegrityMangoMeService(InMemoryStore())
+    decision = svc.check_execution_eligibility(worker_key="unpublished-worker")
+    assert decision["eligible"] is False
+    assert decision["reason_codes"] == ["RUNTIME_PROFILE_REQUIRED"]
+    assert decision["decision_scope"] == "EXTERNAL_DISPATCH_OR_CAPABILITY_SENSITIVE_HOST_ACTION"
+    assert decision["ordinary_local_work_blocked"] is False
+    assert "must not self-publish" in decision["next_action"]

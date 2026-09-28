@@ -80,13 +80,10 @@ def test_claude_code_setup_defaults_to_local_scope_and_preserves_other_servers(t
     assert rule.is_file()
     rule_text = rule.read_text(encoding="utf-8")
     assert "Zero-touch applies to the user interface" in rule_text
-    assert "AUTHORITATIVE RECOVERY RULE" in rule_text
-    assert "NEVER reconstruct current work state" in rule_text
     assert "MangoMe is infrastructure" in rule_text
     assert "STATE_NOT_FOUND" in rule_text
-    assert "THINK FREELY, RECONCILE BEFORE EFFECT" in rule_text
+    assert "RECONCILE BEFORE EFFECT" in rule_text
     assert "reconcile_assignment" in rule_text
-    assert "do not call `session_restore` merely because a session started" in rule_text
 
     attested = attest_client(
         "claude-code", str(tmp_path), backend="memory", database="mangome_test",
@@ -112,48 +109,51 @@ def test_claude_code_project_scope_remains_explicit_opt_in(tmp_path: Path):
     assert attested["status"] == "STATIC_PASS"
 
 
-def test_codex_setup_is_project_scoped_idempotent_and_preserves_unrelated_toml(tmp_path: Path):
-    config = tmp_path / ".codex" / "config.toml"
-    config.parent.mkdir(parents=True)
-    config.write_text(
+def test_codex_setup_is_user_scoped_portable_and_preserves_unrelated_toml(tmp_path: Path):
+    project_config = tmp_path / ".codex" / "config.toml"
+    project_config.parent.mkdir(parents=True)
+    project_config.write_text(
         'model = "example"\n\n[features]\nfoo = true\n\n'
         '[mcp_servers.mangome_old]\ncommand = "/old/mangome-mcp"\n',
         encoding="utf-8",
     )
+    (tmp_path / "AGENTS.md").write_text("# Existing\n\nKeep this.\n", encoding="utf-8")
 
     home = tmp_path / "home"
     user_config = home / ".codex" / "config.toml"
     user_config.parent.mkdir(parents=True)
     user_config.write_text(
-        '[mcp_servers.mangome_eval]\ncommand = "/opt/mangome-lab/.venv/bin/mangome-mcp"\n',
+        'model = "user-model"\n\n[mcp_servers.mangome_eval]\ncommand = "/old/eval"\n',
         encoding="utf-8",
     )
-    first = configure_codex(
-        str(tmp_path), backend="memory", database="mangome_test", home=str(home)
-    )
+    first = configure_codex(str(tmp_path), backend="memory", database="mangome_test", home=str(home))
     configure_codex(str(tmp_path), backend="memory", database="mangome_test", home=str(home))
 
-    assert set(first["removed_shadow_entries"]) == {
-        "mcp_servers.mangome_eval",
-        f"{config}:mcp_servers.mangome_old",
-    }
-    assert "mangome_eval" not in user_config.read_text(encoding="utf-8")
-    raw = config.read_text(encoding="utf-8")
-    parsed = tomllib.loads(raw)
-    assert parsed["model"] == "example"
-    assert parsed["features"]["foo"] is True
-    assert raw.count("[mcp_servers.mangome]") == 1
-    assert "mangome_old" not in raw
-    server = parsed["mcp_servers"]["mangome"]
+    raw_user = user_config.read_text(encoding="utf-8")
+    parsed_user = tomllib.loads(raw_user)
+    assert parsed_user["model"] == "user-model"
+    assert "mangome_eval" not in parsed_user.get("mcp_servers", {})
+    assert raw_user.count("[mcp_servers.mangome]") == 1
+    server = parsed_user["mcp_servers"]["mangome"]
     assert server["args"] == ["-m", "mangome.mcp_server"]
-    assert server["env"]["MANGOME_AUTO_ATTACH"] == "1"
+    assert "cwd" not in server
+    assert "MANGOME_WORKSPACE_ROOT" not in server["env"]
+
+    parsed_project = tomllib.loads(project_config.read_text(encoding="utf-8"))
+    assert parsed_project["model"] == "example"
+    assert parsed_project["features"]["foo"] is True
+    assert "mangome_old" not in parsed_project.get("mcp_servers", {})
+
     skill = home / ".codex" / "skills" / "mangome" / "SKILL.md"
+    global_agents = home / ".codex" / "AGENTS.md"
     assert skill.is_file()
-    assert first["skill_path"] == str(skill)
+    assert global_agents.is_file()
+    assert global_agents.read_text(encoding="utf-8").count("BEGIN MANGOME ZERO-TOUCH") == 1
     assert first["skill_scope"] == "user"
-    agents = tmp_path / "AGENTS.md"
-    assert agents.is_file()
-    assert agents.read_text(encoding="utf-8").count("BEGIN MANGOME ZERO-TOUCH") == 1
+    assert first["config_scope"] == "user"
+    assert first["instruction_scope"] == "user"
+
+    assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == "# Existing\n\nKeep this.\n"
 
     attested = attest_client(
         "codex", str(tmp_path), backend="memory", database="mangome_test",
@@ -161,7 +161,6 @@ def test_codex_setup_is_project_scoped_idempotent_and_preserves_unrelated_toml(t
     )
     assert attested["status"] == "STATIC_PASS"
     assert attested["reasons"] == []
-
 
 def test_managed_instructions_preserve_existing_project_instructions(tmp_path: Path):
     home = tmp_path / "home"
@@ -172,7 +171,9 @@ def test_managed_instructions_preserve_existing_project_instructions(tmp_path: P
     text = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert "# Existing" in text
     assert "Keep this." in text
-    assert text.count("BEGIN MANGOME ZERO-TOUCH") == 1
+    assert "BEGIN MANGOME ZERO-TOUCH" not in text
+    global_text = (home / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
+    assert global_text.count("BEGIN MANGOME ZERO-TOUCH") == 1
 
 
 def test_expected_version_mismatch_fails_closed(monkeypatch):

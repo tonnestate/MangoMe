@@ -13,8 +13,10 @@ def test_codex_repair_replaces_legacy_eval_binding_with_canonical_database(tmp_p
         encoding="utf-8",
     )
     result = configure_codex(str(tmp_path), backend="mongo", database="mangome", home=str(tmp_path / "home"))
-    parsed = tomllib.loads(config.read_text(encoding="utf-8"))
-    assert "mangome_eval" not in parsed.get("mcp_servers", {})
+    parsed_project = tomllib.loads(config.read_text(encoding="utf-8"))
+    assert "mangome_eval" not in parsed_project.get("mcp_servers", {})
+    user_config = tmp_path / "home" / ".codex" / "config.toml"
+    parsed = tomllib.loads(user_config.read_text(encoding="utf-8"))
     server = parsed["mcp_servers"]["mangome"]
     assert server["env"]["MANGOME_DATABASE"] == "mangome"
     assert server["env"]["MANGOME_EXPECTED_DATABASE"] == "mangome"

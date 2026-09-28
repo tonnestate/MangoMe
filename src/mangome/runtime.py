@@ -228,7 +228,7 @@ def restore_workspace_state(workspace_root: str | None = None) -> dict[str, obje
     present in the same database. No filesystem discovery, host memory, Git or new
     canonical state is used to manufacture recovery.
     """
-    current = workspace_attachment_snapshot() or ensure_workspace_binding(workspace_root)
+    current = ensure_workspace_binding(workspace_root) if workspace_root is not None else (workspace_attachment_snapshot() or ensure_workspace_binding())
     root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     service = get_service()
     exact_project_key = workspace_project_key(root)

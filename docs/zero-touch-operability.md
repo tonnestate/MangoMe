@@ -1,4 +1,4 @@
-# Zero-touch operability — MangoMe v0.3.3
+# Zero-touch operability — MangoMe v0.3.9
 
 MangoMe's governance vocabulary is an implementation detail for the **user**, not something the runtime may ignore. v0.3.3 moves governance to the effect boundary: workers may reason freely, while productive effects must be reconciled with canonical state and authority.
 
@@ -26,7 +26,7 @@ skip planning / evidence / verification
 
 ## v0.3.3 reconciliation-before-effect
 
-Managed MangoMe clients already use `MANGOME_AUTO_ATTACH=1`. When the MangoMe runtime initializes, it attaches the workspace and computes a read-only restore snapshot. Therefore the worker-facing default is no longer "restore before repository exploration".
+Managed MangoMe clients already use `MANGOME_AUTO_ATTACH=1`. Runtime initialization now performs only a cheap read-only workspace binding; canonical restore is resolved lazily when reconciliation/recovery actually needs it. Therefore the worker-facing default is no longer "restore before repository exploration".
 
 ```text
 THINK FREELY
@@ -52,7 +52,7 @@ MangoMe keeps three sources separate.
 
 ### 1. Discovery candidates
 
-Automatic workspace attachment, filesystem inventory and Big-Bang discovery observe files, Git metadata and identifiers. They are `CANDIDATE_ONLY` and never become canonical contract/specification history merely because they were found.
+Explicit filesystem inventory and Big-Bang discovery observe files, Git metadata and identifiers. They are `CANDIDATE_ONLY` and never become canonical contract/specification history merely because they were found.
 
 ### 2. Current operational work
 
@@ -130,23 +130,25 @@ Managed setup also installs the current MangoMe Skill under `.claude/skills/mang
 
 ### Codex
 
-Codex setup writes the project MCP binding in `.codex/config.toml` and adds one bounded managed MangoMe block to `AGENTS.md`. Existing instructions are preserved.
+Codex setup writes the portable MCP binding to `~/.codex/config.toml`, installs the Skill at `~/.codex/skills/mangome/SKILL.md`, and adds one compact trigger block to `~/.codex/AGENTS.md`. This avoids dependence on per-project trust/catalog state. Project-local MangoMe blocks are removed while unrelated project instructions/configuration are preserved.
 
-## Automatic workspace attachment
+## Automatic workspace binding and explicit observation
 
-With `MANGOME_AUTO_ATTACH=1`:
+With `MANGOME_AUTO_ATTACH=1`, startup performs only a cheap read-only workspace binding. It does **not** inventory the filesystem, run Big-Bang discovery, inspect Git, or reconcile candidates.
 
 ```text
-unknown workspace
-    → deterministic filesystem inventory
-    → one non-destructive Big-Bang discovery pass
-    → advisory reconciliation
+MCP start
+    → read-only workspace binding
+    → DB/runtime ready
+    → STOP
 
-known workspace
-    → deterministic filesystem inventory refresh
+explicit `discover PATH`
+    → one pure `bigbang_scan([PATH])`
+    → bounded candidate result
+    → STOP
 ```
 
-The user is never required to request Big Bang manually. Discovery remains candidate-only in both cases.
+Observation-only commands are not assignments. `health`, `status`, `resolve`, `discover`/`scan`, inventory, repository-location and read-only context requests do not require IntakeGov, assignment reconciliation, restore/admission, runtime-profile checks or delegation. `reconcile_bigbang_scan` is used only when the user explicitly asks to compare discovered candidates with canonical MangoMe state.
 
 ## Client attestation and drift repair
 

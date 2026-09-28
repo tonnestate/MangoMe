@@ -20,6 +20,12 @@ A worker may read, search, inspect, reason, classify, form hypotheses and draft 
 
 The call never canonicalizes the prompt or tentative decomposition.
 
+## Observation-only operations
+
+RAE/1 is an effect-boundary bridge for productive assignments, not a mandatory preflight for every MCP call. Read-only `health`, status/show/list/resolve, explicit discovery/scan/inventory, repository/scope listing and read-only context inspection stay on their direct observation path unless the user explicitly asks to turn the result into governed work.
+
+For example, `discover /root/contracts` means one bounded `bigbang_scan` of that path and then stop. It does not require `intake_request`, `reconcile_assignment`, restore/admission, runtime-profile eligibility, or `reconcile_bigbang`.
+
 ## Effect boundary
 
 Productive effects include code/file/database writes, commits, deployments, external messages/actions, canonical MangoMe mutations, normative promotion and completion/verification claims.

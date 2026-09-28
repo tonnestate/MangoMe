@@ -54,31 +54,98 @@ class BigBangScanner:
         self.service = service
         patterns = id_patterns or DEFAULT_DECLARED_ID_PATTERNS
         self.declared_id_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
+        self.last_scan_stats: dict[str, int | bool] = {"visited_files": 0, "limit_reached": False}
 
     def scan(
         self,
         roots: Iterable[str],
         extensions: set[str] | None = None,
         max_bytes: int = 2_000_000,
+        max_files: int = 10_000,
+        max_depth: int = 16,
     ) -> list[DiscoveryRecord]:
+        """Bounded, non-destructive candidate discovery.
+
+        Traversal is pruned before descent into private/cache/build trees and stops
+        after ``max_files`` supported files. This keeps an explicit discovery request
+        bounded even when the requested root contains very large subtrees.
+        """
         extensions = extensions or {".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".csv"}
+        excluded_parts = {
+            ".git", ".ssh", ".gnupg", ".cache", ".venv", "venv", "env", "node_modules",
+            "__pycache__", "site-packages", "dist-packages", "vendor", "dist", "build",
+            ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".idea", "coverage",
+            ".claude", ".codex", ".aws", ".azure", ".kube", ".docker",
+        }
+        sensitive_names = {".npmrc", ".pypirc", ".netrc", "id_rsa", "id_dsa", "credentials", "secrets"}
+        file_limit = max(0, int(max_files))
+        depth_limit = max(0, int(max_depth))
+        if file_limit == 0:
+            return []
         results: list[DiscoveryRecord] = []
+        visited_files = 0
+        self.last_scan_stats = {"visited_files": 0, "limit_reached": False}
+
+        def candidates(base: Path) -> Iterable[Path]:
+            if base.is_file():
+                yield base
+                return
+            base_depth = len(base.parts)
+            for current, dirs, files in os.walk(base, followlinks=False):
+                current_path = Path(current)
+                depth = len(current_path.parts) - base_depth
+                kept_dirs: list[str] = []
+                for name in sorted(dirs):
+                    child = current_path / name
+                    if name.lower() in excluded_parts or child.is_symlink():
+                        continue
+                    kept_dirs.append(name)
+                dirs[:] = kept_dirs if depth < depth_limit else []
+                for name in sorted(files):
+                    yield current_path / name
+
         for root in roots:
-            base = Path(root).expanduser().resolve()
+            requested = Path(root).expanduser()
+            try:
+                if requested.is_symlink():
+                    continue
+                base = requested.resolve()
+            except OSError:
+                continue
             if not base.exists():
                 continue
-            iterator = [base] if base.is_file() else base.rglob("*")
-            for path in iterator:
-                if not path.is_file() or path.suffix.lower() not in extensions:
-                    continue
-                if ".git" in path.parts:
-                    continue
+            for path in candidates(base):
+                if visited_files >= file_limit:
+                    self.last_scan_stats = {"visited_files": visited_files, "limit_reached": True}
+                    return results
+                visited_files += 1
                 try:
-                    raw = path.read_bytes()
+                    if path.is_symlink() or not path.is_file() or path.suffix.lower() not in extensions:
+                        continue
                 except OSError:
                     continue
-                sha = hashlib.sha256(raw).hexdigest()
-                text = raw[:max_bytes].decode("utf-8", errors="replace")
+                lowered_parts = {part.lower() for part in path.parts}
+                if lowered_parts & excluded_parts:
+                    continue
+                name_lower = path.name.lower()
+                if name_lower == ".env" or name_lower.startswith(".env.") or name_lower in sensitive_names or name_lower.startswith("credentials.") or name_lower.startswith("secrets."):
+                    continue
+                try:
+                    stat = path.stat()
+                    digest = hashlib.sha256()
+                    sample = bytearray()
+                    with path.open("rb") as handle:
+                        while True:
+                            chunk = handle.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            digest.update(chunk)
+                            if len(sample) < max_bytes:
+                                sample.extend(chunk[: max_bytes - len(sample)])
+                    sha = digest.hexdigest()
+                except OSError:
+                    continue
+                text = bytes(sample).decode("utf-8", errors="replace")
                 declared_ids = self._extract_ids(text, path.name)
                 slices = self._extract_slices(text)
                 artifact_type, classification, confidence, reason = self._classify(path, text, declared_ids, slices)
@@ -86,7 +153,7 @@ class BigBangScanner:
                     path=str(path),
                     logical_name=path.name,
                     sha256=sha,
-                    size=len(raw),
+                    size=int(stat.st_size),
                     artifact_type=artifact_type,
                     declared_ids=declared_ids,
                     slice_markers=slices,
@@ -109,6 +176,7 @@ class BigBangScanner:
                             "slice_markers": slices,
                         },
                     )
+        self.last_scan_stats = {"visited_files": visited_files, "limit_reached": False}
         return results
 
     def scan_git(self, roots: Iterable[str], recent_commit_limit: int = 20) -> list[GitDiscoveryRecord]:

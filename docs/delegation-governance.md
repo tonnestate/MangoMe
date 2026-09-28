@@ -28,6 +28,12 @@ A model name is not a capability grant. A provider may move a logical model into
 
 The current host-observed runtime profile therefore controls eligibility.
 
+## Runtime-profile boundary
+
+Runtime profiles are **dispatch metadata**, not a prerequisite for normal cognition. `execution_eligibility` belongs immediately before external worker dispatch/delegation or an explicitly capability-sensitive host action. It must not be called merely because MangoMe is active, and `RUNTIME_PROFILE_REQUIRED` must not block ordinary local reading, reasoning, discovery, status queries, or already-authorized non-dispatched work.
+
+`RUNTIME_PROFILE_REQUIRED` therefore means only: the host/router has not published enough current runtime information to make the requested dispatch decision. Workers must not repair this by self-calling `publish_worker_runtime`; that surface remains host/router privileged.
+
 ## Current capability, not historical capability
 
 The host/router publishes a runtime snapshot containing:

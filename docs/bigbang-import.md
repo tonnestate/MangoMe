@@ -31,6 +31,17 @@ structured fields
 ```
 
 
+## v0.3.9 observation surfaces
+
+`bigbang_scan` is the terminal fast path for an explicit discovery request. It is service-free, persists no Artifact rows, defaults Git inspection off, and returns a bounded record preview. A simple `discover PATH` request should call it exactly once and stop.
+
+When the user explicitly asks to compare candidates with canonical state, use `reconcile_bigbang_scan`; it performs scan + advisory reconciliation server-side and avoids sending hundreds of candidate records back through model context. Direct `reconcile_bigbang(records)` is retained for small caller-supplied candidate sets and rejects oversized payloads.
+
+`filesystem_inventory` is likewise ephemeral/read-only. `filesystem_scan` remains the explicit persistent inventory/onboarding surface. Pure observation is allowed even when admitted work exists; the prohibition is against using discovery to *reconstruct* admitted WorkIdentity or current state.
+
+Big-Bang text discovery skips symlinks plus private agent/credential/cache/build trees and secret-like files. File SHA-256 is streamed while only a bounded prefix is decoded for structural classification.
+Traversal itself is bounded by `max_files` and `max_depth`; excluded directories are pruned before descent rather than merely filtered after traversal. This prevents a small requested result preview from hiding an unbounded filesystem walk.
+
 ## Portable multi-root discovery
 
 A workspace is not assumed to equal one filesystem root. Hosts may provide typed scopes through `MANGOME_DISCOVERY_SCOPES_JSON` (for example `CONTRACT_SOURCE`, `ARTIFACT_SOURCE`, `EVIDENCE_SOURCE`, `REPOSITORY_SEARCH`). Paths are resolved on the current host; MangoMe does not hard-code `/root`, a username or an operating-system layout.

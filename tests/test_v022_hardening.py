@@ -148,10 +148,9 @@ def test_release_version_surfaces_are_consistent():
     init_text = (root / "src/mangome/__init__.py").read_text(encoding="utf-8")
     server_text = (root / "src/mangome/mcp_server.py").read_text(encoding="utf-8")
     init_match = re.search(r'__version__\s*=\s*"([^"]+)"', init_text)
-    server_match = re.search(r'\bversion\s*=\s*"([^"]+)"', server_text)
     assert init_match and init_match.group(1) == expected
-    assert server_match and server_match.group(1) == expected
-    assert expected == "0.3.8"
+    assert "version=__version__" in server_text
+    assert expected == "0.3.9"
 
 
 def test_mangome_runtime_does_not_manage_host_network_configuration():

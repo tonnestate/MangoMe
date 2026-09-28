@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -22,31 +23,19 @@ from .service import MangoMeService, workspace_project_key
 _MANGOME_INSTRUCTION_BEGIN = "<!-- BEGIN MANGOME ZERO-TOUCH -->"
 _MANGOME_INSTRUCTION_END = "<!-- END MANGOME ZERO-TOUCH -->"
 _MANGOME_ALWAYS_ON_INSTRUCTION = """<!-- BEGIN MANGOME ZERO-TOUCH -->
-MangoMe is governed infrastructure for this workspace. Zero-touch applies to the user interface, not to governance. THINK FREELY, RECONCILE BEFORE EFFECT: the worker may inspect, search, reason, and form a tentative decomposition before MangoMe reconciliation. Before productive mutation, external side effect, canonical state change, or assurance claim, use `reconcile_assignment` and bind the governed current-turn authority. Managed clients bind the workspace automatically without scanning; canonical restore is lazy at reconciliation/recovery or the effect boundary; do not call `session_restore` merely because a session started.
+MangoMe is governed infrastructure. When the user explicitly asks to use MangoMe/MCP, continue MangoMe-managed work, recover MangoMe state, or perform MangoMe discovery/maintenance, load the installed MangoMe Skill before choosing the workflow. On Codex, read `~/.codex/skills/mangome/SKILL.md` directly (and invoke `$mangome` when that Skill alias is exposed). On Claude Code, read `.claude/skills/mangome/SKILL.md`. Do not substitute IntakeGov or another generic Skill for MangoMe's operating rules. Zero-touch applies to the user interface: do not require MangoMe vocabulary from the user.
 
-RECONCILIATION RULE: `reconcile_assignment` is the normal worker-facing bridge from tentative understanding to governed work. It never canonicalizes the worker's tentative decomposition. `STATE_FOUND` means reconcile with existing WorkIdentity/baseline/unfinished state; `STATE_PARTIAL` permits bounded validation/backfill only; `STATE_NOT_FOUND` is evidence that no recoverable state exists. NEVER create Project/Family/Specification state and call it restored. Genuine new work may use `enter_work`; historical/resume work requires explicit import/backfill distinct from native restore. ACTIVE intent/goal state is not execution permission, and BLOCKED work may not be bypassed by inventing replacement work.
+OBSERVATION FAST PATH: health/status/show/list/resolve/discover/scan/inventory requests are read-only observations unless the user explicitly asks for productive work. Do not run IntakeGov, `intake_request`, `reconcile_assignment`, restore/admission, `execution_eligibility`, or delegation merely to answer an observation. For `discover PATH`, scan exactly PATH once and stop; do not call `reconcile_bigbang` unless the user explicitly requests reconciliation.
 
-AUTHORITATIVE RECOVERY RULE: For admitted work, NEVER reconstruct current work state from filesystem paths, broad repository search, Git history, worktrees, contract/evidence directories, filenames, or previous agent prose. Recovery begins from MangoMe canonical state. Inspect physical artifacts only after MangoMe identifies the bounded unresolved delta. Discovery may observe facts; it may not create admitted truth.
+PRODUCTIVE EFFECT RULE: THINK FREELY, RECONCILE BEFORE EFFECT. Reading/searching/reasoning/tentative planning may happen first. Before code/file/database mutation, deployment, external side effect, canonical MangoMe mutation, normative change, or assurance claim, use `reconcile_assignment` and the required bound authority. `STATE_NOT_FOUND` never means fake restore; genuine new work uses `enter_work`, historical work uses explicit import/backfill.
 
-TURN / CONTRACT RULE: Recovered MangoMe state is context, never the current user's intent. `STATE_FOUND`, ACTIVE work, Plans, or Slices do not mean “continue”. For admitted contract work, bind the current user turn explicitly to the intended canonical Contract and mode (`QUERY`, `CONTINUE`, `EXECUTE`, `VERIFY`, `MODIFY`, or `CONTROL`) before productive action. Contract/Specification truth is primary; Plans/Slices are derived execution state for the remaining delta.
+RECOVERY RULE: recovery follows canonical MangoMe identity. Never reconstruct admitted WorkIdentity from broad filesystem/Git searches, old contract folders, prior chats, cached summaries, or agent memory. Historical host memory is candidate-only and never current authority. Database identity is deployment state; ordinary managed local work uses database `mangome`, not `mangome_uai_eval`.
 
-CONTRACT GENERATION RULE: Physical Contract files may move, duplicate, disappear, or be edited. A changed physical file is only an observation. Canonical normative content advances only by promoting a new immutable Contract generation from the single active MODIFY-turn generation grant bound to Contract, actor, base generation/hash, and turn. Never auto-promote, silently merge, or overwrite canonical Contract history.
+SELF-MAINTENANCE RULE: explicit install/update/repair/rollback/reconfiguration of MangoMe itself is CPM/1 control-plane maintenance, not ordinary project work. Do not self-admit or write a self-approval. Never mutate canonical MongoDB/schema under this exception; if a database/schema change is actually required without separate authorization, stop with `DATABASE_CHANGE_REQUIRED`.
 
-INFRASTRUCTURE RULE: MangoMe is infrastructure. Agents may use it but MUST NOT modify MangoMe source/tests/configuration unless the explicit assignment targets MangoMe itself. Project failure, missing state, or a blocked task is not permission to self-edit the governance substrate. Hard filesystem enforcement belongs to the host.
+RUNTIME/DELEGATION RULE: runtime profiles govern external worker dispatch/delegation and explicitly capability-sensitive host actions. They are not prerequisites for ordinary local reading, reasoning, discovery, or already-authorized execution. `RUNTIME_PROFILE_REQUIRED` means host/router dispatch metadata is absent; do not self-publish a profile and do not treat it as missing project state. `publish_worker_runtime` is host/router-only.
 
-DISCOVERY RULE: physical repositories/worktrees/contracts/evidence/artifacts may live in multiple typed, portable scopes. Never assume `/root`, one login user, one OS layout, one repository root, or one provider. Generic file bodies remain in their source systems; persist references/hashes/relations, not arbitrary changelog/context-file bodies. Agent-private `.claude`/`.codex` context is non-authoritative.
-
-CONTEXT RULE: start with the smallest sufficient MangoMe projection. Do not load optional unrelated host skills, memories, broad guidance packs, or repository trees unless the bounded delta requires them. Historical Claude/Codex memory, prior chats, old audit/eval artifacts and cached summaries are candidate-only discovery hints, never current authority for WorkIdentity, Contract/Specification truth, installation/version state, workspace binding, controller authority, or current operational state. Revalidate any such hint against current user intent, canonical MangoMe state, and current direct workspace/runtime observation.
-
-CONTROL-PLANE SELF-MAINTENANCE RULE: when the current user explicitly asks to install, update, repair, hotfix, roll back, or reconfigure MangoMe itself, treat it as out-of-band control-plane maintenance (`CPM/1`), not ordinary project work. Do not call `enter_work`, create WorkIdentity/Contract/Spec/Plan/Slice state, or write a self-approval just to repair/update MangoMe. Constrain effects to MangoMe source/package/runtime/service surfaces named by the request. Never mutate MongoDB/schema under this exception; if the target requires a database/schema migration without separate explicit authorization, stop with `DATABASE_CHANGE_REQUIRED`. A later maintenance receipt may document the action but is never a prerequisite for it.
-
-USER-INTENT RULE: do not inflate a casual status remark, acknowledgement, or observation into a new work order. Only actual requested work enters IntakeGov/governed execution.
-
-DATABASE-BINDING RULE: database identity is deployment state, never agent-discovered state. For ordinary managed work the canonical local database is `mangome`. Never search host memory, old contracts, alternate databases, or eval databases to recover database identity. `mangome_uai_eval` is legacy eval state and requires explicit eval opt-in; otherwise report the binding error and stop.
-
-DELEGATION RULE: fan-out width, model tier, capability, cost and authority are independent. Cheap/standard fan-out may be broad. Expensive/premium work requires explicit bounded authorization; importance, difficulty or capability loss never imply premium escalation. A capability downgrade means checkpoint and hand off only the missing capability. MangoMe authorizes/checkpoints delegation but the external orchestrator must enforce it at the real dispatch boundary.
-
-Human-visible control-plane narration inherits the current user/session language unless the user explicitly changes it. `DONE_CLAIMED` is only a claim; verifier/owner authority remains separate.
+MangoMe is infrastructure: agents may use it but MUST NOT modify MangoMe source/tests/configuration unless the explicit assignment targets MangoMe itself. Human-visible narration follows the current user/session language. `DONE_CLAIMED` is only a claim; verification and owner acceptance remain separate.
 <!-- END MANGOME ZERO-TOUCH -->"""
 
 class OperabilityError(RuntimeError):
@@ -320,7 +309,15 @@ def _atomic_text(path: Path, content: str) -> None:
     temp.replace(path)
 
 
-def _server_identity(workspace: Path, *, backend: str, database: str) -> dict[str, Any]:
+def _server_identity(
+    workspace: Path | None, *, backend: str, database: str, portable_workspace: bool = False
+) -> dict[str, Any]:
+    """Build one managed MCP runtime identity.
+
+    Codex user-scope registration is portable: it intentionally omits a fixed cwd and
+    MANGOME_WORKSPACE_ROOT so the MCP process inherits the active Codex working
+    directory. Claude's workspace-scoped integrations keep an explicit workspace.
+    """
     identity = installation_identity()
     env = {
         "MANGOME_BACKEND": backend,
@@ -333,23 +330,26 @@ def _server_identity(workspace: Path, *, backend: str, database: str) -> dict[st
         "MANGOME_MONGO_SOCKET_TIMEOUT_MS": os.environ.get("MANGOME_MONGO_SOCKET_TIMEOUT_MS", "2000"),
         "MANGOME_CONTEXT_MAX_BYTES": os.environ.get("MANGOME_CONTEXT_MAX_BYTES", "65536"),
         "MANGOME_RUNTIME_ROLE": "WORKER",
-        "MANGOME_WORKSPACE_ROOT": str(workspace),
         "MANGOME_AUTO_ATTACH": "1",
         "MANGOME_REQUIRE_SESSION_RESTORE": "1",
         "MANGOME_EXPECTED_VERSION": identity["version"],
     }
+    if workspace is not None and not portable_workspace:
+        env["MANGOME_WORKSPACE_ROOT"] = str(workspace)
     if identity.get("source_root"):
         env["MANGOME_EXPECTED_SOURCE_ROOT"] = str(identity["source_root"])
     for key in ("MANGOME_DISCOVERY_SCOPES_JSON", "MANGOME_REPOSITORY_SEARCH_ROOTS_JSON"):
         value = os.environ.get(key, "").strip()
         if value:
             env[key] = value
-    return {
+    entry: dict[str, Any] = {
         "command": identity["python"],
         "args": ["-m", "mangome.mcp_server"],
-        "cwd": str(workspace),
         "env": env,
     }
+    if workspace is not None and not portable_workspace:
+        entry["cwd"] = str(workspace)
+    return entry
 
 
 def _json_load(path: Path) -> dict[str, Any]:
@@ -467,6 +467,28 @@ def _merge_managed_instruction(path: Path, *, dry_run: bool) -> dict[str, Any]:
         backup = _backup_once(path)
         _atomic_text(path, updated)
     return {"path": str(path), "changed": changed, "backup": backup}
+
+
+def _remove_managed_instruction(path: Path, *, dry_run: bool) -> dict[str, Any]:
+    if not path.exists():
+        return {"path": str(path), "changed": False, "backup": None}
+    existing = path.read_text(encoding="utf-8")
+    start = existing.find(_MANGOME_INSTRUCTION_BEGIN)
+    end = existing.find(_MANGOME_INSTRUCTION_END)
+    if start < 0 and end < 0:
+        return {"path": str(path), "changed": False, "backup": None}
+    if start < 0 or end < start:
+        raise OperabilityError("CLIENT_CONFIGURATION_AMBIGUOUS", f"malformed MangoMe managed instruction in {path}")
+    end += len(_MANGOME_INSTRUCTION_END)
+    before = existing[:start].rstrip()
+    after = existing[end:].lstrip("\n")
+    pieces = [piece for piece in (before, after.rstrip()) if piece]
+    updated = "\n\n".join(pieces) + ("\n" if pieces else "")
+    backup = None
+    if updated != existing and not dry_run:
+        backup = _backup_once(path)
+        _atomic_text(path, updated)
+    return {"path": str(path), "changed": updated != existing, "backup": backup}
 
 
 def _managed_instruction_current(path: Path) -> bool:
@@ -650,14 +672,13 @@ def _strip_toml_section_family(text: str, section: str) -> str:
     return "\n".join(output) + ("\n" if output else "")
 
 
-def _codex_block(workspace: Path, *, backend: str, database: str) -> str:
-    entry = _server_identity(workspace, backend=backend, database=database)
+def _codex_block(*, backend: str, database: str) -> str:
+    entry = _server_identity(None, backend=backend, database=database, portable_workspace=True)
     lines = [
         "# BEGIN MANGOME MANAGED MCP",
         "[mcp_servers.mangome]",
         f"command = {_toml_string(entry['command'])}",
         f"args = {_toml_array(entry['args'])}",
-        f"cwd = {_toml_string(entry['cwd'])}",
         "enabled = true",
         "startup_timeout_sec = 8",
         "",
@@ -677,49 +698,47 @@ def configure_codex(
     dry_run: bool = False,
     home: str | None = None,
 ) -> dict[str, Any]:
+    """Install MangoMe for Codex without depending on trusted-project catalog state.
+
+    Codex loads user configuration from ~/.codex/config.toml, user Skills from
+    ~/.codex/skills, and global AGENTS instructions from ~/.codex/AGENTS.md. The
+    managed MCP binding is therefore user-scoped and portable across workspaces.
+    """
     workspace = resolve_workspace_root(workspace_root)
     home_path = Path(home).expanduser().resolve() if home else Path.home().resolve()
     user_config = home_path / ".codex" / "config.toml"
-    removed_shadows = []
-    # Project config is the managed source for this workspace. Remove only MangoMe-named
-    # user-level MCP entries so stale launchers cannot remain active in parallel.
-    if user_config.resolve() != (workspace / ".codex" / "config.toml").resolve():
-        removed_shadows = _remove_codex_mangome_shadows(user_config, dry_run=dry_run)
-    config_path = workspace / ".codex" / "config.toml"
-    instruction_target = workspace / "AGENTS.md"
-    existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    project_data: dict[str, Any] = {}
+    project_config = workspace / ".codex" / "config.toml"
+
+    removed_shadows: list[str] = []
+    # Remove all old user aliases (including mangome_eval) before writing the one
+    # canonical portable user-scoped server.
+    removed_shadows.extend(_remove_codex_mangome_shadows(user_config, dry_run=dry_run))
+    # Project-local MangoMe blocks can shadow the global binding when the project is
+    # trusted. Remove only MangoMe sections; preserve unrelated project settings.
+    if project_config.resolve() != user_config.resolve():
+        for item in _remove_codex_mangome_shadows(project_config, dry_run=dry_run):
+            removed_shadows.append(f"{project_config}:{item}")
+
+    existing = user_config.read_text(encoding="utf-8") if user_config.exists() else ""
     try:
         if existing.strip():
-            project_data = tomllib.loads(existing)
+            tomllib.loads(existing)
     except tomllib.TOMLDecodeError as exc:
-        raise OperabilityError("CLIENT_CONFIGURATION_AMBIGUOUS", f"cannot safely parse {config_path}") from exc
-    project_servers = project_data.get("mcp_servers") or {}
-    project_names = [
-        str(name) for name in project_servers
-        if isinstance(project_servers, dict) and str(name).lower().startswith("mangome")
-    ]
-    base = existing
-    for name in project_names:
-        if name != "mangome":
-            removed_shadows.append(f"{config_path}:mcp_servers.{name}")
-        base = _strip_toml_section_family(base, f"mcp_servers.{name}")
-    if "mangome" not in project_names:
-        base = _strip_toml_section_family(base, "mcp_servers.mangome")
-    updated = base + ("\n" if base and not base.endswith("\n\n") else "") + _codex_block(
-        workspace, backend=backend, database=database
-    )
+        raise OperabilityError("CLIENT_CONFIGURATION_AMBIGUOUS", f"cannot safely parse {user_config}") from exc
+    # _remove_codex_mangome_shadows may have rewritten user_config; reload it.
+    base = user_config.read_text(encoding="utf-8") if user_config.exists() else ""
+    updated = base.rstrip()
+    if updated:
+        updated += "\n\n"
+    updated += _codex_block(backend=backend, database=database)
+
     backups: list[str] = []
     if not dry_run:
-        backup = _backup_once(config_path)
+        backup = _backup_once(user_config)
         if backup:
             backups.append(backup)
-        _atomic_text(config_path, updated)
-    # Codex project registration and MCP registration are independent from Skill
-    # discovery. Install MangoMe user-scoped so the Skill is available even when
-    # the current workspace is not present in Codex's local project catalog.
-    # This uses Codex's supported user Skill location and avoids making project
-    # catalog registration a prerequisite for MangoMe governance.
+        _atomic_text(user_config, updated)
+
     skill_source = _skill_source()
     skill_target = home_path / ".codex" / "skills" / "mangome" / "SKILL.md"
     if not dry_run:
@@ -729,23 +748,34 @@ def configure_codex(
         skill_target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(skill_source, skill_target)
 
+    # Global AGENTS.md is loaded by Codex independently of repository trust/catalog
+    # state. Keep the block intentionally small; the Skill contains the workflow.
+    instruction_target = home_path / ".codex" / "AGENTS.md"
     instruction = _merge_managed_instruction(instruction_target, dry_run=dry_run)
     if instruction.get("backup"):
         backups.append(str(instruction["backup"]))
+
+    # Clean the obsolete workspace managed block so there is one instruction source.
+    project_instruction = _remove_managed_instruction(workspace / "AGENTS.md", dry_run=dry_run)
+    if project_instruction.get("backup"):
+        backups.append(str(project_instruction["backup"]))
+
     return {
         "client": "codex",
         "workspace_root": str(workspace),
         "changed": True,
         "dry_run": dry_run,
-        "config_path": str(config_path),
+        "config_path": str(user_config),
+        "config_scope": "user",
+        "project_config_path": str(project_config),
         "skill_path": str(skill_target),
         "skill_scope": "user",
         "instruction_path": str(instruction_target),
-        "server": _server_identity(workspace, backend=backend, database=database),
-        "backups": backups,
-        "removed_shadow_entries": removed_shadows,
+        "instruction_scope": "user",
+        "server": _server_identity(None, backend=backend, database=database, portable_workspace=True),
+        "backups": list(dict.fromkeys(backups)),
+        "removed_shadow_entries": list(dict.fromkeys(removed_shadows)),
     }
-
 
 def _compare_server_entry(actual: dict[str, Any] | None, expected: dict[str, Any]) -> list[str]:
     if not isinstance(actual, dict):
@@ -755,8 +785,12 @@ def _compare_server_entry(actual: dict[str, Any] | None, expected: dict[str, Any
         reasons.append("WRONG_MCP_TARGET")
     if list(actual.get("args") or []) != expected["args"]:
         reasons.append("WRONG_MCP_TARGET")
-    cwd = actual.get("cwd")
-    if cwd is not None and str(Path(str(cwd)).expanduser().resolve()) != expected["cwd"]:
+    expected_cwd = expected.get("cwd")
+    actual_cwd = actual.get("cwd")
+    if expected_cwd is None:
+        if actual_cwd not in (None, ""):
+            reasons.append("WRONG_MCP_TARGET")
+    elif actual_cwd is not None and str(Path(str(actual_cwd)).expanduser().resolve()) != str(expected_cwd):
         reasons.append("WRONG_MCP_TARGET")
     env = actual.get("env") or {}
     if not isinstance(env, dict):
@@ -765,8 +799,10 @@ def _compare_server_entry(actual: dict[str, Any] | None, expected: dict[str, Any
         for key, value in expected["env"].items():
             if str(env.get(key) or "") != value:
                 reasons.append("WRONG_MANGOME_VERSION" if key == "MANGOME_EXPECTED_VERSION" else "WRONG_MCP_TARGET")
+        # Portable Codex binding must not be pinned to one project from an old setup.
+        if "MANGOME_WORKSPACE_ROOT" not in expected["env"] and str(env.get("MANGOME_WORKSPACE_ROOT") or "").strip():
+            reasons.append("WRONG_MCP_TARGET")
     return list(dict.fromkeys(reasons))
-
 
 def _client_list_attestation(executable: str, workspace: Path, *, client: str) -> dict[str, Any]:
     binary = shutil.which(executable)
@@ -785,19 +821,20 @@ def _client_list_attestation(executable: str, workspace: Path, *, client: str) -
             "connection_state": "CHECK_FAILED", "returncode": None,
         }
     combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    lines = [line.strip() for line in combined.splitlines() if "mangome" in line.lower()]
-    visible = bool(lines)
-    lower = "\n".join(lines).lower()
+    all_mangome = [line.strip() for line in combined.splitlines() if "mangome" in line.lower()]
+    exact = [line for line in all_mangome if re.match(r"^mangome(?:\s|:|$)", line, flags=re.IGNORECASE)]
+    legacy = [line for line in all_mangome if line not in exact]
+    visible = bool(exact)
+    lower = "\n".join(exact).lower()
     if not visible:
         state = "NOT_REGISTERED"
-    elif "pending approval" in lower or "pending" in lower and "approval" in lower:
+    elif "pending approval" in lower or ("pending" in lower and "approval" in lower):
         state = "PENDING_APPROVAL"
     elif any(token in lower for token in ("connected", "✓", "ready")):
         state = "CONNECTED"
     elif any(token in lower for token in ("disconnected", "failed", "error", "unreachable")):
         state = "DISCONNECTED"
     else:
-        # A name appearing in `mcp list` is not proof of an effective connection.
         state = "VISIBLE_UNCONFIRMED"
     return {
         "available": True,
@@ -805,10 +842,10 @@ def _client_list_attestation(executable: str, workspace: Path, *, client: str) -
         "server_visible": visible,
         "connection_state": state,
         "returncode": proc.returncode,
-        "matched_lines": lines[:5],
+        "matched_lines": exact[:5],
+        "legacy_or_shadow_lines": legacy[:5],
         "client": client,
     }
-
 
 def _claude_static_entry(home: Path, workspace: Path, *, scope: str) -> tuple[dict[str, Any] | None, Path]:
     if scope == "project":
@@ -880,7 +917,8 @@ def attest_client(
                 if state == "PENDING_APPROVAL":
                     reasons.append("PROJECT_MCP_APPROVAL_REQUIRED")
     elif normalized == "codex":
-        path = workspace / ".codex" / "config.toml"
+        expected = _server_identity(None, backend=backend, database=database, portable_workspace=True)
+        path = home_path / ".codex" / "config.toml"
         actual = None
         if path.exists():
             try:
@@ -888,42 +926,41 @@ def attest_client(
             except tomllib.TOMLDecodeError:
                 reasons.append("CLIENT_CONFIGURATION_AMBIGUOUS")
                 data = {}
-            project_servers = data.get("mcp_servers") or {}
-            actual = project_servers.get("mangome") if isinstance(project_servers, dict) else None
-            if isinstance(project_servers, dict):
-                for key in project_servers:
+            servers = data.get("mcp_servers") or {}
+            actual = servers.get("mangome") if isinstance(servers, dict) else None
+            if isinstance(servers, dict):
+                for key in servers:
                     if str(key).lower().startswith("mangome") and key != "mangome":
                         shadows.append(f"{path}:mcp_servers.{key}")
         reasons.extend(_compare_server_entry(actual, expected))
-        user_config = home_path / ".codex" / "config.toml"
-        if user_config.exists() and user_config.resolve() != path.resolve():
+
+        project_config = workspace / ".codex" / "config.toml"
+        if project_config.exists() and project_config.resolve() != path.resolve():
             try:
-                user_data = tomllib.loads(user_config.read_text(encoding="utf-8"))
-                servers = user_data.get("mcp_servers") or {}
-                if isinstance(servers, dict):
-                    for key, value in servers.items():
-                        if str(key).lower().startswith("mangome") and key != "mangome":
-                            shadows.append(f"{user_config}:mcp_servers.{key}")
-                        elif key == "mangome" and isinstance(value, dict) and _compare_server_entry(value, expected):
-                            shadows.append(f"{user_config}:mcp_servers.mangome")
+                project_data = tomllib.loads(project_config.read_text(encoding="utf-8"))
+                project_servers = project_data.get("mcp_servers") or {}
+                if isinstance(project_servers, dict):
+                    for key in project_servers:
+                        if str(key).lower().startswith("mangome"):
+                            shadows.append(f"{project_config}:mcp_servers.{key}")
             except tomllib.TOMLDecodeError:
-                shadows.append(str(user_config) + ":UNPARSEABLE")
-        # The Skill must be discoverable independently of Codex's local project
-        # catalog. A project-local Skill alone is insufficient when Codex has not
-        # registered the workspace as a saved project, while the user-scoped Skill
-        # remains available to the client.
+                shadows.append(str(project_config) + ":UNPARSEABLE")
+
         skill = home_path / ".codex" / "skills" / "mangome" / "SKILL.md"
         if not skill.is_file():
             reasons.append("SKILL_NOT_INSTALLED")
         elif skill.read_bytes() != _skill_source().read_bytes():
             reasons.append("SKILL_VERSION_MISMATCH")
 
-        instruction = workspace / "AGENTS.md"
+        instruction = home_path / ".codex" / "AGENTS.md"
         if not _managed_instruction_current(instruction):
             reasons.append("AUTOMATIC_INSTRUCTIONS_MISSING")
         cli = _client_list_attestation("codex", workspace, client=normalized) if check_client else {"checked": False}
-        if check_client and cli.get("available") and (cli.get("returncode") != 0 or not cli.get("server_visible")):
-            reasons.append("MCP_NOT_VISIBLE")
+        if check_client and cli.get("available"):
+            if cli.get("returncode") != 0 or not cli.get("server_visible"):
+                reasons.append("MCP_NOT_VISIBLE")
+            elif cli.get("connection_state") == "DISCONNECTED":
+                reasons.append("CONFIGURATION_NOT_EFFECTIVE")
     else:
         raise OperabilityError("UNSUPPORTED_CLIENT", f"unsupported client: {client}")
 

@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.8-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.9-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -84,6 +84,29 @@ MangoMe moves that problem out of the prompt and into durable, inspectable state
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
 
 ---
+
+# v0.3.9 — Observation routing & Codex integration hardening
+
+v0.3.9 closes the live integration failures exposed after v0.3.8. Observation-only commands now stay observation-only: an explicit `discover PATH` performs one bounded candidate scan for exactly that path and stops. Traversal is bounded by file/depth limits and prunes excluded private/cache/build trees before descent. It does not run IntakeGov, assignment reconciliation, session restore, WorkIdentity admission, runtime eligibility, or candidate reconciliation unless the user explicitly asks for those transitions. `bigbang_scan` is persistence-free, Git inspection is opt-in, result payloads are bounded, and large reconciliation is available through server-side `reconcile_bigbang_scan` rather than round-tripping hundreds of records through model context.
+
+Runtime capability governance is also narrowed to its intended boundary. `RUNTIME_PROFILE_REQUIRED` is a dispatch/host-capability signal, not a blocker for ordinary local reading, reasoning, discovery, or already-authorized execution. The response now states that scope explicitly so a worker does not stop normal work or attempt to self-publish a privileged runtime profile.
+
+Codex managed integration is now user-scoped for the MCP binding, MangoMe Skill, and the small always-on activation rule, so MangoMe does not depend on Codex project-catalog registration. The always-on rule explicitly loads the installed MangoMe `SKILL.md` before MangoMe work instead of relying only on heuristic Skill selection. Explicit workspace arguments override stale process-global read-only bindings, while canonical rebinding remains fail-closed when multiple compatible workspaces exist. Release checks also tolerate absent optional repository-local Skill mirrors and keep the packaged canonical Skill authoritative.
+
+```text
+explicit observation
+    → direct bounded observation tool
+    → result
+    → STOP
+
+productive effect
+    → reconcile_assignment
+    → governed work
+
+external delegation / capability-sensitive host action
+    → execution_eligibility
+    → authorize_delegation
+```
 
 # v0.3.8 — Codex Skill Discovery & canonical workspace rebinding
 
@@ -1002,13 +1025,15 @@ Managed client setup:
 mangome setup --client auto
 ```
 
-For Codex, managed setup installs the MangoMe Agent Skill user-scoped at:
+For Codex, managed setup installs all three MangoMe discovery surfaces user-scoped:
 
 ```text
-~/.codex/skills/mangome/SKILL.md
+~/.codex/config.toml                 # MCP server binding
+~/.codex/skills/mangome/SKILL.md    # MangoMe Agent Skill
+~/.codex/AGENTS.md                  # small always-on activation rule
 ```
 
-This keeps the Skill available even when the current workspace is not present in Codex's saved-project catalog. The MCP binding remains workspace-scoped; Skill discovery and MCP registration are intentionally separate integration surfaces.
+This keeps MangoMe available even when the current workspace is not present in Codex's saved-project catalog. The managed MCP entry still carries the intended workspace root and database identity; user scope only removes project-catalog discovery as a prerequisite. Existing unrelated user configuration is preserved.
 
 Claude Code can use private LOCAL scope by default; project scope remains explicit:
 
@@ -1048,7 +1073,7 @@ Canonical Skill source:
 skill/mangome/SKILL.md
 ```
 
-The project keeps mirrored Skill surfaces for packaging and supported clients. They must remain synchronized. Managed Codex setup additionally installs the same canonical Skill user-scoped at `~/.codex/skills/mangome/SKILL.md`; this runtime installation is attested independently from MCP visibility and does not require the workspace to appear in Codex's saved-project catalog.
+The canonical repository Skill is `skill/mangome/SKILL.md`; the packaged copy at `src/mangome/skill/SKILL.md` must be byte-identical. Repository-local `.github` / `.claude` mirrors are optional convenience surfaces when present. Managed Codex setup installs the canonical Skill user-scoped at `~/.codex/skills/mangome/SKILL.md` and installs the matching user-level MCP binding and activation rule independently of the Codex saved-project catalog.
 
 The Skill teaches the normal worker path:
 
@@ -1133,8 +1158,8 @@ reconcile_assignment
 │       └── memory.py         # deterministic test backend
 ├── skill/mangome/
 ├── src/mangome/skill/
-├── .github/skills/mangome/
-├── .claude/skills/mangome/
+├── .github/skills/mangome/   # optional repository mirror
+├── .claude/skills/mangome/   # optional repository mirror
 ├── docs/
 ├── examples/
 ├── tests/
@@ -1170,22 +1195,29 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.2** adds Scoped Recursive Audit/Impact Closure on top of the v0.3.1 Persistent Cognitive Hygiene layer.
+**v0.3.9** keeps the v0.3.x governance architecture but hardens the live worker path around observation, discovery, Codex integration, workspace identity, and runtime-profile boundaries.
 
 The current execution architecture is:
 
 ```text
-ordinary user intent / recovered WorkIdentity
+user intent
+    ↓
+route operation type
+    ├─ observation/query → bounded direct tool → STOP
+    ├─ productive work   → reconcile_assignment → governed effect
+    └─ external dispatch → runtime eligibility / delegation policy
+
+productive work
     ↓
 current WorkTurn + immutable NormativeBaseline
     ↓
 canonical Project / Family / Spec / Plan / Slice / Evidence graph
     ↓
-SRA/1 bounded audit frontier (when auditing)
+BTTM/1 supportability + SRA/1 bounded audit frontier (when applicable)
     ↓
 PCH/1 thermal working-set selection
     ↓
-existing ContextCompiler hard envelope
+ContextCompiler hard envelope
     ↓
 UAI/1 or normal worker context
     ↓
@@ -1196,20 +1228,20 @@ independent verification
 VERIFIED / optional ACCEPTED
 ```
 
-PCH/1 is deliberately projection-only. It does not delete history, alter assurance, infer correctness, or create a second source of truth. `HOT/WARM/COLD` express current cognitive residency; canonical state remains governed by MangoMe's existing truth, authority and verification paths.
+`HOT/WARM/COLD` remain task-relative cognitive residency, not truth or assurance. Bitemporal truth maintenance determines supportability over valid/known time; PCH/1 determines activation; the ContextCompiler determines what fits in the worker projection.
 
 ## Important current limits
 
-- SRA/1 closes bounded impact scope, not whole-system correctness. A `BOUNDED_FIXPOINT` explicitly means configured depth/object limits prevented further traversal.
+- SRA/1 closes bounded impact scope, not whole-system correctness. `BOUNDED_FIXPOINT` means configured depth/object limits prevented further traversal.
 - Audit scope expansion never grants additional mutation authority; external code/filesystem enforcement remains a host/runtime responsibility.
-- PCH/1 uses an explicit deterministic heuristic policy; its weights and thresholds are an inspectable baseline for evaluation, not a claim of optimal cognitive allocation.
-- The current graph-distance calculation is scoped to the Family execution context plus deterministic synthetic relations; it is not yet a host-wide graph navigator.
-- Freshness can consume explicit `CURRENT`, `STALE`, `SOURCE_CHANGED`, `ENVIRONMENT_CHANGED`, or `REVALIDATION_REQUIRED` markers, but v0.3.3 does not yet implement a general bitemporal truth-maintenance engine.
-- Temperature controls activation only. It cannot promote evidence, change normative authority, verify a Slice, or accept work.
-- FJD/1 confidence is advisory worker judgment only. The default 0.80/0.60 thresholds are inspectable operational defaults, not calibrated truth guarantees; high-impact decisions still require review.
-- MangoMe can only enforce writes that pass through MangoMe. Direct MongoDB/admin access remains outside the service trust boundary.
-- External model dispatch and verifier command execution remain host responsibilities.
-
+- PCH/1 uses an explicit deterministic heuristic policy; its weights and thresholds are inspectable baselines, not a claim of optimal cognitive allocation.
+- Temperature controls activation only. It cannot promote Evidence, change normative authority, verify a Slice, or accept work.
+- BTTM/1 provides non-destructive valid-time/known-time truth assertions and revalidation propagation, but it is not a universal external-world temporal database or automatic fact-ingestion engine.
+- FJD/1 confidence is advisory worker judgment only; high-impact decisions still require review.
+- MangoMe can govern writes that pass through MangoMe, but direct database/admin access outside the service boundary remains outside its protection.
+- External model dispatch and verifier command execution remain host responsibilities; MangoMe supplies deterministic policy/authorization state but is not the provider dispatcher.
+- Managed Codex setup can make MCP + Skill + activation rule discoverable without project-catalog registration, but the host/client still controls whether the runtime actually starts and invokes them.
+- Live MongoDB/MCP integration must still be verified in the deployment environment; deterministic local tests cannot prove the host's active process/database binding.
 
 ---
 

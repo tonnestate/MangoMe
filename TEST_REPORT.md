@@ -1,59 +1,80 @@
-# Test Report — MangoMe v0.1.9rc4
+# Test Report — MangoMe v0.3.9
 
-Date: 2026-09-26
+Date: 2026-09-28
 
-Canonical baseline: public `tonnestate/MangoMe` `main` at v0.1.9rc3 (`bc75d59fe5ad1797fad3e8e4ebc5e56f27e5db93`), extended by the rc4 changes in this package. Required release dotfile surfaces are included in the package and checked for internal consistency.
+Baseline: public `tonnestate/MangoMe` `main` at v0.3.8 (`ead3a42b1b88787355ea3b3d913407c49e30254f`), extended by the v0.3.9 observation-routing / Codex-integration hardening in this delta.
 
 ## Local deterministic suite
 
 Command:
 
 ```bash
-make check
+PYTHONPATH=src make check
 ```
 
-Result in the packaging environment:
+Result:
 
 ```text
-90 passed, 3 skipped in 1.40s
+171 passed, 3 skipped in 2.05s
 compileall PASS
 required release surfaces PASS
-four Agent Skill surfaces byte-identical PASS
+canonical/package Agent Skill byte-identity PASS
 ```
 
 Skipped checks:
 
-- MCP in-process surface integration: the `mcp` dependency is not installed in this sandbox interpreter.
-- Two real MongoDB integration checks: `MANGOME_TEST_MONGO_URI` is not configured in this sandbox.
+- MCP in-process surface integration: the `mcp` dependency is not installed in this packaging interpreter.
+- Two real MongoDB integration checks: `MANGOME_TEST_MONGO_URI` is not configured in this packaging environment.
 
-These are environment skips, not PASS claims. Post-upload CI remains responsible for MCP and real MongoDB verification.
+These skips are not PASS claims. CI/runtime verification remains responsible for those environment-dependent paths.
 
-## rc4 regression scope
+## Packaging check
 
-The deterministic suite now covers the new observed failure classes in addition to the prior assurance/recovery tests:
+A wheel was built without dependency resolution/build isolation:
 
-- `STATE_NOT_FOUND` restore does not create replacement Project/Family/Specification state;
-- BLOCKED existing work can be restored while `productive_execution_allowed` remains false and `next_executable_items` remains empty;
-- portable multi-root discovery accepts host/user-independent typed scopes;
-- nested/scattered Git checkout locations can be observed without turning them into canonical project truth;
-- agent-private `.claude` context is excluded from filesystem truth inventory;
-- discovered generic documents are stored as references/metadata rather than copied file bodies;
-- high-cost fan-out no longer has the rc3 one-active-per-family serialization rule: multiple separately Owner-authorized tasks may coexist, while task-scoped authorization and runtime parallelism remain enforced.
+```bash
+python -m pip wheel --no-deps --no-build-isolation .
+```
 
-## Release-candidate behavior
+Result:
 
-v0.1.9rc4 adds native three-state session restore (`STATE_FOUND`, `STATE_PARTIAL`, `STATE_NOT_FOUND`), restore-before-execution semantics, portable typed discovery scopes, physical repository-location observations, and a provider-neutral infrastructure boundary.
+```text
+mangome_mcp-0.3.9-py3-none-any.whl built successfully
+packaged mangome/skill/SKILL.md present
+```
 
-Important boundaries remain explicit:
+## v0.3.9 regression scope
 
-- MangoMe does not invent missing recovery state.
-- Genuine NEW work through `enter_work` is distinct from historical import/backfill and from native restore.
-- ACTIVE intent/goal/project state is not execution permission.
-- `DONE_CLAIMED` remains distinct from `VERIFIED` and `ACCEPTED`.
-- MangoMe source is infrastructure and must not be modified by agents unless their explicit assignment targets MangoMe itself; hard filesystem enforcement belongs to the host/runtime.
-- Generic Git/filesystem/DMS document bodies remain in their source systems; MangoMe persists bounded metadata, hashes, references, relations and explicitly admitted semantic state.
-- Model dispatch is external. MangoMe exposes eligibility/authorization/checkpoints; the host/orchestrator must enforce those decisions at the real dispatch boundary.
+The deterministic suite now covers, in addition to the prior governance/assurance tests:
 
-## CI gate after upload
+- Codex MCP + Skill are user-scoped and do not depend on project catalog/trust state.
+- A tiny user-level Codex `AGENTS.md` trigger is idempotent and workspace MangoMe blocks are removed without deleting unrelated project instructions.
+- The Codex activation rule explicitly loads the installed MangoMe Skill before MangoMe work, so a present-but-not-selected Skill cannot silently fall back to generic routing.
+- Legacy `mangome_eval` does not satisfy exact managed-server attestation.
+- A visible-but-unconfirmed MCP is not treated as connected.
+- Explicit workspace arguments override stale process-global read-only bindings.
+- Child/broad cwd rebinding succeeds only for one compatible canonical workspace and fails closed when ambiguous.
+- Legacy persisted filesystem roots can act as compatibility aliases only when their deterministic workspace Project already exists.
+- Pure Big-Bang discovery does not persist Artifact rows.
+- Big-Bang advisory reconciliation remains mutation-free.
+- Explicit discovery defaults to bounded output and no Git scan.
+- Large direct candidate reconciliation is guarded in favor of server-side `reconcile_bigbang_scan`.
+- Big-Bang reading skips symlinks and private credential/agent/cache/build trees and streams file hashes instead of loading whole files into memory.
+- Big-Bang traversal itself is bounded by file/depth limits and prunes excluded directories before descent.
+- The Agent Skill routes observation-only commands around IntakeGov / assignment reconciliation / restore / admission and prevents duplicate discovery.
+- `filesystem_inventory` is the pure observation surface while `filesystem_scan` remains the explicit persistent inventory path.
+- MCP version comes from package `__version__` rather than a separate hard-coded literal.
+- `RUNTIME_PROFILE_REQUIRED` is explicitly scoped to external dispatch/capability-sensitive host decisions and reports that ordinary local work is not blocked.
 
-Post-upload CI should run the Python 3.10/3.11/3.12 matrix, MongoDB 7 integration checks without skips, MCP surface tests including `session_restore`/`session_bootstrap`, UAI round-trip, source compilation, and byte-identity checks for all Agent Skill surfaces.
+## Live acceptance gates after upload
+
+The following should be checked on the actual host because they require Codex/MCP/MongoDB integration:
+
+```text
+1. New Codex session sees exact MCP server `mangome`, not `mangome_eval`.
+2. `health` reports v0.3.9 and the intended database binding (`mangome`).
+3. `$mangome` is discoverable and the global trigger causes the Skill to be invoked when MangoMe is relevant.
+4. `discover /root/contracts` performs one `bigbang_scan` only, returns the bounded summary, and stops without IntakeGov/reconcile/restore/reconcile_bigbang.
+5. The discovery does not add canonical Artifact rows.
+6. A persisted canonical workspace is resolved from the active cwd without `STATE_NOT_FOUND`; multiple candidates return `WORKSPACE_BINDING_AMBIGUOUS`.
+```

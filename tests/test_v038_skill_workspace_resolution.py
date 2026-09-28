@@ -29,6 +29,10 @@ def test_codex_skill_is_user_scoped_and_does_not_require_saved_project(tmp_path:
     assert skill.is_file()
     assert result["skill_path"] == str(skill)
     assert result["skill_scope"] == "user"
+    assert result["config_scope"] == "user"
+    assert result["instruction_scope"] == "user"
+    assert (home / ".codex" / "config.toml").is_file()
+    assert (home / ".codex" / "AGENTS.md").is_file()
 
 
 def test_restore_rebinds_from_child_cwd_to_canonical_workspace(tmp_path: Path, monkeypatch):

@@ -6,6 +6,7 @@ from typing import Any
 
 from mcp.server import MCPServer
 
+from . import __version__
 from .context import ContextCompiler
 from .hygiene import CognitiveHygieneService
 from .fast_judgment import FastJudgmentService
@@ -20,6 +21,7 @@ from .importer import (
 )
 from .maintenance import MangoMaintainer
 from .filesystem import FilesystemScanner
+from .storage.memory import InMemoryStore
 from .interlingua import UAICompiler, decode_uai_result as decode_result_packet, render_uai_result as render_result_packet
 from .runtime import (
     get_service, health_snapshot, refresh_workspace_attachment, workspace_attachment_snapshot,
@@ -35,42 +37,19 @@ mcp = MCPServer(
     "MangoMe",
     description="Canonical operational memory and verification substrate for multi-agent work.",
     instructions=(
-        "Zero-touch applies to the user interface, not to governance. Never ask the user to operate Big Bang, "
-        "contracts, slices, plans, or other MangoMe internals. THINK FREELY, RECONCILE BEFORE EFFECT: a worker may inspect, "
-        "reason, form hypotheses, and draft a tentative decomposition before consulting MangoMe, but must reconcile the current "
-        "assignment with MangoMe before productive mutation, canonical state changes, external side effects, or assurance claims. "
-        "Managed clients bind the workspace automatically without scanning; canonical restore/reconciliation is lazy at the effect boundary. Do not call session_restore merely because a session started. "
-        "Use reconcile_assignment as the normal assignment bridge; use explicit session_restore/session_bootstrap for recovery/status or "
-        "when automatic managed bootstrap is unavailable. "
-        "Discovery is candidate-only and is only an onboarding mechanism for work that is not yet admitted. Once a "
-        "workspace/project is admitted, current work identity and recovery state MUST come from MangoMe canonical state, "
-        "never from broad filesystem/repository scans, Git/worktree archaeology, contract/evidence directories, or prior "
-        "agent prose. Use recovery_context/project_overview/status/read_context first and inspect physical artifacts only "
-        "for a bounded unresolved delta. A missing restore state is RESTORE_STATE_NOT_FOUND and MUST NOT be replaced by newly created Project/Family/Specification state. For genuinely new work without admitted MangoMe identity, call enter_work with "
-        "the user's request; it creates client-relayed user-intent operational state and the mandatory Plan/Slice binding "
-        "without promoting discovered history. Productive mutation requires a persisted plan and canonical next_executable_items. Unfinished intent or an ACTIVE goal does not itself grant execution. MangoMe is infrastructure: agents may use it, but must not modify MangoMe source unless the explicit assignment is to change MangoMe itself. Delegation is also governed: "
-        "mechanical recovery should use bounded low-cost workers; current runtime capabilities must be checked before dispatch "
-        "and again before capability-sensitive actions. A capability downgrade means checkpoint and hand off only the missing "
-        "capability; never rediscover state or automatically escalate to a costly model swarm. MangoMe authorizes/checkpoints "
-        "delegation but does not own the external model dispatcher, so the host/orchestrator MUST enforce negative authorization "
-        "decisions at its actual dispatch boundary. Human-visible coordinator/recovery/control-plane narration MUST inherit the "
-        "current user/session working language unless the user explicitly changes it; persona, memory, runtime defaults, or Skill "
-        "text must not silently switch natural language. Stable machine identifiers/reason codes remain language-neutral. "
-        "Recovered ACTIVE work, Plans and Slices are context only and NEVER substitute for the current user's intent. "
-        "For v0.3 admitted work, WorkIdentity is the durable authority anchor. The host/control plane must bind the current user turn "
-        "to that WorkIdentity before productive execution, verification, normative mutation, or control. Playbooks are procedural and "
-        "replaceable; they never define work identity, effective truth, or assurance. Specifications may evolve, but every productive "
-        "Plan is bound to an immutable NormativeBaseline and must stop on baseline drift. Progressive checkpoints may only reference "
-        "an existing canonical WorkIdentity and may never promote themselves, filesystem findings, or agent prose into canonical truth. "
-        "Contract generation promotion remains separately single-writer and MODIFY-turn governed. DONE is only a worker claim; "
-        "verification and acceptance remain separate privileged transitions, and assurance history is append-only across Spec/Playbook changes. "
-        "Scoped recursive audits use bounded impact-closure: inspect the current frontier, persist findings/evidence, expand only on material impact, "
-        "never auto-expand mutation authority, and stop at a fixpoint or explicit depth/object boundary. Audit closure is scoped coverage, never global correctness. "
-        "FJD/1 fast judgments are optional typed BOOL/SCORE/CHOICE worker signals for classification, triage, routing, activation or prioritization. "
-        "Confidence is not truth: fast judgments never create Evidence, assurance, verification, acceptance, normative truth, or mutation authority; low-confidence or high-impact cases escalate. "
-        "Explicit MangoMe self-maintenance is CPM/1 out-of-band control-plane maintenance: do not call enter_work or create governance state merely to install/update/repair/rollback/reconfigure MangoMe itself. Scope that exception only to MangoMe source/package/runtime/service surfaces; it never grants database/schema mutation. If a target requires a database/schema migration without separate explicit authorization, stop with DATABASE_CHANGE_REQUIRED. Historical host memory, old eval/audit artifacts, cached summaries and prior chats are candidate-only hints and never current operational authority. BTTM/1 separates valid time from known time and preserves invalidated history; truth maintenance determines supportability, while PCH independently determines activation. Production MongoDB deployments should use MTB/1 strict trust-boundary mode with a dedicated service identity and credential file so workers never receive canonical database credentials."
+        "Use the MangoMe Agent Skill for detailed procedure. Observation is not assignment: health/status/show/list/resolve, "
+        "explicit discover/scan/inventory, repository/scopes and read-only context requests must stay read-only and must not "
+        "implicitly run IntakeGov, intake_request, reconcile_assignment, session_restore, enter_work, execution_eligibility, "
+        "authorize_delegation, or candidate reconciliation. For `discover PATH`, call bigbang_scan exactly once for PATH, "
+        "return the bounded candidate result, and stop; call reconcile_bigbang_scan only when reconciliation is explicitly requested. "
+        "For actual productive work: THINK FREELY, RECONCILE BEFORE EFFECT; do not call session_restore merely because a session started; recovered state is context, never current intent; "
+        "STATE_NOT_FOUND never authorizes synthesized recovery. Database identity is deployment state; ordinary managed DB is `mangome`. "
+        "Runtime profiles govern external delegation/dispatch and capability-sensitive host actions only: RUNTIME_PROFILE_REQUIRED is "
+        "a routing-metadata gap, not a blocker for ordinary local reasoning, reading, discovery, or non-dispatched work. Workers must not "
+        "self-publish runtime capabilities. MangoMe is infrastructure and may be modified only when MangoMe itself is the explicit target. "
+        "DONE_CLAIMED is not VERIFIED or ACCEPTED."
     ),
-    version="0.3.8",
+    version=__version__,
 )
 
 
@@ -208,29 +187,55 @@ def _restore_gate(operation: str, *, allow_new_work: bool = False) -> dict[str, 
 
 
 def _known_admitted_workspace_roots() -> list[Path]:
-    """Return known filesystem roots that already have canonical zero-touch Project state."""
+    """Return canonical workspace roots for already-admitted zero-touch Projects.
+
+    Family ``scope_ids`` are the primary identity source. Persisted filesystem roots
+    are compatibility observations only and count as admitted roots when the matching
+    deterministic workspace Project actually exists.
+    """
     svc = get_service()
     roots: list[Path] = []
+
+    def add_if_admitted(raw: str, project_key: str | None = None) -> None:
+        value = str(raw or "").strip()
+        if not value:
+            return
+        try:
+            path = Path(value).expanduser().resolve()
+            key = project_key or workspace_project_key(str(path))
+            svc.project_overview(key)
+        except (OSError, KeyError):
+            return
+        if path not in roots:
+            roots.append(path)
+
+    for family in svc.store.find("families"):
+        project_ids = list(family.get("project_ids") or [])
+        projects = [svc.store.get("projects", pid) for pid in project_ids]
+        projects = [p for p in projects if p]
+        for scope in list(family.get("scope_ids") or []):
+            text = str(scope)
+            if not text.startswith("workspace:"):
+                continue
+            raw = text[len("workspace:"):]
+            # Prefer the canonical project already linked to the family.  If more
+            # than one is linked, the deterministic workspace key still prevents a
+            # filesystem observation from inventing identity.
+            matched = False
+            deterministic = workspace_project_key(str(Path(raw).expanduser().resolve()))
+            for project in projects:
+                if str(project.get("project_key") or "") == deterministic:
+                    add_if_admitted(raw, deterministic)
+                    matched = True
+                    break
+            if not matched:
+                add_if_admitted(raw, deterministic)
+
     for row in svc.store.find("filesystem_roots"):
-        raw = str(row.get("root_path") or "").strip()
-        if not raw:
-            continue
-        try:
-            root = Path(raw).expanduser().resolve()
-            svc.project_overview(workspace_project_key(str(root)))
-        except (OSError, KeyError):
-            continue
-        roots.append(root)
+        add_if_admitted(str(row.get("root_path") or ""))
+
     current = workspace_attachment_snapshot()
-    raw_current = str((current or {}).get("workspace_root") or "").strip()
-    if raw_current:
-        try:
-            root = Path(raw_current).expanduser().resolve()
-            svc.project_overview(workspace_project_key(str(root)))
-            if root not in roots:
-                roots.append(root)
-        except (OSError, KeyError):
-            pass
+    add_if_admitted(str((current or {}).get("workspace_root") or ""))
     return roots
 
 
@@ -313,7 +318,7 @@ def workspace_status(workspace_root: str | None = None, refresh: bool = False) -
             "Admitted work must recover from MangoMe canonical state; filesystem/repository discovery may not reconstruct "
             "its identity or current status. Unknown workspaces may use candidate-only discovery before admission."
             if admitted else
-            "Discovery is automatic but candidate-only. Ordinary user intent may enter governed operational work through "
+            "Discovery is explicit and candidate-only. Ordinary user intent may enter governed operational work through "
             "enter_work; VERIFIED and ACCEPTED remain separate protected states."
         ),
     }
@@ -477,7 +482,7 @@ def _reconcile_assignment_impl(
     # used to frame reconciliation, not canonical truth.
     if not str(request_text or "").strip():
         raise ValueError("request_text is required for assignment reconciliation")
-    current = workspace_attachment_snapshot() or ensure_workspace_binding(workspace_root)
+    current = ensure_workspace_binding(workspace_root) if workspace_root is not None else (workspace_attachment_snapshot() or ensure_workspace_binding())
     root = str(
         (current or {}).get("workspace_root")
         or workspace_root
@@ -1229,11 +1234,11 @@ def execution_eligibility(
     delegation_key: str | None = None,
     owner_approval_id: str | None = None,
 ) -> dict[str, Any]:
-    """Evaluate the worker's CURRENT runtime capabilities/cost before dispatch or a protected action.
+    """Evaluate CURRENT runtime eligibility for external dispatch or a capability-sensitive host action.
 
-    MangoMe returns an authorization decision but does not itself dispatch the model.
-    The external orchestrator must enforce a negative decision at its real dispatch
-    boundary and should re-check before capability-sensitive actions such as DEPLOY.
+    Do not use this as a prerequisite for ordinary local reading, reasoning, discovery,
+    or already-authorized execution. ``RUNTIME_PROFILE_REQUIRED`` means the host/router
+    has not published dispatch metadata; it is not missing project/work state.
     """
     return _domain_call(
         get_service().check_execution_eligibility,
@@ -1315,7 +1320,7 @@ def model_stats(model_id: str | None = None, work_class: str | None = None) -> d
 @mcp.tool()
 def discovery_scopes(workspace_root: str | None = None) -> dict[str, Any]:
     """Return portable typed discovery scopes; this does not scan or admit content."""
-    current = workspace_attachment_snapshot() or ensure_workspace_binding(workspace_root)
+    current = ensure_workspace_binding(workspace_root) if workspace_root is not None else (workspace_attachment_snapshot() or ensure_workspace_binding())
     root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     return {"workspace_root": root, "scopes": get_service().discovery_scopes(workspace_root=root)}
 
@@ -1323,43 +1328,125 @@ def discovery_scopes(workspace_root: str | None = None) -> dict[str, Any]:
 @mcp.tool()
 def repository_locations(workspace_root: str | None = None) -> dict[str, Any]:
     """Return observed physical Git checkout/worktree locations without inferring project truth."""
-    current = workspace_attachment_snapshot() or ensure_workspace_binding(workspace_root)
+    current = ensure_workspace_binding(workspace_root) if workspace_root is not None else (workspace_attachment_snapshot() or ensure_workspace_binding())
     root = str((current or {}).get("workspace_root") or workspace_root or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     return {"workspace_root": root, "repositories": get_service().repository_locations(workspace_root=root)}
 
 
 @mcp.tool()
-def bigbang_scan(roots: list[str], id_patterns: list[str] | None = None, include_git: bool = True) -> dict[str, Any]:
-    """Candidate-only onboarding discovery. Forbidden as a recovery/state reconstruction path for admitted work."""
-    blocked = _discovery_block(roots, "bigbang_scan")
-    if blocked is not None:
-        return blocked
+def bigbang_scan(
+    roots: list[str],
+    id_patterns: list[str] | None = None,
+    include_git: bool = False,
+    record_limit: int = 100,
+    max_files: int = 10_000,
+    max_depth: int = 16,
+) -> dict[str, Any]:
+    """Pure candidate-only discovery for an explicit scan request.
+
+    This call performs no MangoMe persistence and is terminal for a scan-only user
+    request. Do not follow it with ``reconcile_bigbang`` unless the user explicitly
+    asks to reconcile the candidates with canonical MangoMe state.
+    """
     patterns = id_patterns or load_id_patterns_json(os.environ.get("MANGOME_ID_PATTERNS_JSON"))
-    scanner = BigBangScanner(get_service(), id_patterns=patterns)
-    records = scanner.scan(roots)
+    scanner = BigBangScanner(None, id_patterns=patterns)
+    file_limit = max(1, min(int(max_files), 100_000))
+    depth_limit = max(0, min(int(max_depth), 64))
+    records = scanner.scan(roots, max_files=file_limit, max_depth=depth_limit)
     git_records = scanner.scan_git(roots) if include_git else []
+    limit = max(0, min(int(record_limit), 500))
+    serialized = serialize_discovery(records)
     return {
         "roots": roots,
         "count": len(records),
-        "records": serialize_discovery(records),
+        "records": serialized[:limit],
+        "records_truncated": len(serialized) > limit,
+        "record_limit": limit,
+        "scan_file_limit": file_limit,
+        "scan_depth_limit": depth_limit,
+        "visited_files": int(scanner.last_scan_stats.get("visited_files", len(records))),
+        "scan_limit_reached": bool(scanner.last_scan_stats.get("limit_reached", False)),
         "git": serialize_git_discovery(git_records),
-        "note": "Discovery only. Candidates do not become canonical contracts until explicitly admitted.",
+        "canonical_mutations": 0,
+        "note": "Discovery only. Candidates remain observations and are not persisted/admitted by this call.",
+    }
+
+
+@mcp.tool()
+def reconcile_bigbang_scan(
+    roots: list[str],
+    id_patterns: list[str] | None = None,
+    include_git: bool = False,
+    result_limit: int = 100,
+    max_files: int = 10_000,
+    max_depth: int = 16,
+) -> dict[str, Any]:
+    """Explicit server-side scan + advisory reconciliation with no canonical mutation.
+
+    Use this only when the user explicitly asks to compare discovered candidates with
+    existing MangoMe state. It avoids round-tripping large record arrays through the
+    model context.
+    """
+    patterns = id_patterns or load_id_patterns_json(os.environ.get("MANGOME_ID_PATTERNS_JSON"))
+    scanner = BigBangScanner(None, id_patterns=patterns)
+    file_limit = max(1, min(int(max_files), 100_000))
+    depth_limit = max(0, min(int(max_depth), 64))
+    records = scanner.scan(roots, max_files=file_limit, max_depth=depth_limit)
+    git_records = scanner.scan_git(roots) if include_git else []
+    reconciled = BigBangReconciler(get_service()).reconcile(records)
+    limit = max(0, min(int(result_limit), 500))
+    return {
+        "roots": roots,
+        "scan_count": len(records),
+        "matched_count": len(reconciled["matched"]),
+        "collision_count": len(reconciled["collisions"]),
+        "unresolved_count": len(reconciled["unresolved"]),
+        "matched": reconciled["matched"][:limit],
+        "collisions": reconciled["collisions"][:limit],
+        "unresolved": reconciled["unresolved"][:limit],
+        "results_truncated": any(len(reconciled[key]) > limit for key in ("matched", "collisions", "unresolved")),
+        "scan_file_limit": file_limit,
+        "scan_depth_limit": depth_limit,
+        "visited_files": int(scanner.last_scan_stats.get("visited_files", len(records))),
+        "scan_limit_reached": bool(scanner.last_scan_stats.get("limit_reached", False)),
+        "git": serialize_git_discovery(git_records),
+        "canonical_mutations": 0,
+        "note": "Advisory reconciliation only; semantic admission remains explicit.",
     }
 
 
 @mcp.tool()
 def reconcile_bigbang(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Reconcile candidate discovery only before work admission; never rebuild admitted state from discovered records."""
-    record_paths = [str(item.get("path") or "") for item in records if isinstance(item, dict) and item.get("path")]
-    blocked = _discovery_block(record_paths or None, "reconcile_bigbang")
-    if blocked is not None:
-        return blocked
+    """Explicitly reconcile a small caller-supplied candidate set without mutation."""
+    if len(records) > 200:
+        return {
+            "ok": False,
+            "error": {
+                "code": "CANDIDATE_PAYLOAD_TOO_LARGE",
+                "message": "Use reconcile_bigbang_scan for large filesystem candidate sets instead of round-tripping records through model context.",
+                "recoverable": True,
+            },
+        }
     return BigBangReconciler(get_service()).reconcile(records)  # type: ignore[return-value]
 
 
 @mcp.tool()
+def filesystem_inventory(
+    roots: list[str], max_files: int = 50000, max_depth: int = 16, max_hash_bytes: int = 67108864
+) -> dict[str, Any]:
+    """Pure read-only filesystem inventory; persists nothing to canonical MangoMe state."""
+    ephemeral = MangoMeService(InMemoryStore())
+    result = FilesystemScanner(ephemeral).scan(
+        roots, max_files=max_files, max_depth=max_depth, max_hash_bytes=max_hash_bytes
+    )
+    result["canonical_mutations"] = 0
+    result["persistence"] = "EPHEMERAL"
+    return result
+
+
+@mcp.tool()
 def filesystem_scan(roots: list[str], max_files: int = 50000, max_depth: int = 16, max_hash_bytes: int = 67108864) -> dict[str, Any]:
-    """Broad inventory for onboarding/maintenance; forbidden as state reconstruction for admitted work."""
+    """Persistent inventory for explicit onboarding/maintenance; not a normal observation fast path."""
     blocked = _discovery_block(roots, "filesystem_scan")
     if blocked is not None:
         return blocked

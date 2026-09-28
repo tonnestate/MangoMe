@@ -1,3 +1,17 @@
+## 0.3.9 — 2026-09-28 — Observation Routing & Codex Integration Hardening
+
+- Adds an explicit observation/query route to the Agent Skill. `health`, status/show/list/resolve, `discover PATH`, scan/inventory, scope listing, and read-only context inspection no longer automatically enter IntakeGov, assignment reconciliation, restore, WorkIdentity admission, or delegation gates.
+- Makes explicit `bigbang_scan` a terminal, persistence-free candidate observation with bounded result payloads and Git inspection disabled by default. It no longer writes Artifact rows merely because a path was scanned.
+- Adds server-side `reconcile_bigbang_scan` for explicitly requested advisory reconciliation so large candidate sets do not have to round-trip through model context. Direct `reconcile_bigbang` rejects oversized payloads with `CANDIDATE_PAYLOAD_TOO_LARGE`.
+- Hardens Big-Bang scanning against symlinks, private agent/credential/cache/build trees, and whole-file memory loading; hashing is streamed, lexical extraction is bounded, excluded directories are pruned before descent, and traversal has explicit file/depth limits.
+- Adds pure `filesystem_inventory` alongside the existing explicit persistent `filesystem_scan` maintenance path.
+- Narrows runtime-profile governance to external delegation/dispatch and genuinely capability-sensitive host actions. `RUNTIME_PROFILE_REQUIRED` now reports `ordinary_local_work_blocked=false` and must not stop ordinary local reading, reasoning, discovery, or already-authorized execution.
+- Moves managed Codex MCP registration, MangoMe Skill installation, and the small activation rule to user scope so availability no longer depends on Codex saved-project registration. The activation rule explicitly loads the installed `SKILL.md` before MangoMe work instead of relying only on heuristic Skill selection. Existing unrelated user configuration is preserved and stale MangoMe aliases are removed deterministically.
+- Allows an explicit workspace argument to override a stale process-global read-only binding; canonical workspace rebinding remains deterministic and fails closed with `WORKSPACE_BINDING_AMBIGUOUS` when more than one candidate matches.
+- Keeps canonical/package Skill copies byte-identical while treating repository-local `.github` / `.claude` mirrors as optional convenience surfaces.
+- Removes the independent hard-coded MCP version literal in favor of package `__version__`.
+- Updates release/test documentation and adds v0.3.9 regression coverage for the live failures above.
+
 ## 0.3.8 — 2026-09-28 — Codex Skill Discovery & Canonical Workspace Rebinding
 
 - Installs the MangoMe Agent Skill user-scoped at `~/.codex/skills/mangome/SKILL.md` so Codex can discover it even when the current workspace is not present in the local saved-project catalog.
