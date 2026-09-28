@@ -1,3 +1,12 @@
+## 0.3.8 — 2026-09-28 — Codex Skill Discovery & Canonical Workspace Rebinding
+
+- Installs the MangoMe Agent Skill user-scoped at `~/.codex/skills/mangome/SKILL.md` so Codex can discover it even when the current workspace is not present in the local saved-project catalog.
+- Codex client attestation now fails explicitly with `SKILL_NOT_INSTALLED` / `SKILL_VERSION_MISMATCH` when the user-scoped Skill is absent or stale.
+- Recovery no longer equates an exact workspace-path hash miss with missing canonical state. After an exact miss, MangoMe may rebind read-only to one unambiguous canonical workspace already present in the configured MongoDB.
+- Canonical rebinding uses only persisted MangoMe `workspace:` scope identity; it never searches host memory, contracts, Git, or the filesystem and never creates replacement state.
+- A broad cwd that covers multiple canonical workspaces returns `STATE_PARTIAL` with `WORKSPACE_BINDING_AMBIGUOUS` instead of guessing or reporting a false `STATE_NOT_FOUND`.
+- Restore/reconciliation results now include sanitized `database_binding` and `workspace_resolution` diagnostics so database-vs-workspace failures are distinguishable in one call.
+
 ## 0.3.7 — 2026-09-27 — Deterministic Runtime Database Binding
 
 - Treats database identity as deployment state, never agent-discovered state.

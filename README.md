@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.7-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.8-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -84,6 +84,30 @@ MangoMe moves that problem out of the prompt and into durable, inspectable state
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
 
 ---
+
+# v0.3.8 — Codex Skill Discovery & canonical workspace rebinding
+
+v0.3.8 fixes two integration failures found during live Codex operation. First, Codex now receives the MangoMe Agent Skill in the user-scoped location `~/.codex/skills/mangome/SKILL.md`, so Skill discovery no longer depends on the current workspace being present in Codex's saved-project catalog. Managed attestation reports `SKILL_NOT_INSTALLED` or `SKILL_VERSION_MISMATCH` when that surface is absent or stale.
+
+Second, canonical recovery no longer equates an exact workspace-path hash miss with missing MangoMe state. MangoMe first tries the exact deterministic workspace identity. If that misses, it may rebind read-only to exactly one compatible canonical workspace already persisted in the configured MangoMe database. This resolution uses only canonical MangoMe workspace identity; it never searches host memory, old contracts, Git history, or the filesystem and never creates replacement state.
+
+```text
+current cwd / workspace path
+        ↓
+exact canonical workspace key
+        ↓ miss
+existing canonical MangoMe workspace identities only
+        ↓
+1 compatible candidate → CANONICAL_REBOUND
+>1 candidates          → STATE_PARTIAL / WORKSPACE_BINDING_AMBIGUOUS
+0 candidates           → STATE_NOT_FOUND
+```
+
+Restore and reconciliation results now expose sanitized `database_binding` and `workspace_resolution` diagnostics so an operator can distinguish a wrong database from a wrong workspace identity in one call.
+
+# v0.3.7 — deterministic runtime database binding
+
+v0.3.7 makes database identity deployment state rather than agent-discovered state. Ordinary managed operation defaults to the canonical local database `mangome`; the legacy `mangome_uai_eval` database is rejected unless eval mode is explicitly enabled. `health()` exposes process readiness, database readiness and the effective sanitized database binding, while managed MongoDB timeouts prevent a stale or unreachable binding from producing multi-minute startup loops. Re-running managed setup/doctor also removes stale MangoMe eval client entries and rebinds the current managed server.
 
 # v0.3.6 — bitemporal truth + hardened MongoDB trust boundary
 
@@ -978,6 +1002,14 @@ Managed client setup:
 mangome setup --client auto
 ```
 
+For Codex, managed setup installs the MangoMe Agent Skill user-scoped at:
+
+```text
+~/.codex/skills/mangome/SKILL.md
+```
+
+This keeps the Skill available even when the current workspace is not present in Codex's saved-project catalog. The MCP binding remains workspace-scoped; Skill discovery and MCP registration are intentionally separate integration surfaces.
+
 Claude Code can use private LOCAL scope by default; project scope remains explicit:
 
 ```bash
@@ -1016,9 +1048,9 @@ Canonical Skill source:
 skill/mangome/SKILL.md
 ```
 
-The project keeps mirrored Skill surfaces for packaging and supported clients. They must remain synchronized.
+The project keeps mirrored Skill surfaces for packaging and supported clients. They must remain synchronized. Managed Codex setup additionally installs the same canonical Skill user-scoped at `~/.codex/skills/mangome/SKILL.md`; this runtime installation is attested independently from MCP visibility and does not require the workspace to appear in Codex's saved-project catalog.
 
-The v0.3.3 Skill explicitly teaches the normal worker path:
+The Skill teaches the normal worker path:
 
 - think freely and form only a tentative local decomposition;
 - reconcile with MangoMe before productive effect;

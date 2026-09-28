@@ -715,6 +715,20 @@ def configure_codex(
         if backup:
             backups.append(backup)
         _atomic_text(config_path, updated)
+    # Codex project registration and MCP registration are independent from Skill
+    # discovery. Install MangoMe user-scoped so the Skill is available even when
+    # the current workspace is not present in Codex's local project catalog.
+    # This uses Codex's supported user Skill location and avoids making project
+    # catalog registration a prerequisite for MangoMe governance.
+    skill_source = _skill_source()
+    skill_target = home_path / ".codex" / "skills" / "mangome" / "SKILL.md"
+    if not dry_run:
+        backup = _backup_once(skill_target)
+        if backup:
+            backups.append(backup)
+        skill_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(skill_source, skill_target)
+
     instruction = _merge_managed_instruction(instruction_target, dry_run=dry_run)
     if instruction.get("backup"):
         backups.append(str(instruction["backup"]))
@@ -724,6 +738,8 @@ def configure_codex(
         "changed": True,
         "dry_run": dry_run,
         "config_path": str(config_path),
+        "skill_path": str(skill_target),
+        "skill_scope": "user",
         "instruction_path": str(instruction_target),
         "server": _server_identity(workspace, backend=backend, database=database),
         "backups": backups,
@@ -892,6 +908,16 @@ def attest_client(
                             shadows.append(f"{user_config}:mcp_servers.mangome")
             except tomllib.TOMLDecodeError:
                 shadows.append(str(user_config) + ":UNPARSEABLE")
+        # The Skill must be discoverable independently of Codex's local project
+        # catalog. A project-local Skill alone is insufficient when Codex has not
+        # registered the workspace as a saved project, while the user-scoped Skill
+        # remains available to the client.
+        skill = home_path / ".codex" / "skills" / "mangome" / "SKILL.md"
+        if not skill.is_file():
+            reasons.append("SKILL_NOT_INSTALLED")
+        elif skill.read_bytes() != _skill_source().read_bytes():
+            reasons.append("SKILL_VERSION_MISMATCH")
+
         instruction = workspace / "AGENTS.md"
         if not _managed_instruction_current(instruction):
             reasons.append("AUTOMATIC_INSTRUCTIONS_MISSING")

@@ -147,6 +147,10 @@ def test_codex_setup_is_project_scoped_idempotent_and_preserves_unrelated_toml(t
     server = parsed["mcp_servers"]["mangome"]
     assert server["args"] == ["-m", "mangome.mcp_server"]
     assert server["env"]["MANGOME_AUTO_ATTACH"] == "1"
+    skill = home / ".codex" / "skills" / "mangome" / "SKILL.md"
+    assert skill.is_file()
+    assert first["skill_path"] == str(skill)
+    assert first["skill_scope"] == "user"
     agents = tmp_path / "AGENTS.md"
     assert agents.is_file()
     assert agents.read_text(encoding="utf-8").count("BEGIN MANGOME ZERO-TOUCH") == 1
