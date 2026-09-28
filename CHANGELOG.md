@@ -1,3 +1,20 @@
+## 0.3.10 — 2026-09-28 — Persistent Effect Reconciliation & Slice Closure Semantics
+
+- Separates worker completion from Slice completion: `DONE_CLAIMED -> VALIDATED -> VERIFIED -> CLOSED`; owner `ACCEPTED` remains distinct.
+- Adds validation outcomes `VALIDATED`, `REWORK_REQUIRED`, and `INCONCLUSIVE`; only explicit `REWORK_REQUIRED` reopens a DONE-claimed Slice for execution.
+- Adds dependency levels `VALIDATED` and `CLOSED` without replacing the existing execution/assurance state model.
+- Adds PER/1 durable external-effect intent, dispatch, observation and reconciliation state bound to WorkIdentity, Slice and WorkTurn.
+- Preserves `UNKNOWN` outcomes and rejects blind redispatch until external reality establishes known non-execution/failure.
+- Allows `VERIFIED + OPEN` while required effects remain unresolved, followed by explicit `close_verified_slice` after reconciliation.
+- Exposes open effect ids/counts in WorkView, recovery context and maintenance diagnostics.
+- Formalizes the Agent-OS layer model while keeping deterministic enforcement separate from optional future layer-specific agents.
+- Bumps the document schema to v6 with non-destructive compatibility defaults for historical Slice state.
+- Hardens positive PER/1 reconciliation: `satisfied=true` requires a `CONFIRMED` observation, a VERIFY WorkTurn, and verifier authority.
+- Uses deterministic effect identity and handles concurrent duplicate intent idempotently across storage backends.
+- Fixes recovery projection so rework/pending-closure state is added to the active recovery methods rather than shadowed duplicate definitions.
+- Preserves legacy non-WorkIdentity acceptance behavior; the new `CLOSED` prerequisite applies only to admitted v0.3 work.
+- Adds GitHub Actions CI, a 5-minute demo, compatibility notes, a release checklist, and a v0.3.10 test report.
+
 ## 0.3.9 — 2026-09-28 — Observation Routing & Codex Integration Hardening
 
 - Adds an explicit observation/query route to the Agent Skill. `health`, status/show/list/resolve, `discover PATH`, scan/inventory, scope listing, and read-only context inspection no longer automatically enter IntakeGov, assignment reconciliation, restore, WorkIdentity admission, or delegation gates.

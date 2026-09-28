@@ -4,12 +4,15 @@ import hashlib
 import json
 from typing import Any
 
+from .authority import CapabilityDenied, require_verifier
 from .contract_control import ContractGovernedMangoMeService
-from .enums import EdgeStatus, EntityType, ExecutionState, RelationType
+from .effect_control import unresolved_required_effects
+from .enums import AssuranceState, ClosureState, EdgeStatus, EntityType, ExecutionState, RelationType, ValidationState
 from .ids import new_id
 from .models import Gate, Plan, ProposedSlice, Slice, SliceOrigin, utcnow
 from .schema import CURRENT_SCHEMA_VERSION
 from .service import (
+    ApprovalRequired,
     InvalidTransition,
     MangoMeError,
     PlanRequired,
@@ -573,6 +576,10 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             nonterminal = [
                 row for row in existing
                 if row.get("execution_state") not in {ExecutionState.DONE_CLAIMED.value, ExecutionState.CANCELLED.value}
+                or (
+                    row.get("execution_state") == ExecutionState.DONE_CLAIMED.value
+                    and row.get("validation_state") == ValidationState.REWORK_REQUIRED.value
+                )
             ]
             active_plan_ids = sorted({str(row.get("active_plan_id")) for row in nonterminal if row.get("active_plan_id")})
             plan = self.store.get("plans", active_plan_ids[0]) if len(active_plan_ids) == 1 else None
@@ -864,6 +871,83 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             )
         return result
 
+    def validate_slice(
+        self,
+        *,
+        slice_id: str,
+        validator_actor_id: str,
+        status: str,
+        note: str | None = None,
+        completed_items: list[str] | None = None,
+        open_deltas: list[str] | None = None,
+        evidence_ids: list[str] | None = None,
+        turn_id: str | None = None,
+    ) -> dict[str, Any]:
+        work = self._work_for_slice(slice_id)
+        if work is None:
+            raise InvalidTransition("validation requires admitted WorkIdentity")
+        self._require_work_turn(
+            work_id=work["entity_id"],
+            turn_id=turn_id,
+            actor_id=validator_actor_id,
+            allowed_modes={"VERIFY", "CONTROL"},
+        )
+        sl = self._must_get("slices", slice_id)
+        if sl.get("execution_state") != ExecutionState.DONE_CLAIMED.value:
+            raise InvalidTransition("validation requires DONE_CLAIMED execution state")
+        if sl.get("assurance_state") in {AssuranceState.VERIFIED.value, AssuranceState.ACCEPTED.value}:
+            raise InvalidTransition("validation cannot rewrite VERIFIED/ACCEPTED assurance")
+        normalized = ValidationState(str(status).upper())
+        if normalized not in {ValidationState.VALIDATED, ValidationState.REWORK_REQUIRED, ValidationState.INCONCLUSIVE}:
+            raise InvalidTransition(f"unsupported validation status {status}")
+        completed = [str(item).strip() for item in (completed_items or []) if str(item).strip()]
+        remaining = [str(item).strip() for item in (open_deltas or []) if str(item).strip()]
+        if normalized == ValidationState.VALIDATED and remaining:
+            raise InvalidTransition("VALIDATED cannot carry unresolved validation_open_deltas")
+        if normalized == ValidationState.REWORK_REQUIRED and not remaining:
+            raise InvalidTransition("REWORK_REQUIRED requires at least one explicit open delta")
+        valid_evidence: list[str] = []
+        for evidence_id in evidence_ids or []:
+            evidence = self._must_get("evidence", evidence_id)
+            if evidence.get("subject_id") != slice_id:
+                raise InvalidTransition(f"validation evidence {evidence_id} does not belong to Slice {slice_id}")
+            valid_evidence.append(evidence_id)
+        now = utcnow()
+        updated = self._update(
+            "slices",
+            slice_id,
+            {
+                "validation_state": normalized.value,
+                "validation_at": now,
+                "validation_actor_id": validator_actor_id,
+                "validation_note": note,
+                "validation_completed_items": list(dict.fromkeys(completed)),
+                "validation_open_deltas": list(dict.fromkeys(remaining)),
+                "validation_evidence_ids": list(dict.fromkeys(valid_evidence)),
+                "closure_state": ClosureState.OPEN.value,
+                "closed_at": None,
+                "closed_by": None,
+                "last_activity_at": now,
+                "updated_at": now,
+            },
+            expected_revision=int(sl.get("revision", 0)),
+        )
+        self._append_assurance_event(
+            work_id=work["entity_id"],
+            subject_id=slice_id,
+            event_type=f"VALIDATION_{normalized.value}",
+            actor_id=validator_actor_id,
+            baseline_id=self._baseline_for_slice(slice_id),
+            payload={
+                "note": note,
+                "completed_items": completed,
+                "open_deltas": remaining,
+                "evidence_ids": valid_evidence,
+            },
+        )
+        self._project_family(sl["family_id"])
+        return updated
+
     def submit_evidence(self, **kwargs: Any):
         saved = super().submit_evidence(**kwargs)
         subject_id = kwargs["subject_id"]
@@ -908,27 +992,130 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             self._refresh_work_view(work["entity_id"])
         return saved
 
-    def verify_slice(self, *, turn_id: str | None = None, **kwargs: Any):
+    def verify_slice(self, *, turn_id: str | None = None, close_slice: bool = True, **kwargs: Any):
         slice_id = kwargs["slice_id"]
         actor_id = kwargs["verifier_actor_id"]
         work = self._work_for_slice(slice_id)
-        if work:
-            self._require_work_turn(work_id=work["entity_id"], turn_id=turn_id, actor_id=actor_id, allowed_modes={"VERIFY"})
-            plan_id = self._must_get("slices", slice_id).get("last_plan_id")
-            if plan_id:
-                self._assert_plan_baseline_current(self._must_get("plans", plan_id))
+        if work is None:
+            return super().verify_slice(**kwargs)
+        self._require_work_turn(
+            work_id=work["entity_id"], turn_id=turn_id, actor_id=actor_id, allowed_modes={"VERIFY"}
+        )
+        before = self._must_get("slices", slice_id)
+        if before.get("validation_state") != ValidationState.VALIDATED.value:
+            raise InvalidTransition("verification requires VALIDATED Slice state")
+        plan_id = before.get("last_plan_id")
+        if plan_id:
+            self._assert_plan_baseline_current(self._must_get("plans", plan_id))
         result = super().verify_slice(**kwargs)
-        if work:
-            self._append_assurance_event(
-                work_id=work["entity_id"], subject_id=slice_id, event_type="VERIFIED",
-                actor_id=actor_id, baseline_id=self._baseline_for_slice(slice_id),
-                payload={"verification_profile": result.get("verification_profile")},
+        self._append_assurance_event(
+            work_id=work["entity_id"], subject_id=slice_id, event_type="VERIFIED",
+            actor_id=actor_id, baseline_id=self._baseline_for_slice(slice_id),
+            payload={"verification_profile": result.get("verification_profile")},
+        )
+        blockers = unresolved_required_effects(self, slice_id)
+        closed = bool(close_slice) and not blockers
+        if closed:
+            now = utcnow()
+            current = self._must_get("slices", slice_id)
+            result = self._update(
+                "slices",
+                slice_id,
+                {
+                    "closure_state": ClosureState.CLOSED.value,
+                    "closed_at": now,
+                    "closed_by": actor_id,
+                    "last_activity_at": now,
+                    "updated_at": now,
+                },
+                expected_revision=int(current.get("revision", 0)),
             )
+            self._append_assurance_event(
+                work_id=work["entity_id"], subject_id=slice_id, event_type="CLOSED",
+                actor_id=actor_id, baseline_id=self._baseline_for_slice(slice_id),
+                payload={"reason": "VERIFIED_WITHOUT_OPEN_REQUIRED_EFFECTS"},
+            )
+        else:
+            current = self._must_get("slices", slice_id)
+            if current.get("closure_state") != ClosureState.OPEN.value:
+                result = self._update(
+                    "slices",
+                    slice_id,
+                    {"closure_state": ClosureState.OPEN.value, "closed_at": None, "closed_by": None, "updated_at": utcnow()},
+                    expected_revision=int(current.get("revision", 0)),
+                )
+            else:
+                result = current
+        result = dict(result)
+        result["closure_decision"] = {
+            "requested": bool(close_slice),
+            "closed": closed,
+            "blocking_effect_ids": [row["entity_id"] for row in blockers],
+        }
+        self._project_family(self._must_get("slices", slice_id)["family_id"])
+        self._refresh_work_view(work["entity_id"])
         return result
+
+    def close_verified_slice(
+        self,
+        *,
+        slice_id: str,
+        verifier_actor_id: str,
+        verifier_token: str | None = None,
+        turn_id: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            require_verifier(verifier_actor_id, verifier_token)
+        except CapabilityDenied as exc:
+            raise ApprovalRequired(str(exc)) from exc
+        sl = self._must_get("slices", slice_id)
+        work = self._work_for_slice(slice_id)
+        if work is None:
+            raise InvalidTransition("closure requires admitted WorkIdentity")
+        self._require_work_turn(
+            work_id=work["entity_id"],
+            turn_id=turn_id,
+            actor_id=verifier_actor_id,
+            allowed_modes={"VERIFY"},
+        )
+        if sl.get("validation_state") != ValidationState.VALIDATED.value:
+            raise InvalidTransition("closure requires VALIDATED Slice state")
+        if sl.get("assurance_state") not in {AssuranceState.VERIFIED.value, AssuranceState.ACCEPTED.value}:
+            raise InvalidTransition("closure requires VERIFIED assurance")
+        if sl.get("closure_state") == ClosureState.CLOSED.value:
+            return sl
+        blockers = unresolved_required_effects(self, slice_id)
+        if blockers:
+            raise InvalidTransition(
+                "slice closure blocked by unresolved required effects: "
+                + ",".join(row["entity_id"] for row in blockers)
+            )
+        now = utcnow()
+        updated = self._update(
+            "slices",
+            slice_id,
+            {
+                "closure_state": ClosureState.CLOSED.value,
+                "closed_at": now,
+                "closed_by": verifier_actor_id,
+                "last_activity_at": now,
+                "updated_at": now,
+            },
+            expected_revision=int(sl.get("revision", 0)),
+        )
+        self._append_assurance_event(
+            work_id=work["entity_id"], subject_id=slice_id, event_type="CLOSED",
+            actor_id=verifier_actor_id, baseline_id=self._baseline_for_slice(slice_id),
+            payload={"reason": "RECONCILED_AFTER_VERIFICATION"},
+        )
+        self._project_family(sl["family_id"])
+        return updated
 
     def accept_slice(self, *, turn_id: str | None = None, **kwargs: Any):
         slice_id = kwargs["slice_id"]
         work = self._work_for_slice(slice_id)
+        if work is not None and self._must_get("slices", slice_id).get("closure_state") != ClosureState.CLOSED.value:
+            raise InvalidTransition("ACCEPTED requires CLOSED Slice state")
         if work:
             approval = self._must_get("approvals", kwargs["approval_id"])
             actor_id = approval.get("decided_by")
@@ -952,6 +1139,11 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         turns = sorted(self.store.find("work_turn_bindings", {"work_id": work["entity_id"]}), key=lambda x: str(x.get("created_at")))
         selections = sorted(self.store.find("playbook_selections", {"work_id": work["entity_id"]}), key=lambda x: str(x.get("created_at")))
         assurance = sorted(self.store.find("assurance_events", {"work_id": work["entity_id"]}), key=lambda x: str(x.get("created_at")))
+        effects = sorted(self.store.find("effects", {"work_id": work["entity_id"]}), key=lambda x: str(x.get("created_at")))
+        open_effects = [
+            effect for effect in effects
+            if not (effect.get("state") == "RECONCILED" and effect.get("satisfied") is True)
+        ]
         return {
             "work_id": work["entity_id"],
             "family_id": work["family_id"],
@@ -963,6 +1155,8 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             "latest_playbook_selection_id": selections[-1]["entity_id"] if selections else None,
             "assurance_cursor": assurance[-1]["entity_id"] if assurance else None,
             "assurance_event_count": len(assurance),
+            "open_effect_ids": [effect["entity_id"] for effect in open_effects],
+            "open_effect_count": len(open_effects),
             "updated_at": utcnow(),
         }
 
@@ -1087,6 +1281,23 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             "A missing Specification is acceptable only when the current canonical baseline is admitted OPERATIONAL_INTENT; "
             "historical backfill without normative target remains partial."
         )
+        pending_closure: list[dict[str, Any]] = []
+        next_items = list(restored.get("next_executable_items") or [])
+        known_next = {item.get("entity_id") for item in next_items}
+        for family in restored.get("families") or []:
+            family_id = family.get("family_id")
+            for item in family.get("recovery_slices") or []:
+                if item.get("validation_state") == ValidationState.REWORK_REQUIRED.value and item.get("entity_id") not in known_next:
+                    next_items.append({"family_id": family_id, **item})
+                    known_next.add(item.get("entity_id"))
+                if item.get("execution_state") == ExecutionState.DONE_CLAIMED.value and item.get("closure_state") != ClosureState.CLOSED.value:
+                    pending_closure.append({"family_id": family_id, **item})
+        restored["next_executable_items"] = next_items
+        restored["pending_closure_items"] = pending_closure
+        # Recovery exposes executable candidates but never grants current-turn execution.
+        # The caller must bind/reconcile the current user turn before productive effects.
+        restored["productive_execution_allowed"] = False
+        restored["current_turn_execution_authorized"] = False
         return restored
 
     def recovery_context(self, project_ref: str) -> dict[str, Any]:
@@ -1103,6 +1314,22 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
                     "volatile_included": False,
                 }
                 work_items.append(work["entity_id"])
+        for family in context.get("families") or []:
+            family_id = family.get("family_id")
+            effects = sorted(self.store.find("effects", {"family_id": family_id}), key=lambda row: str(row.get("created_at") or ""))
+            family["open_effects"] = [effect for effect in effects if not (effect.get("state") == "RECONCILED" and effect.get("satisfied") is True)]
+            recovery = list(family.get("recovery_slices") or [])
+            known = {item.get("entity_id") for item in recovery}
+            relevant = [sl for sl in self.store.find("slices", {"family_id": family_id}) if sl.get("validation_state") in {ValidationState.PENDING.value, ValidationState.REWORK_REQUIRED.value, ValidationState.INCONCLUSIVE.value} or (sl.get("execution_state") == ExecutionState.DONE_CLAIMED.value and sl.get("closure_state") != ClosureState.CLOSED.value)]
+            for full in relevant:
+                if full.get("entity_id") not in known:
+                    recovery.append({"entity_id": full.get("entity_id"), "declared_id": full.get("declared_id"), "title": full.get("title"), "objective": full.get("objective"), "execution_state": full.get("execution_state"), "assurance_state": full.get("assurance_state"), "active_plan_id": full.get("active_plan_id"), "depends_on": full.get("depends_on") or [], "dependency_requirements": full.get("dependency_requirements") or [], "gates": full.get("gates") or []})
+            for item in recovery:
+                full = self.store.get("slices", item.get("entity_id"))
+                if full:
+                    item["validation_state"] = full.get("validation_state")
+                    item["closure_state"] = full.get("closure_state")
+            family["recovery_slices"] = recovery
         context["work_identity_ids"] = work_items
         context["recovery_priority"] = [
             "CURRENT_USER_TURN",

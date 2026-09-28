@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -82,5 +82,33 @@ def upgrade_document(collection: str, document: dict[str, Any]) -> tuple[dict[st
             doc.setdefault("normative_baseline_id", None)
         doc["schema_version"] = 5
         changes.append("schema 4 -> 5")
+        version = 5
+
+    if version < 6:
+        if collection == "slices":
+            execution = str(doc.get("execution_state") or "PLANNED")
+            assurance = str(doc.get("assurance_state") or "UNVERIFIED")
+            already_assured = assurance in {"VERIFIED", "ACCEPTED"}
+            if already_assured:
+                validation_state = "VALIDATED"
+                closure_state = "CLOSED"
+            elif execution == "DONE_CLAIMED":
+                validation_state = "PENDING"
+                closure_state = "OPEN"
+            else:
+                validation_state = "NOT_STARTED"
+                closure_state = "OPEN"
+            doc.setdefault("validation_state", validation_state)
+            doc.setdefault("closure_state", closure_state)
+            doc.setdefault("validation_at", None)
+            doc.setdefault("validation_actor_id", None)
+            doc.setdefault("validation_note", None)
+            doc.setdefault("validation_completed_items", [])
+            doc.setdefault("validation_open_deltas", [])
+            doc.setdefault("validation_evidence_ids", [])
+            doc.setdefault("closed_at", (doc.get("accepted_at") or doc.get("verified_at")) if already_assured else None)
+            doc.setdefault("closed_by", (doc.get("accepted_by") or doc.get("verified_by")) if already_assured else None)
+        doc["schema_version"] = 6
+        changes.append("schema 5 -> 6")
 
     return doc, changes

@@ -92,7 +92,7 @@ This still does not mean MangoMe executed the command. The verifier or host must
 
 ## Final verification rule
 
-For a Slice with PASS gates, every PASS gate must include at least one independent AV/1 observed PASS Evidence item before `verify_slice` can succeed.
+For v0.3.10 WorkIdentity-bound work, a Slice must first be `VALIDATED`; validation states completeness but never substitutes for independent proof. For a Slice with PASS gates, every PASS gate must include at least one independent AV/1 observed PASS Evidence item before `verify_slice` can succeed.
 
 For a gateless Slice, the explicit proof set passed to `verify_slice` must include at least one independent AV/1 observed PASS Evidence item.
 
@@ -110,7 +110,7 @@ AV/1 independence also requires `VERIFIER_ATTESTED` trust. Owner attestation rem
 
 Immediately before the `VERIFIED` compare-and-swap write, MangoMe live-checks every independent AV/1 PASS Evidence item used for the transition that carries an RB/1 reproduction binding. The binding must be `REUSABLE`; `STALE`, `UNKNOWN`, `UNBOUND`, or `INADMISSIBLE` blocks verification. This catches the practical case where an input or bound output changed after the verifier observed it but before final assurance commit.
 
-This is intentionally not described as a fully atomic filesystem-plus-database transaction. MangoMe's slice update remains revision-CAS protected; runtimes that require a zero-width TOCTOU window across external artifact stores must additionally provide isolation, locking, immutable artifact addressing, or an equivalent storage-level mechanism.
+This is intentionally not described as a fully atomic filesystem-plus-database transaction. MangoMe's slice update remains revision-CAS protected; runtimes that require a zero-width TOCTOU window across external artifact stores must additionally provide isolation, locking, immutable artifact addressing, or an equivalent storage-level mechanism. v0.3.10 PER/1 complements this boundary by persisting effect intent and reconciling observed external reality; it does not falsely claim a cross-system ACID transaction. `VERIFIED` may therefore remain `OPEN` until required effects are reconciled and satisfied.
 
 ## Relationship to RB/1 freshness
 

@@ -16,17 +16,20 @@ Before submitting changes:
 
 ```bash
 python -m pip install -e ".[dev]"
-pytest -ra
-python -m compileall -q src tests server.py
+make check
+python -m pip check
 ```
 
-If the change touches the Agent Skill, keep all canonical/package/discovery copies byte-identical:
+GitHub CI runs the suite with MongoDB 7 and the installed MCP dependency on Python 3.10, 3.11, and 3.12. See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the release gate.
+
+If the change touches the Agent Skill, the two authoritative release surfaces must remain byte-identical:
 
 ```text
 skill/mangome/SKILL.md
 src/mangome/skill/SKILL.md
-.github/skills/mangome/SKILL.md
 ```
+
+Repository-local `.github` / `.claude` Skill mirrors are optional convenience surfaces. If present, they must match the canonical Skill exactly.
 
 Do not weaken a failing integrity regression merely to make CI green. Preserve the failing case, repair the underlying invariant, then rerun the same case.
 

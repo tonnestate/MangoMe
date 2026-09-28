@@ -1,4 +1,4 @@
-# Zero-touch operability — MangoMe v0.3.9
+# Zero-touch operability — MangoMe v0.3.10
 
 MangoMe's governance vocabulary is an implementation detail for the **user**, not something the runtime may ignore. v0.3.3 moves governance to the effect boundary: workers may reason freely, while productive effects must be reconciled with canonical state and authority.
 
@@ -84,19 +84,19 @@ Worker execution and assurance remain separate:
 
 ```text
 ACTIVE
-  ↓
+  ↓ worker claim
 DONE_CLAIMED
-  ↓
-independent AV/1 observation
-  ↓
+  ↓ completeness validation
+VALIDATED / REWORK_REQUIRED / INCONCLUSIVE
+  ↓ independent AV/1 observation
 VERIFIED
-  ↓
-optional owner approval
-  ↓
+  ↓ all required PER/1 effects reconciled + satisfied
+CLOSED
+  ↓ optional owner approval
 ACCEPTED
 ```
 
-A worker can finish execution without possessing verifier/owner authority. `DONE_CLAIMED / UNVERIFIED` is therefore a valid durable state, not a failed workflow. A deployment that wants automatic verification must provide an isolated verifier runtime/capability channel; MangoMe does not silently grant that authority to the worker.
+A worker can finish execution without possessing validator/verifier/owner authority. `DONE_CLAIMED / PENDING / UNVERIFIED / OPEN` is therefore a valid durable state, not a failed workflow. Validation is completeness judgment under a bound VERIFY/CONTROL WorkTurn; it does not create verification assurance. A deployment that wants automatic verification must provide an isolated verifier runtime/capability channel; MangoMe does not silently grant that authority to the worker. A Slice may also be `VERIFIED + OPEN` while a required PER/1 external effect remains unresolved.
 
 Status/context surfaces expose a derived `truth_level` such as `CANONICAL_UNVERIFIED`, `CLAIMED`, `PARTIAL_VERIFIED`, `VERIFIED`, `ACCEPTED`, or `REJECTED`. This is only a projection of the existing execution/assurance state, not a second state machine.
 

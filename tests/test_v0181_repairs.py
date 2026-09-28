@@ -252,7 +252,7 @@ def test_claude_attestation_requires_connected_not_name_visibility(tmp_path: Pat
 
 
 def test_schema_v4_adds_verification_fields_without_inventing_provenance():
-    from mangome.schema import upgrade_document
+    from mangome.schema import CURRENT_SCHEMA_VERSION, upgrade_document
 
     upgraded, changes = upgrade_document(
         "slices",
@@ -262,7 +262,7 @@ def test_schema_v4_adds_verification_fields_without_inventing_provenance():
             "assurance_state": "VERIFIED",
         },
     )
-    assert upgraded["schema_version"] == 5
+    assert upgraded["schema_version"] == CURRENT_SCHEMA_VERSION
     assert upgraded["verification_evidence_ids"] == []
     assert upgraded["verification_observation_ids"] == []
     assert upgraded["verified_by"] is None

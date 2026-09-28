@@ -20,7 +20,7 @@ class MangoMaintainer:
 
     COLLECTIONS = (
         "requests", "projects", "families", "contracts", "specs", "slices", "plans", "claims",
-        "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts",
+        "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts", "effects",
         "filesystem_entries", "filesystem_roots", "turn_bindings", "contract_heads",
         "contract_generations", "contract_generation_grants", "work_identities", "work_turn_bindings",
         "normative_baselines", "work_checkpoints", "playbooks", "playbook_selections",
@@ -85,6 +85,10 @@ class MangoMaintainer:
                 stale_plans.append({"plan_id": plan["entity_id"], "actor_id": plan["actor_id"], "updated_at": updated})
         open_approvals = [a for a in self.service.store.find("approvals") if a.get("status") == "REQUIRED"]
         suggested_edges = [e for e in self.service.store.find("edges") if e.get("status") == "SUGGESTED"]
+        open_effects = [
+            effect for effect in self.service.store.find("effects")
+            if not (effect.get("state") == "RECONCILED" and effect.get("satisfied") is True)
+        ]
         provenance_gaps = []
         for sl in self.service.store.find("slices"):
             if sl.get("assurance_state") not in {"VERIFIED", "ACCEPTED"}:
@@ -102,6 +106,8 @@ class MangoMaintainer:
             "stale_plan_candidates": stale_plans,
             "open_approval_count": len(open_approvals),
             "suggested_edge_count": len(suggested_edges),
+            "open_effect_count": len(open_effects),
+            "open_effect_ids": [effect.get("entity_id") for effect in open_effects],
             "verification_provenance_gaps": provenance_gaps,
             "note": "Diagnostics never cancel plans, invent verification provenance, or confirm semantic relations automatically.",
         }

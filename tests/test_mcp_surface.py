@@ -21,7 +21,7 @@ def test_mcp_v2_surface_lists_core_tools(monkeypatch):
             names = {tool.name for tool in result.tools}
             required = {
                 "health", "workspace_status", "intake_request", "submit_plan", "start_slice", "update_slice_progress",
-                "claim_done", "attest_evidence", "completion_review", "submit_verification_observation", "verify_slice", "project_overview", "recovery_context",
+                "claim_done", "validate_slice", "record_effect_intent", "mark_effect_dispatched", "record_effect_observation", "reconcile_effect", "effect_status", "slice_closure_status", "attest_evidence", "completion_review", "submit_verification_observation", "verify_slice", "close_verified_slice", "project_overview", "recovery_context",
                 "publish_worker_runtime", "execution_eligibility", "authorize_delegation", "complete_delegation", "delegation_status",
                 "effective_family_view", "bigbang_scan", "reconcile_bigbang", "reconcile_bigbang_scan", "filesystem_inventory", "migrate_schema",
                 "enter_work", "begin_work", "compile_uai_context", "expand_uai_context", "decode_uai_result", "render_uai_result",

@@ -1,4 +1,4 @@
-# Canonical data model — schema v4
+# Canonical data model — schema v6
 
 ## Identity
 
@@ -21,9 +21,35 @@ Every first-class object receives an immutable MangoMe `entity_id`. External/hum
 - `project_views` — deterministic materialized family status
 - `models` — model/access-path profiles
 - `execution_receipts` — token/cost/outcome telemetry
+- `effects` — PER/1 durable external-effect intent, observation and reconciliation ledger
 - `filesystem_entries` / `filesystem_roots` — deterministic observable workspace inventory
 
 Every persisted document carries `schema_version`; mutable first-class documents carry `revision` for compare-and-swap protection.
+
+## Schema v6 additions
+
+v0.3.10 adds orthogonal Slice validation/closure fields without replacing execution or assurance state:
+
+```text
+validation_state
+validation_at
+validation_actor_id
+validation_note
+validation_completed_items[]
+validation_open_deltas[]
+validation_evidence_ids[]
+closure_state
+closed_at
+closed_by
+```
+
+`DONE_CLAIMED` remains execution state and `VERIFIED` remains assurance state. `CLOSED` records that the Slice lifecycle has no required unresolved effect delta. Historical verified/accepted Slices migrate compatibly to `VALIDATED + CLOSED`; no invented validator provenance is created.
+
+PER/1 effects are first-class canonical documents linked from their Slice. They carry stable logical identity, WorkIdentity/WorkTurn binding, expected/observed state, dispatch/observation/reconciliation history, idempotency metadata and closure relevance.
+
+## Schema v5 additions
+
+Schema v5 binds v0.3 Plan/Evidence/Claim state to durable WorkIdentity and NormativeBaseline where applicable.
 
 ## Schema v4 additions
 

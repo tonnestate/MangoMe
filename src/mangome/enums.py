@@ -65,6 +65,7 @@ class RelationType(StrEnum):
     PART_OF = "PART_OF"
     EXPOSED_BY = "EXPOSED_BY"
     RELATES_TO = "RELATES_TO"
+    HAS_EFFECT = "HAS_EFFECT"
 
 
 class EntityType(StrEnum):
@@ -78,6 +79,7 @@ class EntityType(StrEnum):
     EVIDENCE = "EVIDENCE"
     APPROVAL = "APPROVAL"
     MODEL = "MODEL"
+    EFFECT = "EFFECT"
 
 
 class ClaimType(StrEnum):
@@ -120,7 +122,45 @@ class EvidenceVerdict(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class ValidationState(StrEnum):
+    NOT_STARTED = "NOT_STARTED"
+    PENDING = "PENDING"
+    VALIDATED = "VALIDATED"
+    REWORK_REQUIRED = "REWORK_REQUIRED"
+    INCONCLUSIVE = "INCONCLUSIVE"
+
+
+class ClosureState(StrEnum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+class EffectState(StrEnum):
+    AUTHORIZED = "AUTHORIZED"
+    DISPATCHED = "DISPATCHED"
+    OBSERVED = "OBSERVED"
+    RECONCILED = "RECONCILED"
+    CANCELLED = "CANCELLED"
+
+
+class EffectOutcome(StrEnum):
+    UNKNOWN = "UNKNOWN"
+    CONFIRMED = "CONFIRMED"
+    FAILED = "FAILED"
+    PARTIAL = "PARTIAL"
+    NOT_EXECUTED = "NOT_EXECUTED"
+
+
+class EffectRecoveryStrategy(StrEnum):
+    REVERSIBLE = "REVERSIBLE"
+    COMPENSATABLE = "COMPENSATABLE"
+    RECONCILABLE = "RECONCILABLE"
+    IRREVERSIBLE = "IRREVERSIBLE"
+
+
 class DependencyLevel(StrEnum):
     DONE_CLAIMED = "DONE_CLAIMED"
+    VALIDATED = "VALIDATED"
     VERIFIED = "VERIFIED"
+    CLOSED = "CLOSED"
     ACCEPTED = "ACCEPTED"

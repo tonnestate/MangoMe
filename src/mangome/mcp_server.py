@@ -10,6 +10,7 @@ from . import __version__
 from .context import ContextCompiler
 from .hygiene import CognitiveHygieneService
 from .fast_judgment import FastJudgmentService
+from .effect_control import EffectJournalService
 from .audit import ScopedAuditService
 from .authority import CapabilityDenied, require_controller, require_router
 from .importer import (
@@ -47,7 +48,9 @@ mcp = MCPServer(
         "Runtime profiles govern external delegation/dispatch and capability-sensitive host actions only: RUNTIME_PROFILE_REQUIRED is "
         "a routing-metadata gap, not a blocker for ordinary local reasoning, reading, discovery, or non-dispatched work. Workers must not "
         "self-publish runtime capabilities. MangoMe is infrastructure and may be modified only when MangoMe itself is the explicit target. "
-        "DONE_CLAIMED is not VERIFIED or ACCEPTED."
+        "WORKER_COMPLETION is not SLICE_COMPLETION: DONE_CLAIMED requires validation before independent verification, "
+        "and CLOSED requires no unresolved required effects. External effects persist intent before dispatch and are reconciled "
+        "against observed reality; UNKNOWN outcomes must not be blindly retried."
     ),
     version=__version__,
 )
@@ -704,6 +707,108 @@ def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None =
 
 
 @mcp.tool()
+def validate_slice(
+    slice_id: str,
+    validator_actor_id: str,
+    status: str,
+    turn_id: str | None = None,
+    note: str | None = None,
+    completed_items: list[str] | None = None,
+    open_deltas: list[str] | None = None,
+    evidence_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Validate a DONE_CLAIMED Slice as VALIDATED, REWORK_REQUIRED, or INCONCLUSIVE. Validation is not verification."""
+    blocked = _work_identity_gate_slice(slice_id, "validate_slice")
+    if blocked:
+        return blocked
+    return _domain_call(
+        get_service().validate_slice,
+        slice_id=slice_id, validator_actor_id=validator_actor_id, status=status,
+        turn_id=turn_id, note=note, completed_items=completed_items, open_deltas=open_deltas, evidence_ids=evidence_ids,
+    )
+
+
+@mcp.tool()
+def record_effect_intent(
+    slice_id: str, actor_id: str, turn_id: str, effect_key: str, action: str, target: str,
+    payload_hash: str | None = None, expected_state: Any = None, idempotency_key: str | None = None,
+    recovery_strategy: str = "RECONCILABLE", required_for_closure: bool = True,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """PER/1: persist durable intent before a governed external side effect is dispatched."""
+    blocked = _restore_gate("record_effect_intent")
+    if blocked:
+        return blocked
+    blocked = _work_identity_gate_slice(slice_id, "record_effect_intent")
+    if blocked:
+        return blocked
+    return _domain_call(
+        EffectJournalService(get_service()).record_intent,
+        slice_id=slice_id, actor_id=actor_id, turn_id=turn_id, effect_key=effect_key,
+        action=action, target=target, payload_hash=payload_hash, expected_state=expected_state,
+        idempotency_key=idempotency_key, recovery_strategy=recovery_strategy,
+        required_for_closure=required_for_closure, metadata=metadata,
+    )
+
+
+@mcp.tool()
+def mark_effect_dispatched(
+    effect_id: str, actor_id: str, turn_id: str, receipt: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """PER/1: record an actual dispatch attempt. A lost response remains UNKNOWN until observed."""
+    blocked = _restore_gate("mark_effect_dispatched")
+    if blocked:
+        return blocked
+    return _domain_call(
+        EffectJournalService(get_service()).mark_dispatched,
+        effect_id=effect_id, actor_id=actor_id, turn_id=turn_id, receipt=receipt,
+    )
+
+
+@mcp.tool()
+def record_effect_observation(
+    effect_id: str, actor_id: str, turn_id: str, outcome: str,
+    observed_state: Any = None, receipt: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """PER/1: record observed external reality without turning observation into reconciliation."""
+    return _domain_call(
+        EffectJournalService(get_service()).record_observation,
+        effect_id=effect_id, actor_id=actor_id, turn_id=turn_id, outcome=outcome,
+        observed_state=observed_state, receipt=receipt,
+    )
+
+
+@mcp.tool()
+def reconcile_effect(
+    effect_id: str, actor_id: str, turn_id: str, satisfied: bool,
+    observed_state: Any = None, resolution: str | None = None, verifier_token: str | None = None,
+) -> dict[str, Any]:
+    """PER/1: reconcile durable intent against observed reality; positive satisfaction requires verifier authority."""
+    return _domain_call(
+        EffectJournalService(get_service()).reconcile,
+        effect_id=effect_id, actor_id=actor_id, turn_id=turn_id, satisfied=satisfied,
+        observed_state=observed_state, resolution=resolution, verifier_token=verifier_token,
+    )
+
+
+@mcp.tool()
+def effect_status(
+    slice_id: str | None = None, work_id: str | None = None, open_only: bool = False
+) -> dict[str, Any]:
+    """Read the durable PER/1 effect ledger, optionally restricted to unresolved logical effects."""
+    return _domain_call(
+        EffectJournalService(get_service()).status,
+        slice_id=slice_id, work_id=work_id, open_only=open_only,
+    )
+
+
+@mcp.tool()
+def slice_closure_status(slice_id: str) -> dict[str, Any]:
+    """Return execution, validation, assurance, closure and required-effect blockers for one Slice."""
+    return _domain_call(EffectJournalService(get_service()).slice_closure_status, slice_id)
+
+
+@mcp.tool()
 def close_plan(plan_id: str, actor_id: str) -> dict[str, Any]:
     """Close an unbound plan so it stops generating collision traffic."""
     blocked = _restore_gate("close_plan")
@@ -871,12 +976,24 @@ def set_gate_controlled(slice_id: str, gate_id: str, status: str, actor_id: str,
 
 
 @mcp.tool()
-def verify_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, evidence_ids: list[str] | None = None, turn_id: str | None = None) -> dict[str, Any]:
-    """Verify DONE_CLAIMED only when PASS gates (or gateless proof) include independent AV/1 observed PASS Evidence."""
+def verify_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, evidence_ids: list[str] | None = None, turn_id: str | None = None, close_slice: bool = True) -> dict[str, Any]:
+    """Verify a VALIDATED DONE_CLAIMED Slice; close only when requested and required effects are reconciled."""
     blocked = _work_identity_gate_slice(slice_id, "verify_slice")
     if blocked:
         return blocked
-    return get_service().verify_slice(slice_id=slice_id, verifier_actor_id=verifier_actor_id, verifier_token=verifier_token, evidence_ids=evidence_ids, turn_id=turn_id)
+    return get_service().verify_slice(slice_id=slice_id, verifier_actor_id=verifier_actor_id, verifier_token=verifier_token, evidence_ids=evidence_ids, turn_id=turn_id, close_slice=close_slice)
+
+
+@mcp.tool()
+def close_verified_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, turn_id: str | None = None) -> dict[str, Any]:
+    """Close an already VERIFIED Slice after all required effects are reconciled and satisfied."""
+    blocked = _work_identity_gate_slice(slice_id, "close_verified_slice")
+    if blocked:
+        return blocked
+    return _domain_call(
+        get_service().close_verified_slice,
+        slice_id=slice_id, verifier_actor_id=verifier_actor_id, verifier_token=verifier_token, turn_id=turn_id,
+    )
 
 
 @mcp.tool()

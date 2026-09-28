@@ -72,10 +72,15 @@ understand local problem
 → tentative decomposition
 → reconcile_assignment(request_text)
 → bind current WorkIdentity / turn / baseline as required
+→ persist durable intent before relevant external effects
 → productive effects
+→ observe / reconcile external reality
 → progress + Evidence
 → DONE_CLAIMED
-→ independent verification / optional acceptance
+→ validation: VALIDATED / REWORK_REQUIRED / INCONCLUSIVE
+→ independent verification
+→ CLOSED only when required effects are reconciled and satisfied
+→ optional owner acceptance
 ```
 
 `reconcile_assignment` is read-only. It never turns the worker's tentative plan into canonical truth.
@@ -152,8 +157,11 @@ Recovered ACTIVE state, Plans or Slices are context only. They do not grant curr
 A worker completion statement is a claim:
 
 ```text
-DONE_CLAIMED != VERIFIED != ACCEPTED
+WORKER_COMPLETION != SLICE_COMPLETION
+DONE_CLAIMED -> VALIDATED -> VERIFIED -> CLOSED -> optional ACCEPTED
 ```
+
+Validation establishes whether the claimed implementation delta is complete; it is not independent verification. Required external effects use PER/1. Persist intent before dispatch, preserve `UNKNOWN` when the outcome cannot be established, and never blindly retry an unknown/partial/confirmed effect. A required effect blocks `CLOSED` until it is `RECONCILED` with `satisfied=true`.
 
 Evidence is not automatically proof. Independent verification remains separate from worker execution; owner acceptance remains explicit. Do not self-verify or fabricate verifier/owner authority.
 

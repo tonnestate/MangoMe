@@ -102,7 +102,7 @@ class MongoStore(Store):
     def ensure_indexes(self) -> None:
         for name in (
             "requests", "projects", "families", "contracts", "specs", "slices", "plans", "claims",
-            "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts",
+            "evidence", "artifacts", "edges", "approvals", "project_views", "models", "execution_receipts", "effects",
             "filesystem_entries", "filesystem_roots", "turn_bindings", "contract_heads",
             "contract_generations", "contract_generation_grants", "work_identities",
             "work_turn_bindings", "normative_baselines", "work_checkpoints", "playbooks",
@@ -121,6 +121,8 @@ class MongoStore(Store):
         self.db["artifacts"].create_index([("physical_location", ASCENDING)])
         self.db["models"].create_index([("model_key", ASCENDING)], unique=True)
         self.db["execution_receipts"].create_index([("model_id", ASCENDING), ("work_class", ASCENDING)])
+        self.db["effects"].create_index([("slice_id", ASCENDING), ("effect_key", ASCENDING)], unique=True)
+        self.db["effects"].create_index([("work_id", ASCENDING), ("state", ASCENDING), ("created_at", ASCENDING)])
         self.db["filesystem_entries"].create_index([("path", ASCENDING)], unique=True)
         self.db["filesystem_entries"].create_index([("root_path", ASCENDING), ("present", ASCENDING)])
         self.db["filesystem_entries"].create_index([("declared_ids", ASCENDING)])

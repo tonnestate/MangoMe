@@ -46,6 +46,7 @@ from .models import (
     StorageBinding,
     utcnow,
 )
+from .schema import CURRENT_SCHEMA_VERSION
 from .storage.base import RevisionConflictError, Store
 
 
@@ -128,6 +129,7 @@ _ENTITY_COLLECTIONS = {
     EntityType.EVIDENCE.value: "evidence",
     EntityType.APPROVAL.value: "approvals",
     EntityType.MODEL.value: "models",
+    EntityType.EFFECT.value: "effects",
 }
 
 _CONTRACT_EVOLUTION_RELATIONS = {
@@ -962,13 +964,28 @@ class MangoMeService:
 
     def start_slice(self, *, slice_id: str, actor_id: str, plan_id: str) -> dict[str, Any]:
         sl, plan = self._require_plan_for_slice(slice_id=slice_id, actor_id=actor_id, plan_id=plan_id)
-        if sl["execution_state"] in {ExecutionState.DONE_CLAIMED.value, ExecutionState.CANCELLED.value}:
-            raise InvalidTransition("terminal slice cannot be started")
+        if sl["execution_state"] == ExecutionState.CANCELLED.value:
+            raise InvalidTransition("cancelled slice cannot be started")
+        if (
+            sl["execution_state"] == ExecutionState.DONE_CLAIMED.value
+            and sl.get("validation_state") != "REWORK_REQUIRED"
+        ):
+            raise InvalidTransition("DONE_CLAIMED may restart only after validator REWORK_REQUIRED")
         now = utcnow()
         updated = self._update(
             "slices", slice_id,
             {
                 "execution_state": ExecutionState.ACTIVE.value,
+                "validation_state": "NOT_STARTED",
+                "validation_at": None,
+                "validation_actor_id": None,
+                "validation_note": None,
+                "validation_completed_items": [],
+                "validation_open_deltas": [],
+                "validation_evidence_ids": [],
+                "closure_state": "OPEN",
+                "closed_at": None,
+                "closed_by": None,
                 "started_at": sl.get("started_at") or now,
                 "last_activity_at": now,
                 "last_actor_id": actor_id,
@@ -1045,6 +1062,16 @@ class MangoMeService:
             "slices", slice_id,
             {
                 "execution_state": ExecutionState.DONE_CLAIMED.value,
+                "validation_state": "PENDING",
+                "validation_at": None,
+                "validation_actor_id": None,
+                "validation_note": None,
+                "validation_completed_items": [],
+                "validation_open_deltas": [],
+                "validation_evidence_ids": [],
+                "closure_state": "OPEN",
+                "closed_at": None,
+                "closed_by": None,
                 "done_claimed_at": now,
                 "last_activity_at": now,
                 "last_actor_id": actor_id,
@@ -1833,8 +1860,14 @@ class MangoMeService:
         level = str(requirement.get("required_level") or DependencyLevel.DONE_CLAIMED.value)
         if level == DependencyLevel.ACCEPTED.value:
             return dep.get("assurance_state") == AssuranceState.ACCEPTED.value
+        if level == DependencyLevel.CLOSED.value:
+            return dep.get("closure_state") == "CLOSED" or dep.get("assurance_state") == AssuranceState.ACCEPTED.value
         if level == DependencyLevel.VERIFIED.value:
             return dep.get("assurance_state") in {AssuranceState.VERIFIED.value, AssuranceState.ACCEPTED.value}
+        if level == DependencyLevel.VALIDATED.value:
+            return dep.get("validation_state") == "VALIDATED" or dep.get("assurance_state") in {
+                AssuranceState.VERIFIED.value, AssuranceState.ACCEPTED.value
+            }
         return dep.get("execution_state") == ExecutionState.DONE_CLAIMED.value or dep.get("assurance_state") in {
             AssuranceState.VERIFIED.value, AssuranceState.ACCEPTED.value
         }
@@ -1918,6 +1951,13 @@ class MangoMeService:
                 continue
         counts = Counter(s["execution_state"] for s in slices)
         assurance_counts = Counter(s["assurance_state"] for s in slices)
+        validation_counts = Counter(str(s.get("validation_state") or "NOT_STARTED") for s in slices)
+        closure_counts = Counter(str(s.get("closure_state") or "OPEN") for s in slices)
+        open_required_effects = [
+            effect for effect in self.store.find("effects", {"family_id": family_id})
+            if bool(effect.get("required_for_closure", True))
+            and not (effect.get("state") == "RECONCILED" and effect.get("satisfied") is True)
+        ]
         view = FamilyStatusView(
             family_id=family_id,
             family_key=family["family_key"],
@@ -1937,8 +1977,22 @@ class MangoMeService:
         )
         previous = self.store.find("project_views", {"family_id": family_id})
         payload = view.model_dump(mode="python")
+        payload["validation_counts"] = dict(validation_counts)
+        payload["closure_counts"] = dict(closure_counts)
+        payload["pending_validation_slice_ids"] = [
+            row["entity_id"] for row in slices
+            if row.get("execution_state") == ExecutionState.DONE_CLAIMED.value
+            and row.get("validation_state") != "VALIDATED"
+        ]
+        payload["pending_closure_slice_ids"] = [
+            row["entity_id"] for row in slices
+            if row.get("execution_state") == ExecutionState.DONE_CLAIMED.value
+            and row.get("closure_state") != "CLOSED"
+        ]
+        payload["open_required_effect_ids"] = [row["entity_id"] for row in open_required_effects]
+        payload["open_required_effect_count"] = len(open_required_effects)
         payload["entity_id"] = previous[0]["entity_id"] if previous else family_id
-        payload["schema_version"] = 5
+        payload["schema_version"] = CURRENT_SCHEMA_VERSION
         payload["updated_at"] = now
         if previous:
             payload.pop("revision", None)

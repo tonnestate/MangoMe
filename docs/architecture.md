@@ -63,3 +63,23 @@ The canonical database is intentionally rich. UAI/1 exists so expensive workers 
 ## Product boundary
 
 MangoMe v0.1.x is intentionally a single canonical deployment serving many projects/agents/models/humans. Cross-organization federation and interchangeable production stores are outside current scope.
+## v0.3.10 Agent-OS layer model
+
+MangoMe now makes the execution-control layers explicit without turning them into a second truth/state system:
+
+```text
+Domain / Intent
+    ↓
+Work / Slice execution
+    ↓
+Validation
+    ↓
+Independent verification
+    ↓
+Effect / reconciliation
+    ↓
+Deterministic enforcement
+```
+
+These layers are protection and authority boundaries. A human, deterministic component, or specialized agent may inhabit a cognitive layer later; state transitions and authority remain deterministic. See `agent-os-layer-model.md` and `effect-reconciliation.md`.
+

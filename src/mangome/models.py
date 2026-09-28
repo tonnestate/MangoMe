@@ -9,6 +9,7 @@ from .enums import (
     ApprovalStatus,
     AssuranceState,
     ClaimType,
+    ClosureState,
     ContractKind,
     DependencyLevel,
     EdgeStatus,
@@ -17,10 +18,11 @@ from .enums import (
     EvidenceVerdict,
     ExecutionState,
     SliceOrigin,
+    ValidationState,
 )
 from .ids import new_id
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def utcnow() -> datetime:
@@ -143,6 +145,16 @@ class Slice(BaseEntity):
     dependency_requirements: list[SliceDependency] = Field(default_factory=list)
     execution_state: ExecutionState = ExecutionState.PLANNED
     assurance_state: AssuranceState = AssuranceState.UNVERIFIED
+    validation_state: ValidationState = ValidationState.NOT_STARTED
+    closure_state: ClosureState = ClosureState.OPEN
+    validation_at: datetime | None = None
+    validation_actor_id: str | None = None
+    validation_note: str | None = None
+    validation_completed_items: list[str] = Field(default_factory=list)
+    validation_open_deltas: list[str] = Field(default_factory=list)
+    validation_evidence_ids: list[str] = Field(default_factory=list)
+    closed_at: datetime | None = None
+    closed_by: str | None = None
     started_at: datetime | None = None
     last_activity_at: datetime | None = None
     done_claimed_at: datetime | None = None

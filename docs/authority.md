@@ -60,3 +60,9 @@ or configure `MANGOME_CONTROLLER_TOKEN` plus optional `MANGOME_CONTROLLER_ACTORS
 A first `enter_work` admission after `STATE_NOT_FOUND` may trust the current client-relayed user intent so zero-touch onboarding remains possible. Once canonical workspace state exists, additional work admission and `bind_work_turn` require the control-plane capability. A recovered worker therefore cannot infer `CONTINUE`/`EXECUTE` from ACTIVE state and cannot mint a new authoritative turn for itself.
 
 High-assurance deployments must keep controller credentials outside worker prompts and direct model-visible state.
+## v0.3.10 validation and closure authority
+
+Validation and verification are intentionally distinct. A validator uses a controller-bound `VERIFY` or `CONTROL` WorkTurn to classify a `DONE_CLAIMED` Slice as `VALIDATED`, `REWORK_REQUIRED`, or `INCONCLUSIVE`. That judgment can reopen execution but cannot create `VERIFIED` assurance.
+
+Independent verification still requires the verifier capability. Slice closure is verifier-controlled: `VERIFIED` work closes only when no required PER/1 effect remains unresolved. Owner acceptance remains a separate CONTROL/approval decision after closure.
+

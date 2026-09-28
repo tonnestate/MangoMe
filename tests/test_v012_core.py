@@ -6,6 +6,7 @@ import pytest
 
 from mangome.importer import BigBangReconciler, BigBangScanner
 from mangome.maintenance import MangoMaintainer
+from mangome.schema import CURRENT_SCHEMA_VERSION
 from mangome.service import InvalidTransition, MangoMeService, RevisionConflict
 from mangome.storage.memory import InMemoryStore
 
@@ -93,7 +94,7 @@ def test_schema_migration_upgrades_v1_documents():
     report = MangoMaintainer(svc).migrate_schema(dry_run=False)
     assert report["persisted"] >= 1
     migrated = svc.store.get("families", family["entity_id"])
-    assert migrated["schema_version"] == 5
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
     assert "revision" in migrated
 
 
@@ -114,7 +115,7 @@ def test_health_reports_schema_and_backend():
     svc = MangoMeService(InMemoryStore())
     health = svc.health()
     assert health["ok"] is True
-    assert health["schema_version"] == 5
+    assert health["schema_version"] == CURRENT_SCHEMA_VERSION
     assert health["store"]["backend"] == "memory"
 
 

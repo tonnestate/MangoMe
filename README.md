@@ -12,7 +12,8 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.9-yellow">
+  <a href="https://github.com/tonnestate/MangoMe/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tonnestate/MangoMe/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.10-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -27,6 +28,8 @@ If this is your first time using MangoMe, begin with the beginner documentation 
 
 - [Start Here](docs/START_HERE.md) — MangoMe in a few minutes: what it is, what problem it solves, and the basic mental model.
 - [Getting Started](docs/getting-started.md) — installation, client setup, first health check, and the first governed task.
+- [5-minute Demo](docs/QUICKSTART_DEMO.md) — copy/paste smoke test and durable MongoDB handoff.
+- [Compatibility](docs/COMPATIBILITY.md) — what CI tests, what managed clients support, and what remains deployment-dependent.
 - [Troubleshooting](docs/troubleshooting.md) — common integration and runtime errors such as `STATE_NOT_FOUND`, `WRONG_MANGOME_DATABASE`, `WORKSPACE_BINDING_AMBIGUOUS`, and Skill/MCP readiness issues.
 - [Why MangoMe?](docs/WHY_MANGOME.md) — concrete agent failure modes and how MangoMe changes the operational behavior.
 
@@ -52,6 +55,8 @@ STATE MACHINE
 SPECIFICATION / NORMATIVE BASELINE HISTORY
     +
 EVIDENCE / PROVENANCE LEDGER
+    +
+EXTERNAL EFFECT / RECONCILIATION LEDGER
     +
 EXECUTION ECONOMICS
     +
@@ -97,6 +102,16 @@ MangoMe moves that problem out of the prompt and into durable, inspectable state
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
 
 ---
+
+# v0.3.10 — Persistent Effect Reconciliation & Slice Closure Semantics
+
+v0.3.10 extends the existing v0.3 WorkIdentity control plane without replacing MangoMe's execution/assurance model. Worker completion is no longer treated as Slice completion: `DONE_CLAIMED` opens validation, validation may return `REWORK_REQUIRED` or `INCONCLUSIVE`, independent AV/1 verification remains separate, and `CLOSED` is reached only after verification and after every required external effect has been reconciled and satisfied. `ACCEPTED` remains a separate owner/business decision.
+
+Relevant external effects use **PER/1 — Persistent Effect Reconciliation**. MangoMe persists durable intent before dispatch, records dispatch attempts and observations, preserves `UNKNOWN` instead of guessing failure, and reconciles observed external reality before closure. This deliberately does not claim a global ACID transaction across MongoDB, filesystems, APIs, deployments, mail or other external systems.
+
+The architecture is expressed as layers — Domain/Intent → Work/Slice → Validation → Independent Verification → Effect/Reconciliation → Deterministic Enforcement. These are authority/state boundaries, not a requirement that each layer already has its own agent. Specialized layer agents remain a later composition concern.
+
+See [`docs/agent-os-layer-model.md`](docs/agent-os-layer-model.md) and [`docs/effect-reconciliation.md`](docs/effect-reconciliation.md).
 
 # v0.3.9 — Observation routing & Codex integration hardening
 
