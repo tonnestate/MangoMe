@@ -12,7 +12,6 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <a href="https://github.com/tonnestate/MangoMe/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tonnestate/MangoMe/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Version" src="https://img.shields.io/badge/version-0.3.10-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
@@ -29,7 +28,7 @@ If this is your first time using MangoMe, begin with the beginner documentation 
 - [Start Here](docs/START_HERE.md) — MangoMe in a few minutes: what it is, what problem it solves, and the basic mental model.
 - [Getting Started](docs/getting-started.md) — installation, client setup, first health check, and the first governed task.
 - [5-minute Demo](docs/QUICKSTART_DEMO.md) — copy/paste smoke test and durable MongoDB handoff.
-- [Compatibility](docs/COMPATIBILITY.md) — what CI tests, what managed clients support, and what remains deployment-dependent.
+- [Compatibility](docs/COMPATIBILITY.md) — what the release suite covers, what managed clients support, and what remains deployment-dependent.
 - [Troubleshooting](docs/troubleshooting.md) — common integration and runtime errors such as `STATE_NOT_FOUND`, `WRONG_MANGOME_DATABASE`, `WORKSPACE_BINDING_AMBIGUOUS`, and Skill/MCP readiness issues.
 - [Why MangoMe?](docs/WHY_MANGOME.md) — concrete agent failure modes and how MangoMe changes the operational behavior.
 

@@ -13,7 +13,7 @@
 - Uses deterministic effect identity and handles concurrent duplicate intent idempotently across storage backends.
 - Fixes recovery projection so rework/pending-closure state is added to the active recovery methods rather than shadowed duplicate definitions.
 - Preserves legacy non-WorkIdentity acceptance behavior; the new `CLOSED` prerequisite applies only to admitted v0.3 work.
-- Adds GitHub Actions CI, a 5-minute demo, compatibility notes, a release checklist, and a v0.3.10 test report.
+- Adds a 5-minute demo, compatibility notes, a release checklist, and a v0.3.10 test report.
 
 ## 0.3.9 — 2026-09-28 — Observation Routing & Codex Integration Hardening
 

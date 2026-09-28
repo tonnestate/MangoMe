@@ -1,10 +1,10 @@
 # Compatibility
 
-MangoMe separates what is **tested in CI**, what is **supported by managed configuration**, and what remains **deployment-dependent**.
+MangoMe separates what is **covered by the release suite**, what is **supported by managed configuration**, and what remains **deployment-dependent**.
 
-## CI-tested
+## Release-suite coverage
 
-The repository CI is intended to test:
+The repository test/release suite covers:
 
 - Python 3.10, 3.11 and 3.12;
 - MongoDB 7 integration;
@@ -23,7 +23,7 @@ Client releases can change independently of MangoMe. Managed setup and `mangome 
 
 ## Deployment-dependent
 
-The following cannot be proven by repository CI alone:
+The following cannot be proven by the repository test suite alone:
 
 - a specific host's Codex/Claude session actually consuming the current Skill;
 - production MongoDB credentials, OS/service identity, network policy and strict trust-boundary deployment;

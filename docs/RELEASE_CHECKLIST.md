@@ -18,7 +18,7 @@ make check
 python -m pip check
 ```
 
-CI additionally runs the suite with MongoDB 7 and the MCP dependency installed on Python 3.10/3.11/3.12.
+For environment-dependent release validation, also run the suite with the MCP dependency installed and a real MongoDB test instance configured.
 
 ## Package gate
 

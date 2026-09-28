@@ -4,7 +4,6 @@ from pathlib import Path
 def test_v0310_release_surfaces_are_present_and_linked():
     root = Path(__file__).resolve().parents[1]
     required = [
-        root / ".github" / "workflows" / "ci.yml",
         root / "docs" / "START_HERE.md",
         root / "docs" / "getting-started.md",
         root / "docs" / "QUICKSTART_DEMO.md",
@@ -17,7 +16,7 @@ def test_v0310_release_surfaces_are_present_and_linked():
     assert missing == []
 
     readme = (root / "README.md").read_text(encoding="utf-8")
-    for path in required[1:-1]:
+    for path in required[:-1]:
         relative = str(path.relative_to(root)).replace("\\", "/")
         assert relative in readme
 

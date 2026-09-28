@@ -23,7 +23,6 @@ Result:
 184 passed, 3 skipped
 compileall PASS
 make check PASS
-GitHub Actions YAML parse PASS
 wheel build PASS
 mangome_mcp-0.3.10-py3-none-any.whl
 packaged mangome/skill/SKILL.md PASS
@@ -35,9 +34,9 @@ Skipped checks:
 - MCP in-process surface integration: the `mcp` dependency is not installed in this packaging interpreter.
 - Two real MongoDB integration checks: `MANGOME_TEST_MONGO_URI` is not configured in this packaging environment.
 
-These skips are not PASS claims. The added GitHub Actions workflow installs the real MCP dependency, starts MongoDB 7, runs `make check` on Python 3.10/3.11/3.12, validates dependencies in that clean environment, and builds/inspects the wheel.
+These skips are not PASS claims. MCP in-process and real MongoDB integration remain environment-dependent acceptance checks and must be run in a clean environment with the required dependency/service configured.
 
-The host container's global `pip check` is not a MangoMe release signal because it contains an unrelated pre-existing `moviepy`/`pillow` conflict outside this repository. CI performs `pip check` after installing MangoMe in the clean GitHub runner.
+The host container's global `pip check` is not a MangoMe release signal because it contains an unrelated pre-existing `moviepy`/`pillow` conflict outside this repository.
 
 ## v0.3.10 regression focus
 
@@ -56,11 +55,11 @@ The release suite covers the new PER/1 and Slice lifecycle semantics plus the re
 - legacy non-WorkIdentity acceptance remains compatible;
 - schema/version regression tests advance with schema v6 / release 0.3.10;
 - canonical and packaged Agent Skill copies remain byte-identical;
-- CI/release surfaces and the optional repository-local Skill-mirror policy are regression-checked.
+- Release surfaces and the optional repository-local Skill-mirror policy are regression-checked.
 
 ## Post-upload acceptance
 
-After upload, the public CI run is the environment-dependent release gate. On the actual MangoMe host, additionally confirm:
+After upload, run the environment-dependent acceptance checks on the actual MangoMe host and confirm:
 
 ```text
 1. health reports runtime version 0.3.10 and database=mangome.
