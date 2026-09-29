@@ -359,6 +359,110 @@ def _config_paths(workspace: Path, home: Path) -> list[tuple[Path, str, bool]]:
     ]
 
 
+def _launcher_roots(workspace: Path, home: Path) -> list[Path]:
+    """Return bounded local deployment roots that may hold the pre-v0.3.12 launcher.
+
+    Launcher state is deployment state, not arbitrary filesystem discovery.  The
+    search is intentionally limited to known MangoMe/eval locations and never
+    traverses the whole home or host filesystem.
+    """
+    roots: list[Path] = []
+
+    def add(path: Path) -> None:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            return
+        if resolved not in roots:
+            roots.append(resolved)
+
+    source = os.environ.get("MANGOME_EXPECTED_SOURCE_ROOT", "").strip()
+    if source:
+        add(Path(source) / "eval")
+        add(Path(source) / "launcher")
+        add(Path(source) / "launchers")
+    add(Path(__file__).resolve().parents[2] / "eval")
+    add(workspace / "eval")
+    add(workspace / "launcher")
+    add(home / "MangoMe-latest" / "eval")
+    add(home / ".config" / "mangome")
+    return roots
+
+
+def _parse_launcher_binding(path: Path) -> list[_CredentialCandidate]:
+    """Parse a legacy launcher without executing or sourcing it.
+
+    Only the four MangoMe MongoDB binding variables are recognized.  A launcher
+    candidate is emitted only when credential source *and* database identity are
+    present in the same file, preserving the historical binding atomically.
+    """
+    try:
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode) or path.is_symlink() or info.st_size > 131072:
+            return []
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    wanted = {
+        "MANGOME_MONGODB_URI", "MANGOME_MONGODB_URI_FILE",
+        "MANGOME_DATABASE", "MANGOME_EXPECTED_DATABASE",
+    }
+    env: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key not in wanted:
+            continue
+        value = value.strip().rstrip(";").strip().strip("\"'")
+        if value:
+            env[key] = value
+
+    database = _database_from_env(env)
+    if not database:
+        return []
+    file_value = env.get("MANGOME_MONGODB_URI_FILE", "").strip()
+    if file_value:
+        credential_path = Path(file_value).expanduser()
+        if not credential_path.is_absolute():
+            credential_path = (path.parent / credential_path).resolve()
+        env["MANGOME_MONGODB_URI_FILE"] = str(credential_path)
+    candidates = _candidate_from_env(f"LOCAL_LAUNCHER:{path}", env, legacy=True)
+    return [item for item in candidates if item.database == database]
+
+
+def _launcher_candidates(workspace: Path, home: Path) -> list[_CredentialCandidate]:
+    out: list[_CredentialCandidate] = []
+    seen_files: set[Path] = set()
+    for root in _launcher_roots(workspace, home):
+        if not root.exists():
+            continue
+        if root.is_file():
+            paths = [root]
+        else:
+            try:
+                paths = [p for p in root.rglob("*") if p.is_file()]
+            except OSError:
+                continue
+        for path in paths[:128]:
+            try:
+                resolved = path.resolve()
+            except OSError:
+                continue
+            if resolved in seen_files:
+                continue
+            seen_files.add(resolved)
+            out.extend(_parse_launcher_binding(resolved))
+    return _dedupe(out)
+
+
 def _collect_candidates(workspace: Path, home: Path) -> list[_CredentialCandidate]:
     candidates: list[_CredentialCandidate] = []
     env = {
@@ -378,6 +482,11 @@ def _collect_candidates(workspace: Path, home: Path) -> list[_CredentialCandidat
         ))
 
     candidates.extend(_live_process_candidates())
+
+    # Historical launchers can be the only durable place where credential source
+    # and database identity still coexist.  Keep the pair together and inspect it
+    # before stale client backups or the fresh-install default are considered.
+    candidates.extend(_launcher_candidates(workspace, home))
 
     for path, kind, legacy in _config_paths(workspace, home):
         if kind == "codex":
@@ -802,11 +911,13 @@ def prepare_mongodb_runtime(
     failures: list[str] = []
 
     def database_attempts(candidate: _CredentialCandidate) -> list[str]:
+        # Credential source and database identity form one deployment binding.
+        # Never let a stale persisted default (for example a failed v0.3.12
+        # ``mangome`` binding) override the database explicitly carried by a
+        # discovered working launcher/legacy credential.
         persisted_database = str((persisted or {}).get("database") or "").strip()
-        if persisted_database:
-            return [persisted_database]
         ordered: list[str] = []
-        for value in (candidate.database, requested_database):
+        for value in (candidate.database, persisted_database, requested_database):
             name = str(value or "").strip()
             if name and name not in ordered:
                 ordered.append(name)
