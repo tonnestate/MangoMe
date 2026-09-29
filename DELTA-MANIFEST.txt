@@ -1,6 +1,0 @@
-MangoMe v0.3.5 -> v0.3.6 overlay delta
-
-Adds BTTM/1 bitemporal truth maintenance and MTB/1 MongoDB trust-boundary hardening.
-Overlay onto a clean v0.3.5 checkout, preserving deployment-local environment/service configuration.
-No destructive MongoDB migration is required; new truth collections/indexes are created lazily by normal MangoMe index initialization.
-Run `make check` after applying.
