@@ -16,6 +16,12 @@
 - Keeps that exception fail-closed: MongoDB user/role changes, registered schema migrations, canonical domain-document mutation, business-data repair and database-identity changes remain outside bootstrap authority.
 - Completes zero-touch MongoDB adoption: `mangome setup` now recovers an already-authorized credential from process environment, current/backup Claude/Codex MangoMe bindings, the managed credential file, or a still-live legacy MangoMe MCP process **before** stale aliases are removed. A successful source is normalized into an owner-only managed credential file and verified against the canonical `mangome` database by exercising the same index bootstrap required at runtime.
 - Fails once and explicitly with `BOOTSTRAP_AUTHORITY_REQUIRED` when MongoDB authentication is enabled but no discovered credential can authorize the canonical database; setup no longer writes a knowingly broken managed binding and then leaves the agent to rediscover the deployment problem.
+- Moves zero-touch adoption into the managed runtime itself: first canonical database access now invokes the bounded credential-adoption/bootstrap path automatically, so a successful installation no longer depends on the agent remembering to run `mangome setup` before using MCP.
+- Caches bootstrap success/failure once per MCP process to prevent repeated credential scans and MongoDB timeout loops; HEALTH exposes the sanitized `database_bootstrap` state and stable blocker code.
+- Recomputes trust-boundary posture after zero-touch adoption so one HEALTH response cannot report a recovered database alongside stale pre-adoption credential metadata.
+- Hardens the seven-tool facade: an internal capability `TypeError` is no longer mislabeled as bad tool arguments, error-shaped responses are treated as blocked even when `ok=false` is omitted, and stable `OperabilityError.code` values such as `BOOTSTRAP_AUTHORITY_REQUIRED` survive facade routing.
+- Aligns CPM/1 runtime guidance and `tools/repair_runtime_binding.py` with the bounded bootstrap exception; `ensure_indexes()` is deployment plumbing, while users/roles, registered migrations, domain rewrites and database-identity changes remain forbidden without separate authority.
+- Prioritizes still-live legacy MangoMe MCP processes ahead of stale client backups during credential adoption, reducing the chance that startup burns several MongoDB timeouts before reaching the most likely recoverable authority.
 
 ## 0.3.11 — 2026-09-29 — Structural Intelligence / Semantic Worker Facade / Graceful Cognition
 
