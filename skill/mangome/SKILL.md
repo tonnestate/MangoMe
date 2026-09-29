@@ -115,7 +115,9 @@ When the current user explicitly asks to install, update, repair, hotfix, roll b
 
 Self-maintenance does not self-admit. Do not create a WorkIdentity, Contract, Specification, Plan, Slice, or self-approval merely to repair the governance substrate. Scope effects to the explicitly requested MangoMe source/package/runtime/client/service surface.
 
-Database/schema mutation is not implied. If the requested maintenance actually requires canonical database/schema mutation without separate authorization, stop with `DATABASE_CHANGE_REQUIRED`.
+Zero-touch deployment bootstrap is part of the explicit install/update/repair request. `mangome setup` may discover/adopt an existing MongoDB credential source without exposing secrets, bind the canonical `mangome` database, and run idempotent `ensure_indexes()` for the indexes declared by the installed MangoMe release. This bounded bootstrap is installation plumbing under CPM/1; it does not require a WorkIdentity or self-approval.
+
+This exception does **not** authorize MongoDB user/role creation or changes, registered schema migrations, canonical domain-document mutation, business-data repair, or database-identity changes. If any of those are required, stop with `DATABASE_CHANGE_REQUIRED`. If MongoDB is authentication-protected and no reusable authority can be adopted, stop with `BOOTSTRAP_AUTHORITY_REQUIRED`.
 
 ## Source precedence and memory
 

@@ -14,6 +14,9 @@ from typing import Any, Iterable
 from .storage.mongo import MongoStore
 
 
+ZERO_TOUCH_BOOTSTRAP_SCOPE = "CREDENTIAL_ADOPTION_AND_DECLARED_INDEX_BOOTSTRAP_ONLY"
+
+
 class ZeroTouchBootstrapError(RuntimeError):
     """Fail-closed zero-touch bootstrap error with a stable operator-facing code."""
 
@@ -201,6 +204,8 @@ def _probe_uri(uri: str, database: str) -> dict[str, Any]:
 
     `MangoMeService` creates indexes on startup, so zero-touch setup verifies that
     exact capability instead of accepting a credential that can merely ping MongoDB.
+    This function is intentionally limited to declared index bootstrap plus ping; it
+    does not create users/roles, run MangoMe schema migrations, or mutate domain rows.
     """
     store: MongoStore | None = None
     try:
@@ -318,6 +323,8 @@ def prepare_mongodb_runtime(
             "credential_file_bound": True,
             "legacy_source_adopted": candidate.legacy,
             "candidate_count": len(candidates),
+            "bootstrap_scope": ZERO_TOUCH_BOOTSTRAP_SCOPE,
+            "canonical_domain_mutations": 0,
             "rule": "LEGACY_CREDENTIALS_ARE_ADOPTED_BEFORE_STALE_BINDINGS_ARE_REMOVED",
         }
 
@@ -346,5 +353,7 @@ def prepare_mongodb_runtime(
         "credential_file_bound": False,
         "legacy_source_adopted": False,
         "candidate_count": len(candidates),
+        "bootstrap_scope": ZERO_TOUCH_BOOTSTRAP_SCOPE,
+        "canonical_domain_mutations": 0,
         "rule": "UNAUTHENTICATED_LOOPBACK_IS_ACCEPTED_ONLY_AFTER_SUCCESSFUL_CANONICAL_BOOTSTRAP",
     }
