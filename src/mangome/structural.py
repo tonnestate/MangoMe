@@ -10,12 +10,16 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-try:  # Optional at source-tree test time; installed for the packaged v0.3.11 runtime.
+try:  # Optional at source-tree test time; installed for the packaged runtime.
     from tree_sitter import Parser as TreeSitterParser
-    from tree_sitter_language_pack import get_language as get_tree_sitter_language
 except Exception:  # pragma: no cover - graceful degradation is the contract.
     TreeSitterParser = None  # type: ignore[assignment]
+try:
+    from tree_sitter_language_pack import get_language as get_tree_sitter_language
+    from tree_sitter_language_pack import get_parser as get_tree_sitter_parser
+except Exception:  # pragma: no cover - graceful degradation is the contract.
     get_tree_sitter_language = None  # type: ignore[assignment]
+    get_tree_sitter_parser = None  # type: ignore[assignment]
 
 STRUCTURAL_PROTOCOL = "SIM/1"
 DEFAULT_MAX_FILES = 512
@@ -275,23 +279,101 @@ class StructuralIntelligence:
     ) -> tuple[list[StructuralNode], set[str], Counter[str], bool] | None:
         suffix = Path(rel).suffix.lower()
         language_name = _TREE_SITTER_LANGUAGES.get(suffix)
-        if not language_name or TreeSitterParser is None or get_tree_sitter_language is None:
+        if not language_name:
             return None
-        try:
-            language = get_tree_sitter_language(language_name)
-            parser = TreeSitterParser(language)
-            tree = parser.parse(text.encode("utf-8"))
-        except Exception:
+
+        parser = None
+        parser_binding = "UNKNOWN"
+        tree = None
+
+        # tree-sitter-language-pack 1.x has shipped two Python parser/node APIs in
+        # the wild. Prefer its configured parser and adapt to either str/bytes and
+        # kind/type node shapes. Fall back to the standalone tree_sitter binding
+        # when get_language remains interoperable. Parser failure is non-blocking.
+        if get_tree_sitter_parser is not None:
+            try:
+                parser = get_tree_sitter_parser(language_name)
+                parser_binding = "LANGUAGE_PACK"
+                try:
+                    tree = parser.parse(text)
+                except TypeError:
+                    tree = parser.parse(text.encode("utf-8"))
+            except Exception:
+                parser = None
+                tree = None
+
+        if tree is None and TreeSitterParser is not None and get_tree_sitter_language is not None:
+            try:
+                language = get_tree_sitter_language(language_name)
+                try:
+                    parser = TreeSitterParser(language)
+                except TypeError:
+                    parser = TreeSitterParser()
+                    parser.language = language
+                parser_binding = "TREE_SITTER"
+                tree = parser.parse(text.encode("utf-8"))
+            except Exception:
+                return None
+
+        if tree is None:
             return None
 
         root = tree.root_node
+
+        def _node_type(node: Any) -> str:
+            return str(getattr(node, "type", None) or getattr(node, "kind", None) or "")
+
+        def _byte_bounds(node: Any) -> tuple[int, int]:
+            start = getattr(node, "start_byte", None)
+            end = getattr(node, "end_byte", None)
+            if start is not None and end is not None:
+                return int(start), int(end)
+            byte_range = getattr(node, "byte_range", None)
+            if byte_range is not None and len(byte_range) >= 2:
+                return int(byte_range[0]), int(byte_range[1])
+            return (0, 0)
+
+        def _line(node: Any) -> int:
+            point = getattr(node, "start_point", None)
+            if point is None:
+                point = getattr(node, "start_position", None)
+            if point is None:
+                return 1
+            if hasattr(point, "row"):
+                return int(point.row) + 1
+            try:
+                return int(point[0]) + 1
+            except Exception:
+                return 1
+
+        def _children(node: Any) -> list[Any]:
+            try:
+                value = getattr(node, "children", [])
+                return list(value() if callable(value) else value)
+            except Exception:
+                return []
+
+        def _name_node(node: Any) -> Any | None:
+            try:
+                fn = getattr(node, "child_by_field_name", None)
+                if callable(fn):
+                    found = fn("name")
+                    if found is not None:
+                        return found
+            except Exception:
+                pass
+            for child in _children(node):
+                if _node_type(child) in {"identifier", "type_identifier", "property_identifier", "name"}:
+                    return child
+            return None
+
         partial = bool(getattr(root, "has_error", False))
         status = "PARTIAL" if partial else "EXACT"
         lang = language_name
         nodes: list[StructuralNode] = [
             StructuralNode(
                 f"file:{rel}", "FILE", rel, rel, language=lang,
-                status=status, provenance="TREE_SITTER", confidence=0.98 if not partial else 0.86,
+                status=status, provenance=f"TREE_SITTER:{parser_binding}", confidence=0.98 if not partial else 0.86,
             )
         ]
         imports: set[str] = set()
@@ -302,31 +384,30 @@ class StructuralIntelligence:
         while stack and visited < max_nodes:
             node = stack.pop()
             visited += 1
-            ntype = str(getattr(node, "type", ""))
+            ntype = _node_type(node)
             if ntype in _TREE_SITTER_DEFINITION_TYPES:
-                name_node = None
-                try:
-                    name_node = node.child_by_field_name("name")
-                except Exception:
-                    name_node = None
+                name_node = _name_node(node)
                 if name_node is not None:
+                    start_byte, end_byte = _byte_bounds(name_node)
                     try:
-                        raw_name = source[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace").strip()
+                        raw_name = source[start_byte:end_byte].decode("utf-8", "replace").strip()
                     except Exception:
                         raw_name = ""
                     if raw_name and len(raw_name) <= 160:
-                        line = int(getattr(node, "start_point", (0, 0))[0]) + 1
+                        line = _line(node)
                         kind = "CLASS" if "class" in ntype or "interface" in ntype else "SYMBOL"
                         nodes.append(
                             StructuralNode(
                                 f"symbol:{rel}:{raw_name}:{line}", kind, raw_name, rel,
                                 line=line, qualified_name=raw_name, language=lang,
-                                confidence=0.96 if not partial else 0.84, status=status, provenance="TREE_SITTER",
+                                confidence=0.96 if not partial else 0.84, status=status,
+                                provenance=f"TREE_SITTER:{parser_binding}",
                             )
                         )
             if ntype in _TREE_SITTER_IMPORT_TYPES:
+                start_byte, end_byte = _byte_bounds(node)
                 try:
-                    raw = source[node.start_byte:node.end_byte].decode("utf-8", "replace")
+                    raw = source[start_byte:end_byte].decode("utf-8", "replace")
                 except Exception:
                     raw = ""
                 match = _GENERIC_IMPORT.match(raw)
@@ -334,13 +415,8 @@ class StructuralIntelligence:
                     target = match.group(1) or match.group(2)
                     if target:
                         imports.add(target)
-            try:
-                children = list(node.children)
-            except Exception:
-                children = []
-            stack.extend(reversed(children))
+            stack.extend(reversed(_children(node)))
 
-        # Retain the lightweight import regex as a language-neutral dependency hint.
         for line in text.splitlines():
             match = _GENERIC_IMPORT.match(line)
             if match:

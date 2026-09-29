@@ -7,7 +7,7 @@ description: Use MangoMe for durable multi-agent work, recovery, evidence, verif
 
 MangoMe is the canonical operational-memory and verification substrate for durable multi-agent work. Workers and sessions are replaceable; admitted WorkIdentity, normative state, Evidence and assurance history are not.
 
-## v0.3.11 semantic worker surface
+## v0.3.12 semantic worker surface
 
 Normal workers use exactly seven top-level MangoMe tools:
 
@@ -196,13 +196,32 @@ Evidence is not automatically proof. Independent verification remains separate f
 
 Preserve ambiguity as unresolved rather than inventing truth. Normative truth must not be rewritten merely to fit observed implementation.
 
+## External runtime enforcement
+
+MangoMe governs authority, identity, effects, evidence and assurance. Physical process restrictions belong outside the worker prompt and may be supplied by a host-side enforcement backend such as an OS sandbox. MangoMe must not treat the existence of such a backend as proof that the worker behaved correctly.
+
+For external delegation, preserve the order:
+
+```text
+execution_eligibility
+-> authorize_delegation
+-> host applies external enforcement policy
+-> worker executes
+-> host records outcome / audit reference
+-> MangoMe Evidence / AV/1 verifies what is material
+```
+
+The worker must never widen its own filesystem, network, command, credential or tool policy. Enforcement decisions and denials are observations from the host boundary, not canonical truth. Where useful, record backend/version/policy/audit references inside the existing `record_execution_receipt(..., metadata=...)` field; do not invent a second runtime state machine.
+
+Recommended metadata keys are `enforcement_backend`, `enforcement_version`, `policy_ref`, `policy_digest`, `audit_ref`, and `enforcement_decision`. These are descriptive provenance only. A security scanner result remains WORKER_JUDGMENT or Evidence input according to the existing FJD/1 and AV/1 rules; it never self-promotes to verified truth.
+
 ## Bitemporal truth and cognitive hygiene
 
 BTTM/1 separates when an assertion is valid in the represented world from when MangoMe knew it. Invalidation is non-destructive and can require revalidation.
 
 PCH/1 temperature (`HOT/WARM/COLD`) is task-relative cognitive residency, not truth, assurance, or deletion. Truth maintenance decides what may be supported; Cognitive Hygiene decides what should be active; the ContextCompiler decides what can fit.
 
-Under v0.3.11, structural relevance may influence cognitive residency only as derived observation. If structural context is unavailable or too large, continue with canonical/PCH context; do not block ordinary cognition solely because the map is unavailable.
+Under v0.3.12, structural relevance is a separate derived projection beside PCH/1; it may guide bounded inspection but does not silently rewrite canonical PCH temperature or residency. If structural context is unavailable or too large, continue with canonical/PCH context; do not block ordinary cognition solely because the map is unavailable.
 
 ## Scoped recursive audit
 
@@ -220,16 +239,18 @@ MangoMe orchestration is normally internal. Do not expose Slice IDs, Plan IDs, r
 
 ## Non-negotiable summary
 
-1. Normal workers use the seven semantic facade tools; low-level capabilities are advanced/internal.
+1. Normal workers use seven semantic facade tools; v0.3.12 routes the full existing capability set behind them.
 2. Observation-only requests stay observation-only.
 3. Structural Map is derived observation, never truth/evidence/assurance/authority.
 4. Bootstrap performs no full structural scan.
 5. Structural failure degrades cognition gracefully and does not authorize mutation.
-6. THINK FREELY, RECONCILE BEFORE EFFECT for productive work.
-7. `STATE_NOT_FOUND` never authorizes fake recovery.
-8. Recovery follows canonical identity, not filesystem archaeology.
-9. Historical host memory is candidate-only, never current authority.
-10. MangoMe is infrastructure; do not modify it unless MangoMe itself is the explicit assignment target.
-11. Runtime profiles govern dispatch/delegation, not ordinary local cognition or discovery.
-12. Database identity is deployment state; do not hunt for alternate databases.
-13. DONE is a claim; verification and acceptance remain separate.
+6. External runtime enforcement is host authority, not worker self-policy and not MangoMe truth.
+7. Reuse the existing execution-receipt metadata for enforcement provenance; do not create a second runtime state machine.
+8. THINK FREELY, RECONCILE BEFORE EFFECT for productive work.
+9. `STATE_NOT_FOUND` never authorizes fake recovery.
+10. Recovery follows canonical identity, not filesystem archaeology.
+11. Historical host memory is candidate-only, never current authority.
+12. MangoMe is infrastructure; do not modify it unless MangoMe itself is the explicit assignment target.
+13. Runtime profiles govern dispatch/delegation, not ordinary local cognition or discovery.
+14. Database identity is deployment state; do not hunt for alternate databases.
+15. DONE is a claim; verification and acceptance remain separate.

@@ -1,3 +1,14 @@
+## 0.3.12 — 2026-09-29 — v0.3.11 Repair & External Enforcement Boundary
+
+- Repairs the v0.3.11 semantic-facade regression while keeping exactly seven visible worker MCP tools. All 100 pre-existing advanced capabilities remain reachable through deterministic semantic routing.
+- Restores admission/specification, identity/backfill, Plan lifecycle, contract-generation, truth, UAI/context, discovery/filesystem, FJD, runtime/model/economics, evidence/reproduction and maintenance operations that were accidentally unreachable from the normal worker surface.
+- Hardens Structural Intelligence for the Python binding variants present in current `tree-sitter-language-pack` 1.x: prefer `get_parser(...)`, tolerate str/bytes parser input and `type`/`kind` node shapes, and fall back without blocking cognition.
+- Corrects the PCH/SRA wording: structural projections are advisory data beside PCH/1 and SRA/1; they do not silently rewrite PCH temperature or the persisted SRA frontier.
+- Keeps the managed normal CLI bound to `mangome.worker_mcp_server` while retaining explicit `mangome-advanced` / `mangome-mcp-advanced` escape hatches for internal and compatibility use.
+- Formalizes the external enforcement boundary without adding a dependency: host-side sandboxes/policy engines run after `execution_eligibility` / `authorize_delegation`, and enforcement provenance can be attached to the existing `record_execution_receipt(..., metadata=...)` field.
+- Defines external enforcement/scanner outcomes as observations, FJD/1 judgments or AV/1 evidence inputs according to existing semantics; they never self-promote to canonical truth or verification.
+- Deliberately does **not** add HMAC, a cryptographic mutation journal, key lifecycle, `nono`, OpenShell, LlamaFirewall, Inspect AI or another runtime subsystem to MangoMe. Those remain external/evaluation concerns until isolated spikes justify tighter integration.
+
 ## 0.3.11 — 2026-09-29 — Structural Intelligence / Semantic Worker Facade / Graceful Cognition
 
 - Adds SIM/1 bounded Structural Intelligence with lazy indexing, symbol lookup/relations, structural search/context, impact-frontier projection and explicit derived-observation semantics.

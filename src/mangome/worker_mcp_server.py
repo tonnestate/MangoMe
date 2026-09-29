@@ -28,13 +28,32 @@ mcp = MCPServer(
 
 _WORK = {
     "RECONCILE_ASSIGNMENT": "reconcile_assignment",
+    "INTAKE_REQUEST": "intake_request",
     "ENTER_WORK": "enter_work",
+    "CREATE_PROJECT": "create_project",
+    "CREATE_FAMILY": "create_family",
+    "CREATE_SPEC": "create_spec",
+    "REGISTER_CONTRACT": "register_contract",
+    "IMPORT_CONTRACT_BUNDLE": "import_contract_bundle",
+    "ATTACH_ARTIFACT": "attach_artifact",
+    "LINK_ENTITIES": "link_entities",
     "PREPARE_ASSIGNMENT": "prepare_assignment",
     "BEGIN_WORK": "begin_work",
+    "SUBMIT_PLAN": "submit_plan",
     "START_SLICE": "start_slice",
     "UPDATE_PROGRESS": "update_slice_progress",
     "CLAIM_DONE": "claim_done",
+    "CLOSE_PLAN": "close_plan",
     "CHECKPOINT_WORK": "checkpoint_work",
+    "RECORD_TRUTH_ASSERTION": "record_truth_assertion",
+    "INVALIDATE_TRUTH_ASSERTION": "invalidate_truth_assertion",
+    "RECORD_FAST_JUDGMENT": "record_fast_judgment",
+    "FILESYSTEM_SCAN": "filesystem_scan",
+    "REGISTER_PLAYBOOK": "register_playbook",
+    "SELECT_PLAYBOOK": "select_playbook",
+    "BIND_CONTRACT_TURN": "bind_contract_turn",
+    "PROMOTE_CONTRACT_GENERATION": "promote_contract_generation",
+    "RELEASE_CONTRACT_GENERATION_GRANT": "release_contract_generation_grant",
 }
 _EFFECT = {
     "RECORD_INTENT": "record_effect_intent",
@@ -50,8 +69,13 @@ _VERIFY = {
     "ATTEST_EVIDENCE": "attest_evidence",
     "COMPLETION_REVIEW": "completion_review",
     "SUBMIT_OBSERVATION": "submit_verification_observation",
+    "SET_GATE": "set_gate",
+    "SET_GATE_CONTROLLED": "set_gate_controlled",
     "VERIFY_SLICE": "verify_slice",
     "CLOSE_VERIFIED_SLICE": "close_verified_slice",
+    "ACCEPT_SLICE": "accept_slice",
+    "BUILD_REPRODUCTION_BINDING": "build_reproduction_binding",
+    "EVIDENCE_FRESHNESS": "evidence_freshness",
     "START_SCOPED_AUDIT": "start_scoped_audit",
     "AUDIT_CONTEXT": "audit_context",
     "AUDIT_STATUS": "audit_status",
@@ -64,10 +88,17 @@ _CONTROL = {
     "APPROVE_OVERRIDE": "approve_override",
     "REJECT_OVERRIDE": "reject_override",
     "LIST_APPROVALS": "list_approvals",
+    "PUBLISH_WORKER_RUNTIME": "publish_worker_runtime",
     "EXECUTION_ELIGIBILITY": "execution_eligibility",
     "AUTHORIZE_DELEGATION": "authorize_delegation",
     "COMPLETE_DELEGATION": "complete_delegation",
     "DELEGATION_STATUS": "delegation_status",
+    "REGISTER_MODEL": "register_model",
+    "RECORD_EXECUTION_RECEIPT": "record_execution_receipt",
+    "BACKFILL_WORK_IDENTITY": "backfill_work_identity",
+    "BIND_WORK_TURN": "bind_work_turn",
+    "REFRESH_VIEWS": "refresh_views",
+    "MIGRATE_SCHEMA": "migrate_schema",
     "MAINTENANCE_DIAGNOSE": "maintenance_diagnose",
 }
 _QUERY = {
@@ -82,37 +113,68 @@ _QUERY = {
     "TRUST_BOUNDARY_STATUS": "trust_boundary_status",
     "WORK_CONTEXT": "work_context",
     "CONTRACT_STATE": "contract_state",
+    "ASSESS_FAST_JUDGMENT": "assess_fast_judgment",
     "FAST_JUDGMENT_STATUS": "fast_judgment_status",
+    "DECODE_UAI_RESULT": "decode_uai_result",
+    "RENDER_UAI_RESULT": "render_uai_result",
+    "MODEL_STATS": "model_stats",
+}
+_OBSERVE_ADVANCED = {
+    "WORKSPACE_STATUS": "workspace_status",
+    "RECOVERY_CONTEXT": "recovery_context",
+    "READ_CONTEXT": "read_context",
+    "COGNITIVE_HYGIENE": "cognitive_hygiene",
+    "COMPILE_EXECUTION_CONTEXT": "compile_execution_context",
+    "COMPILE_UAI_CONTEXT": "compile_uai_context",
+    "EXPAND_UAI_CONTEXT": "expand_uai_context",
+    "DISCOVERY_SCOPES": "discovery_scopes",
+    "REPOSITORY_LOCATIONS": "repository_locations",
+    "BIGBANG_SCAN": "bigbang_scan",
+    "RECONCILE_BIGBANG_SCAN": "reconcile_bigbang_scan",
+    "RECONCILE_BIGBANG": "reconcile_bigbang",
+    "FILESYSTEM_INVENTORY": "filesystem_inventory",
+    "FILESYSTEM_REFERENCES": "filesystem_references",
 }
 
 
-StatusScope = Literal["HEALTH", "WORKSPACE", "RESTORE", "RECOVERY"]
+StatusScope = Literal["HEALTH", "WORKSPACE", "RESTORE", "RECOVERY", "BOOTSTRAP"]
 ObserveOperation = Literal[
     "STRUCTURAL_STATUS", "STRUCTURAL_SEARCH", "SYMBOL_LOOKUP", "SYMBOL_RELATIONS",
     "STRUCTURAL_CONTEXT", "IMPACT_FRONTIER", "WORKSPACE_STATUS", "RECOVERY_CONTEXT",
-    "READ_CONTEXT", "COGNITIVE_HYGIENE", "COMPILE_CONTEXT",
+    "READ_CONTEXT", "COGNITIVE_HYGIENE", "COMPILE_CONTEXT", "COMPILE_EXECUTION_CONTEXT",
+    "COMPILE_UAI_CONTEXT", "EXPAND_UAI_CONTEXT", "DISCOVERY_SCOPES", "REPOSITORY_LOCATIONS",
+    "BIGBANG_SCAN", "RECONCILE_BIGBANG_SCAN", "RECONCILE_BIGBANG", "FILESYSTEM_INVENTORY",
+    "FILESYSTEM_REFERENCES",
 ]
 QueryOperation = Literal[
     "RESOLVE", "PROJECT_OVERVIEW", "FAMILY_STATUS", "EFFECTIVE_FAMILY", "GRAPH", "TRUTH_AT",
     "TRUTH_ASSERTION_STATUS", "BITEMPORAL_STATUS", "TRUST_BOUNDARY_STATUS", "WORK_CONTEXT",
-    "CONTRACT_STATE", "FAST_JUDGMENT_STATUS",
+    "CONTRACT_STATE", "ASSESS_FAST_JUDGMENT", "FAST_JUDGMENT_STATUS", "DECODE_UAI_RESULT",
+    "RENDER_UAI_RESULT", "MODEL_STATS",
 ]
 WorkOperation = Literal[
-    "RECONCILE_ASSIGNMENT", "ENTER_WORK", "PREPARE_ASSIGNMENT", "BEGIN_WORK",
-    "START_SLICE", "UPDATE_PROGRESS", "CLAIM_DONE", "CHECKPOINT_WORK",
+    "RECONCILE_ASSIGNMENT", "INTAKE_REQUEST", "ENTER_WORK", "CREATE_PROJECT", "CREATE_FAMILY",
+    "CREATE_SPEC", "REGISTER_CONTRACT", "IMPORT_CONTRACT_BUNDLE", "ATTACH_ARTIFACT", "LINK_ENTITIES",
+    "PREPARE_ASSIGNMENT", "BEGIN_WORK", "SUBMIT_PLAN", "START_SLICE", "UPDATE_PROGRESS",
+    "CLAIM_DONE", "CLOSE_PLAN", "CHECKPOINT_WORK", "RECORD_TRUTH_ASSERTION",
+    "INVALIDATE_TRUTH_ASSERTION", "RECORD_FAST_JUDGMENT", "FILESYSTEM_SCAN", "REGISTER_PLAYBOOK",
+    "SELECT_PLAYBOOK", "BIND_CONTRACT_TURN", "PROMOTE_CONTRACT_GENERATION",
+    "RELEASE_CONTRACT_GENERATION_GRANT",
 ]
 EffectOperation = Literal[
     "RECORD_INTENT", "MARK_DISPATCHED", "RECORD_OBSERVATION", "RECONCILE", "STATUS", "CLOSURE_STATUS",
 ]
 VerifyOperation = Literal[
     "VALIDATE_SLICE", "SUBMIT_EVIDENCE", "ATTEST_EVIDENCE", "COMPLETION_REVIEW", "SUBMIT_OBSERVATION",
-    "VERIFY_SLICE", "CLOSE_VERIFIED_SLICE", "START_SCOPED_AUDIT", "AUDIT_CONTEXT", "AUDIT_STATUS",
-    "AUDIT_MUTATION_ALLOWED", "RECORD_AUDIT_FINDING", "CLOSE_SCOPED_AUDIT",
+    "SET_GATE", "SET_GATE_CONTROLLED", "VERIFY_SLICE", "CLOSE_VERIFIED_SLICE", "ACCEPT_SLICE",
+    "BUILD_REPRODUCTION_BINDING", "EVIDENCE_FRESHNESS", "START_SCOPED_AUDIT", "AUDIT_CONTEXT",
+    "AUDIT_STATUS", "AUDIT_MUTATION_ALLOWED", "RECORD_AUDIT_FINDING", "CLOSE_SCOPED_AUDIT"
 ]
 ControlOperation = Literal[
     "REQUEST_OVERRIDE", "APPROVE_OVERRIDE", "REJECT_OVERRIDE", "LIST_APPROVALS",
-    "EXECUTION_ELIGIBILITY", "AUTHORIZE_DELEGATION", "COMPLETE_DELEGATION",
-    "DELEGATION_STATUS", "MAINTENANCE_DIAGNOSE",
+    "PUBLISH_WORKER_RUNTIME", "EXECUTION_ELIGIBILITY", "AUTHORIZE_DELEGATION", "COMPLETE_DELEGATION",
+    "DELEGATION_STATUS", "REGISTER_MODEL", "RECORD_EXECUTION_RECEIPT", "BACKFILL_WORK_IDENTITY",
+    "BIND_WORK_TURN", "REFRESH_VIEWS", "MIGRATE_SCHEMA", "MAINTENANCE_DIAGNOSE"
 ]
 
 
@@ -404,6 +466,8 @@ def mangome_status(scope: StatusScope = "HEALTH", payload: dict[str, Any] | None
         result = advanced.session_restore(**data)
     elif op == "RECOVERY":
         result = advanced.recovery_context(**data)
+    elif op == "BOOTSTRAP":
+        result = advanced.session_bootstrap(**data)
     else:
         result = {"ok": False, "error": {"code": "UNSUPPORTED_STATUS_SCOPE", "message": op, "recoverable": True}}
     return _guidance(
@@ -421,24 +485,20 @@ def mangome_observe(operation: ObserveOperation, payload: dict[str, Any] | None 
     op = _normalize_operation(operation)
     if op in {"STRUCTURAL_STATUS", "STRUCTURAL_SEARCH", "SYMBOL_LOOKUP", "SYMBOL_RELATIONS", "STRUCTURAL_CONTEXT", "IMPACT_FRONTIER"}:
         result = _structural(op, data)
-    elif op == "WORKSPACE_STATUS":
-        result = advanced.workspace_status(**data)
-    elif op == "RECOVERY_CONTEXT":
-        result = advanced.recovery_context(**data)
-    elif op == "READ_CONTEXT":
-        result = advanced.read_context(**data)
     elif op == "COGNITIVE_HYGIENE":
         call_data = {k: v for k, v in data.items() if k not in {"workspace_root", "structural_max_chars", "structural_max_items"}}
-        result = advanced.cognitive_hygiene(**call_data)
+        result = _call_allowlisted(_OBSERVE_ADVANCED, op, call_data)
         if isinstance(result, dict) and result.get("ok") is not False:
             query = str(data.get("query_text") or data.get("family_id") or "")
             structural = _optional_structural_context(data, query)
             if structural is not None:
                 result = dict(result)
                 result["structural_relevance"] = structural
-                result["structural_rule"] = "PCH_MAY_USE_STRUCTURE_FOR_RELEVANCE_NOT_TRUTH_OR_ASSURANCE"
+                result["structural_rule"] = "STRUCTURAL_RELEVANCE_IS_ADVISORY_AND_DOES_NOT_CHANGE_PCH_TEMPERATURE_TRUTH_OR_ASSURANCE"
     elif op == "COMPILE_CONTEXT":
         result = _compile_context(data)
+    elif op in _OBSERVE_ADVANCED:
+        result = _call_allowlisted(_OBSERVE_ADVANCED, op, data)
     else:
         result = {"ok": False, "error": {"code": "UNSUPPORTED_OBSERVE_OPERATION", "message": op, "recoverable": True}}
     return _guidance(
@@ -521,7 +581,7 @@ def mangome_verify(operation: VerifyOperation, payload: dict[str, Any] | None = 
         if impact is not None:
             result = dict(result)
             result["structural_impact_candidates"] = impact
-            result["structural_rule"] = "SRA_MAY_EXPAND_INSPECTION_FRONTIER_NEVER_MUTATION_AUTHORITY"
+            result["structural_rule"] = "STRUCTURAL_IMPACT_IS_ADVISORY_BESIDE_SRA_AND_NEVER_EXPANDS_PERSISTED_MUTATION_AUTHORITY"
     return _guidance(
         "VERIFY", op, result,
         success_disposition="VERIFICATION_STEP_COMPLETE", recommended="FOLLOW_VERIFICATION_STATE",
@@ -534,7 +594,8 @@ def mangome_verify(operation: VerifyOperation, payload: dict[str, Any] | None = 
 def mangome_control(operation: ControlOperation, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Perform explicit controller/router/owner operations through the advanced capability layer."""
     op = _normalize_operation(operation)
-    result = _call_allowlisted(_CONTROL, op, dict(payload or {}))
+    data = dict(payload or {})
+    result = _call_allowlisted(_CONTROL, op, data)
     return _guidance(
         "CONTROL", op, result,
         success_disposition="CONTROL_STEP_COMPLETE", recommended="FOLLOW_CONTROL_STATE",

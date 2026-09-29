@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.11-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.12-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -99,6 +99,31 @@ A Claude session ends. Codex continues. Another agent sees a different database.
 MangoMe moves that problem out of the prompt and into durable, inspectable state.
 
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
+
+---
+
+# v0.3.12 — v0.3.11 Repair & External Enforcement Boundary
+
+v0.3.12 is intentionally a repair-and-boundary release. It keeps the seven-tool worker facade introduced in v0.3.11, but restores semantic access to **all 100 pre-existing advanced MangoMe capabilities**. The worker therefore gets a small tool-selection surface without losing admission, WorkIdentity, Plan, Contract, truth, UAI/context, filesystem/discovery, FJD, runtime/delegation, evidence/verification or maintenance functionality.
+
+Structural Intelligence is also hardened against the Python binding variants present in current `tree-sitter-language-pack` 1.x. The adapter prefers the package's configured parser, tolerates str/bytes and node API differences, and falls back to bounded text parsing rather than turning parser failure into a MangoMe-wide blocker. Structural context remains derived observation only. It is advisory beside PCH/1 and SRA/1; it does not rewrite PCH temperature, the persisted SRA frontier, truth, Evidence or mutation authority.
+
+v0.3.12 also makes the physical runtime boundary explicit without embedding a sandbox into MangoMe:
+
+```text
+MangoMe execution_eligibility / authorize_delegation
+        -> host-side enforcement policy
+        -> worker execution
+        -> host audit / outcome reference
+        -> record_execution_receipt metadata
+        -> Evidence / AV/1 when independent verification is required
+```
+
+The existing execution-receipt `metadata` field is sufficient for backend/version/policy/audit references, so no schema or second runtime state machine is introduced. The worker must not widen its own filesystem, network, command, credential or tool policy. External enforcement and security-scanner results remain observations or judgments until MangoMe's existing evidence/verification rules establish more.
+
+**No HMAC or cryptographic mutation journal is introduced in v0.3.12.** There is no MangoMe key lifecycle, no integrity secret and no hidden crypto dependency in this release. External sandboxes/firewalls/eval frameworks remain external components to be evaluated independently before any tighter integration.
+
+See [`docs/worker-facade.md`](docs/worker-facade.md), [`docs/structural-intelligence.md`](docs/structural-intelligence.md), [`docs/runtime-enforcement.md`](docs/runtime-enforcement.md), and [`docs/v0.3.12-release-notes.md`](docs/v0.3.12-release-notes.md).
 
 ---
 
@@ -960,7 +985,7 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The normal v0.3.11 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
+The normal v0.3.12 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
 
 The detailed capability surface remains available through the explicit advanced endpoint for operators, compatibility and internal integrations. That advanced surface includes:
 
@@ -1255,7 +1280,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.11** keeps the v0.3.x governance architecture and adds bounded structural sight plus a small semantic worker surface. Canonical truth/effect gates remain unchanged; structural intelligence is derived observation and cognition degrades gracefully when optional structural/context services are unavailable.
+**v0.3.12** keeps the v0.3.x governance architecture, repairs the semantic-facade capability loss, hardens Structural Intelligence, and formalizes a clean host-side enforcement boundary without adding HMAC, a new canonical store, or another security subsystem.
 
 The current execution architecture is:
 

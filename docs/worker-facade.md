@@ -1,6 +1,6 @@
-# Worker Facade — MangoMe v0.3.11
+# Worker Facade — MangoMe v0.3.12
 
-v0.3.11 separates the normal worker surface from the advanced capability surface.
+v0.3.12 keeps the normal worker surface separate from the advanced capability surface and repairs the v0.3.11 capability-loss regression.
 
 The default `mangome-mcp` entry point exposes exactly seven semantic tools:
 
@@ -12,16 +12,16 @@ The default `mangome-mcp` entry point exposes exactly seven semantic tools:
 6. `mangome_verify`
 7. `mangome_control`
 
-The existing precise MCP capabilities remain implemented in `mangome.mcp_server` and are available through the explicit `mangome-mcp-advanced` entry point. They are not duplicated or deleted. The normal `mangome` CLI is routed through `mangome.worker_cli`, so `mangome setup`, `doctor --repair`, and client attestation target `mangome.worker_mcp_server`; `mangome-advanced` retains the prior CLI behavior for explicit advanced/internal use.
+The existing precise MCP capabilities remain implemented in `mangome.mcp_server` and remain available through `mangome-mcp-advanced`. The semantic facade routes all 100 pre-existing advanced capabilities into the seven categories; reducing top-level tool count no longer removes functionality.
 
-Each semantic facade call routes deterministically through a fixed allowlist. Responses contain `disposition`, `recommended_next_action`, `allowed_next_actions`, `forbidden_next_actions`, and `reason_codes`. This is the weak-agent semantic bridge: a worker need not know MangoMe's internal capability taxonomy to select a safe next action.
-
-Read-only `STATUS`, `OBSERVE`, and `QUERY` calls do not admit work. Mutating `WORK`, `EFFECT`, `VERIFY`, and `CONTROL` calls retain the underlying v0.3.10c gates. The facade does not bypass WorkIdentity, restore, controller/router, verifier, owner-approval, or effect-journal controls.
+Each facade call routes through a fixed allowlist and returns `disposition`, `recommended_next_action`, `allowed_next_actions`, `forbidden_next_actions`, and `reason_codes`. This is a semantic bridge for weaker workers, not a replacement governance system. Underlying WorkIdentity, controller/router, verifier, owner-approval, effect and recovery gates still decide authority.
 
 The governing degradation rule is:
 
 > Fail closed on truth/effect mutation. Degrade gracefully on cognition.
 
-Consequently, an unavailable structural map does not block work, a context budget is reduced in stages, missing verification capability blocks verification rather than ordinary reasoning, and ambiguity never authorizes canonical mutation.
+Structural/parser failure therefore does not block ordinary work, context pressure can reduce optional derived context, missing verifier authority blocks verification rather than reasoning, and ambiguity never grants mutation authority.
 
-Existing managed client configurations created by an older release may still point directly at `mangome.mcp_server`. After installing v0.3.11, rerun normal `mangome setup --client auto` (or `mangome doctor --repair`) to rewrite the managed binding to `mangome.worker_mcp_server`.
+Structural enrichment is intentionally advisory. `COGNITIVE_HYGIENE` may return a separate structural-relevance projection without changing PCH/1 temperatures. `START_SCOPED_AUDIT` may return structural impact candidates without mutating the persisted SRA/1 frontier.
+
+Managed clients created before the semantic facade may still point directly at `mangome.mcp_server`. The normal v0.3.12 `mangome setup --client auto` / `mangome doctor --repair` path targets `mangome.worker_mcp_server`; the explicit `mangome-advanced` path retains advanced/internal behavior.
