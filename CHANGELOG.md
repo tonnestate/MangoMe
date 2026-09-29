@@ -8,6 +8,10 @@
 - Formalizes the external enforcement boundary without adding a dependency: host-side sandboxes/policy engines run after `execution_eligibility` / `authorize_delegation`, and enforcement provenance can be attached to the existing `record_execution_receipt(..., metadata=...)` field.
 - Defines external enforcement/scanner outcomes as observations, FJD/1 judgments or AV/1 evidence inputs according to existing semantics; they never self-promote to canonical truth or verification.
 - Deliberately does **not** add HMAC, a cryptographic mutation journal, key lifecycle, `nono`, OpenShell, LlamaFirewall, Inspect AI or another runtime subsystem to MangoMe. Those remain external/evaluation concerns until isolated spikes justify tighter integration.
+- Freezes managed-client surface selection: direct/programmatic setup defaults to the seven-tool worker endpoint, while the explicit advanced CLI can request the advanced endpoint without monkeypatching module globals.
+- Adds a deterministic release smoke gate for package import, exact seven-tool worker discovery, advanced-capability routing completeness, and one in-process read-only MCP health call.
+- Repairs managed MongoDB credential wiring: `MANGOME_MONGODB_URI_FILE` and non-secret trust-boundary posture are propagated into managed Claude/Codex MCP configuration, while `MANGOME_MONGODB_URI` is deliberately never persisted.
+- Adds sanitized client-attestation diagnostics for missing credential-file binding, process-only URI usage, and unsafe URI secrets found in managed client configuration.
 
 ## 0.3.11 — 2026-09-29 — Structural Intelligence / Semantic Worker Facade / Graceful Cognition
 

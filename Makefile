@@ -1,4 +1,4 @@
-.PHONY: install dev test compile check
+.PHONY: install dev test compile smoke check
 
 install:
 	python -m pip install -e .
@@ -12,7 +12,10 @@ test:
 compile:
 	PYTHONPATH=src python -m compileall -q src tests server.py
 
-check: test compile
+smoke:
+	PYTHONPATH=src python tools/release_smoke.py
+
+check: test compile smoke
 	test -f .gitignore
 	test -f skill/mangome/SKILL.md
 	test -f src/mangome/skill/SKILL.md

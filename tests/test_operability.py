@@ -15,9 +15,59 @@ from mangome.operability import (
     configure_claude_code,
     configure_codex,
     enforce_expected_identity,
+    _server_identity,
 )
 from mangome.service import MangoMeService
 from mangome.storage.memory import InMemoryStore
+
+
+def test_managed_surface_defaults_worker_and_advanced_is_explicit(tmp_path: Path):
+    worker = _server_identity(tmp_path.resolve(), backend="memory", database="mangome_test")
+    advanced = _server_identity(
+        tmp_path.resolve(), backend="memory", database="mangome_test", surface="advanced"
+    )
+
+    assert worker["args"] == ["-m", "mangome.worker_mcp_server"]
+    assert advanced["args"] == ["-m", "mangome.mcp_server"]
+    with pytest.raises(OperabilityError) as exc:
+        _server_identity(tmp_path.resolve(), backend="memory", database="mangome_test", surface="invalid")
+    assert exc.value.code == "UNSUPPORTED_MCP_SURFACE"
+
+
+def test_managed_identity_passes_credential_file_path_but_never_persists_uri_secret(
+    tmp_path: Path, monkeypatch
+):
+    credential_file = tmp_path / "mongodb-uri"
+    credential_file.write_text("mongodb://user:secret@127.0.0.1:27017/?authSource=admin\n", encoding="utf-8")
+    monkeypatch.setenv("MANGOME_MONGODB_URI_FILE", str(credential_file))
+    monkeypatch.setenv("MANGOME_MONGODB_URI", "mongodb://do-not-persist:secret@127.0.0.1:27017")
+    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "WARN")
+
+    entry = _server_identity(tmp_path.resolve(), backend="mongo", database="mangome")
+
+    assert entry["env"]["MANGOME_MONGODB_URI_FILE"] == str(credential_file.resolve())
+    assert entry["env"]["MANGOME_TRUST_BOUNDARY"] == "WARN"
+    assert "MANGOME_MONGODB_URI" not in entry["env"]
+
+
+def test_static_attestation_reports_missing_managed_mongodb_credential_source(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("MANGOME_MONGODB_URI_FILE", raising=False)
+    monkeypatch.delenv("MANGOME_MONGODB_URI", raising=False)
+    home = tmp_path / "home"
+    home.mkdir()
+    configure_codex(str(tmp_path), backend="mongo", database="mangome", home=str(home))
+
+    attested = attest_client(
+        "codex", str(tmp_path), backend="mongo", database="mangome",
+        home=str(home), check_client=False,
+    )
+
+    assert attested["status"] == "STATIC_PASS"
+    assert attested["database_credential"] == {
+        "source": "DEFAULT_LOOPBACK",
+        "credential_file_bound": False,
+    }
+    assert "MONGODB_CREDENTIAL_SOURCE_MISSING" in attested["warnings"]
 
 
 def test_unknown_workspace_auto_attaches_once_without_inventing_contract_truth(tmp_path: Path):
@@ -70,7 +120,7 @@ def test_claude_code_setup_defaults_to_local_scope_and_preserves_other_servers(t
     assert local_config.get("mcpServers", {}) == {}
     server = local_config["projects"][str(tmp_path.resolve())]["mcpServers"]["mangome"]
     assert server["type"] == "stdio"
-    assert server["args"] == ["-m", "mangome.mcp_server"]
+    assert server["args"] == ["-m", "mangome.worker_mcp_server"]
     assert server["env"]["MANGOME_AUTO_ATTACH"] == "1"
     assert server["env"]["MANGOME_WORKSPACE_ROOT"] == str(tmp_path.resolve())
 
@@ -101,7 +151,7 @@ def test_claude_code_project_scope_remains_explicit_opt_in(tmp_path: Path):
     )
     config = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
     assert result["scope"] == "project"
-    assert config["mcpServers"]["mangome"]["args"] == ["-m", "mangome.mcp_server"]
+    assert config["mcpServers"]["mangome"]["args"] == ["-m", "mangome.worker_mcp_server"]
     attested = attest_client(
         "claude-code", str(tmp_path), backend="memory", database="mangome_test",
         home=str(home), check_client=False, claude_scope="project",
@@ -135,7 +185,7 @@ def test_codex_setup_is_user_scoped_portable_and_preserves_unrelated_toml(tmp_pa
     assert "mangome_eval" not in parsed_user.get("mcp_servers", {})
     assert raw_user.count("[mcp_servers.mangome]") == 1
     server = parsed_user["mcp_servers"]["mangome"]
-    assert server["args"] == ["-m", "mangome.mcp_server"]
+    assert server["args"] == ["-m", "mangome.worker_mcp_server"]
     assert "cwd" not in server
     assert "MANGOME_WORKSPACE_ROOT" not in server["env"]
 

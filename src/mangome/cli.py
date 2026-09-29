@@ -15,7 +15,7 @@ def _print(value) -> None:
     print(json.dumps(value, default=str, indent=2, ensure_ascii=False))
 
 
-def main() -> None:
+def main(*, surface: str = "advanced") -> None:
     parser = argparse.ArgumentParser(prog="mangome")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -113,20 +113,20 @@ def main() -> None:
         clients = args.client or ["auto"]
         _print(setup_clients(
             args.workspace or os.getcwd(), clients=clients, backend=args.backend,
-            database=args.database, dry_run=args.dry_run, claude_scope=args.claude_scope,
+            database=args.database, dry_run=args.dry_run, claude_scope=args.claude_scope, surface=surface,
         ))
         return
     if args.cmd == "doctor":
         clients = args.client or ["claude-code", "codex"]
         _print(doctor(
             args.workspace, clients=clients, backend=args.backend,
-            database=args.database, repair=args.repair, claude_scope=args.claude_scope,
+            database=args.database, repair=args.repair, claude_scope=args.claude_scope, surface=surface,
         ))
         return
     if args.cmd == "attest-client":
         _print(attest_client(
             args.client, args.workspace or os.getcwd(), backend=args.backend,
-            database=args.database, check_client=not args.static_only, claude_scope=args.claude_scope,
+            database=args.database, check_client=not args.static_only, claude_scope=args.claude_scope, surface=surface,
         ))
         return
     if args.cmd == "health":

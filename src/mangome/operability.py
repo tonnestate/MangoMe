@@ -310,7 +310,8 @@ def _atomic_text(path: Path, content: str) -> None:
 
 
 def _server_identity(
-    workspace: Path | None, *, backend: str, database: str, portable_workspace: bool = False
+    workspace: Path | None, *, backend: str, database: str, portable_workspace: bool = False,
+    surface: str = "worker",
 ) -> dict[str, Any]:
     """Build one managed MCP runtime identity.
 
@@ -318,6 +319,17 @@ def _server_identity(
     MANGOME_WORKSPACE_ROOT so the MCP process inherits the active Codex working
     directory. Claude's workspace-scoped integrations keep an explicit workspace.
     """
+    normalized_surface = str(surface or "worker").strip().lower()
+    modules = {
+        "worker": "mangome.worker_mcp_server",
+        "advanced": "mangome.mcp_server",
+    }
+    if normalized_surface not in modules:
+        raise OperabilityError(
+            "UNSUPPORTED_MCP_SURFACE",
+            "MCP surface must be 'worker' or 'advanced'",
+        )
+
     identity = installation_identity()
     env = {
         "MANGOME_BACKEND": backend,
@@ -342,9 +354,27 @@ def _server_identity(
         value = os.environ.get(key, "").strip()
         if value:
             env[key] = value
+
+    # Managed clients may need host-side deployment posture, but never persist the
+    # MongoDB URI/secret itself.  The credential-file path is safe configuration;
+    # the file contents remain outside Claude/Codex configuration.
+    safe_host_env = (
+        "MANGOME_MONGODB_URI_FILE",
+        "MANGOME_TRUST_BOUNDARY",
+        "MANGOME_EXPECTED_SERVICE_UID",
+        "MANGOME_ENFORCE_LEAST_PRIVILEGE",
+        "MANGOME_ALLOW_REMOTE_MONGODB",
+    )
+    for key in safe_host_env:
+        value = os.environ.get(key, "").strip()
+        if not value:
+            continue
+        if key == "MANGOME_MONGODB_URI_FILE":
+            value = str(Path(value).expanduser().resolve())
+        env[key] = value
     entry: dict[str, Any] = {
         "command": identity["python"],
-        "args": ["-m", "mangome.mcp_server"],
+        "args": ["-m", modules[normalized_surface]],
         "env": env,
     }
     if workspace is not None and not portable_workspace:
@@ -570,6 +600,7 @@ def configure_claude_code(
     dry_run: bool = False,
     home: str | None = None,
     scope: str = "local",
+    surface: str = "worker",
 ) -> dict[str, Any]:
     """Configure Claude Code with zero-touch LOCAL scope by default.
 
@@ -588,7 +619,7 @@ def configure_claude_code(
     project_data, removed_project, project_backup = _clean_claude_project_config(config_path, dry_run=dry_run)
     removed_shadows.extend(removed_project)
 
-    entry = _server_identity(workspace, backend=backend, database=database)
+    entry = _server_identity(workspace, backend=backend, database=database, surface=surface)
     backups: list[str] = []
     if project_backup:
         backups.append(project_backup)
@@ -672,8 +703,10 @@ def _strip_toml_section_family(text: str, section: str) -> str:
     return "\n".join(output) + ("\n" if output else "")
 
 
-def _codex_block(*, backend: str, database: str) -> str:
-    entry = _server_identity(None, backend=backend, database=database, portable_workspace=True)
+def _codex_block(*, backend: str, database: str, surface: str = "worker") -> str:
+    entry = _server_identity(
+        None, backend=backend, database=database, portable_workspace=True, surface=surface
+    )
     lines = [
         "# BEGIN MANGOME MANAGED MCP",
         "[mcp_servers.mangome]",
@@ -697,6 +730,7 @@ def configure_codex(
     database: str = "mangome",
     dry_run: bool = False,
     home: str | None = None,
+    surface: str = "worker",
 ) -> dict[str, Any]:
     """Install MangoMe for Codex without depending on trusted-project catalog state.
 
@@ -730,7 +764,7 @@ def configure_codex(
     updated = base.rstrip()
     if updated:
         updated += "\n\n"
-    updated += _codex_block(backend=backend, database=database)
+    updated += _codex_block(backend=backend, database=database, surface=surface)
 
     backups: list[str] = []
     if not dry_run:
@@ -772,7 +806,9 @@ def configure_codex(
         "skill_scope": "user",
         "instruction_path": str(instruction_target),
         "instruction_scope": "user",
-        "server": _server_identity(None, backend=backend, database=database, portable_workspace=True),
+        "server": _server_identity(
+            None, backend=backend, database=database, portable_workspace=True, surface=surface
+        ),
         "backups": list(dict.fromkeys(backups)),
         "removed_shadow_entries": list(dict.fromkeys(removed_shadows)),
     }
@@ -861,6 +897,41 @@ def _claude_static_entry(home: Path, workspace: Path, *, scope: str) -> tuple[di
     return (servers.get("mangome") if isinstance(servers, dict) else None), path
 
 
+def _mongodb_credential_posture(
+    actual: dict[str, Any] | None, expected: dict[str, Any], *, backend: str
+) -> tuple[dict[str, Any], list[str]]:
+    """Describe managed MongoDB credential wiring without exposing secrets or paths."""
+    if str(backend or "mongo").strip().lower() == "memory":
+        return {"source": "NOT_APPLICABLE", "credential_file_bound": False}, []
+
+    warnings: list[str] = []
+    actual_env = actual.get("env") if isinstance(actual, dict) else None
+    if not isinstance(actual_env, dict):
+        actual_env = {}
+
+    if str(actual_env.get("MANGOME_MONGODB_URI") or "").strip():
+        warnings.append("MONGODB_URI_SECRET_IN_MANAGED_CONFIG")
+        return {"source": "MANAGED_URI_ENV", "credential_file_bound": False}, warnings
+
+    if str(actual_env.get("MANGOME_MONGODB_URI_FILE") or "").strip():
+        return {"source": "CREDENTIAL_FILE", "credential_file_bound": True}, warnings
+
+    expected_env = expected.get("env") if isinstance(expected, dict) else None
+    expected_file = (expected_env or {}).get("MANGOME_MONGODB_URI_FILE") if isinstance(expected_env, dict) else None
+    if str(expected_file or "").strip():
+        warnings.append("MONGODB_CREDENTIAL_FILE_NOT_BOUND_TO_CLIENT")
+        return {"source": "EXPECTED_CREDENTIAL_FILE", "credential_file_bound": False}, warnings
+
+    # Direct URI environment variables are intentionally not copied into managed
+    # client configuration because that would persist a secret in Claude/Codex config.
+    if str(os.environ.get("MANGOME_MONGODB_URI") or "").strip():
+        warnings.append("MONGODB_URI_NOT_PERSISTED_USE_CREDENTIAL_FILE")
+        return {"source": "PROCESS_ENVIRONMENT_ONLY", "credential_file_bound": False}, warnings
+
+    warnings.append("MONGODB_CREDENTIAL_SOURCE_MISSING")
+    return {"source": "DEFAULT_LOOPBACK", "credential_file_bound": False}, warnings
+
+
 def attest_client(
     client: str,
     workspace_root: str,
@@ -870,12 +941,15 @@ def attest_client(
     home: str | None = None,
     check_client: bool = True,
     claude_scope: str = "local",
+    surface: str = "worker",
 ) -> dict[str, Any]:
     workspace = resolve_workspace_root(workspace_root)
-    expected = _server_identity(workspace, backend=backend, database=database)
+    expected = _server_identity(workspace, backend=backend, database=database, surface=surface)
     home_path = Path(home).expanduser().resolve() if home else Path.home().resolve()
     reasons: list[str] = []
     shadows: list[str] = []
+    warnings: list[str] = []
+    actual: dict[str, Any] | None = None
 
     normalized = client.lower().replace("_", "-")
     if normalized in {"claude", "claude-code"}:
@@ -917,7 +991,9 @@ def attest_client(
                 if state == "PENDING_APPROVAL":
                     reasons.append("PROJECT_MCP_APPROVAL_REQUIRED")
     elif normalized == "codex":
-        expected = _server_identity(None, backend=backend, database=database, portable_workspace=True)
+        expected = _server_identity(
+            None, backend=backend, database=database, portable_workspace=True, surface=surface
+        )
         path = home_path / ".codex" / "config.toml"
         actual = None
         if path.exists():
@@ -966,7 +1042,12 @@ def attest_client(
 
     if shadows:
         reasons.append("CONFIGURATION_SHADOWING")
+    database_credential, credential_warnings = _mongodb_credential_posture(
+        actual, expected, backend=backend
+    )
+    warnings.extend(credential_warnings)
     reasons = list(dict.fromkeys(reasons))
+    warnings = list(dict.fromkeys(warnings))
     if reasons:
         status = "CLIENT_READINESS_FAILED"
     elif check_client and cli.get("available"):
@@ -977,6 +1058,8 @@ def attest_client(
         "client": normalized,
         "status": status,
         "reasons": reasons,
+        "warnings": warnings,
+        "database_credential": database_credential,
         "workspace_root": str(workspace),
         "expected_server": expected,
         "shadow_candidates": shadows,
@@ -994,6 +1077,7 @@ def setup_clients(
     dry_run: bool = False,
     home: str | None = None,
     claude_scope: str = "local",
+    surface: str = "worker",
 ) -> dict[str, Any]:
     workspace = resolve_workspace_root(workspace_root)
     requested = list(clients or [])
@@ -1016,12 +1100,13 @@ def setup_clients(
         if client in {"claude", "claude-code"}:
             change = configure_claude_code(
                 str(workspace), backend=backend, database=database, dry_run=dry_run, home=home,
-                scope=claude_scope,
+                scope=claude_scope, surface=surface,
             )
             normalized = "claude-code"
         elif client == "codex":
             change = configure_codex(
-                str(workspace), backend=backend, database=database, dry_run=dry_run, home=home
+                str(workspace), backend=backend, database=database, dry_run=dry_run, home=home,
+                surface=surface,
             )
             normalized = "codex"
         else:
@@ -1029,7 +1114,7 @@ def setup_clients(
             continue
         attestation = None if dry_run else attest_client(
             normalized, str(workspace), backend=backend, database=database, home=home, check_client=True,
-            claude_scope=claude_scope,
+            claude_scope=claude_scope, surface=surface,
         )
         results.append({"client": normalized, "change": change, "attestation": attestation})
     return {
@@ -1037,6 +1122,7 @@ def setup_clients(
         "installation": installation_identity(),
         "clients": results,
         "dry_run": dry_run,
+        "surface": str(surface or "worker").strip().lower(),
         "rule": "Safe managed configuration drift is repaired without requiring the user to know MangoMe internals.",
     }
 
@@ -1050,12 +1136,13 @@ def doctor(
     repair: bool = False,
     home: str | None = None,
     claude_scope: str = "local",
+    surface: str = "worker",
 ) -> dict[str, Any]:
     workspace = resolve_workspace_root(workspace_root)
     before = [
         attest_client(
             client, str(workspace), backend=backend, database=database, home=home, check_client=True,
-            claude_scope=claude_scope,
+            claude_scope=claude_scope, surface=surface,
         )
         for client in clients
     ]
@@ -1065,12 +1152,12 @@ def doctor(
         if failing:
             repair_result = setup_clients(
                 str(workspace), clients=failing, backend=backend, database=database, dry_run=False, home=home,
-                claude_scope=claude_scope,
+                claude_scope=claude_scope, surface=surface,
             )
     after = [
         attest_client(
             client, str(workspace), backend=backend, database=database, home=home, check_client=True,
-            claude_scope=claude_scope,
+            claude_scope=claude_scope, surface=surface,
         )
         for client in clients
     ] if repair else before
