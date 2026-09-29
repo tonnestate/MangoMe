@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import tomllib
 from pathlib import Path
 
 import pytest
 
 import mangome.runtime as runtime
+import mangome.zero_touch as zero_touch
 from mangome import __version__
 from mangome.operability import (
     OperabilityError,
@@ -68,6 +70,81 @@ def test_static_attestation_reports_missing_managed_mongodb_credential_source(tm
         "credential_file_bound": False,
     }
     assert "MONGODB_CREDENTIAL_SOURCE_MISSING" in attested["warnings"]
+
+
+
+def test_zero_touch_adopts_legacy_codex_backup_before_alias_cleanup(tmp_path: Path, monkeypatch):
+    home = tmp_path / "home"
+    backup = home / ".codex" / "config.toml.mangome.bak"
+    backup.parent.mkdir(parents=True)
+    backup.write_text(
+        '[mcp_servers.mangome_eval]\n'
+        'command = "/old/mangome"\n\n'
+        '[mcp_servers.mangome_eval.env]\n'
+        'MANGOME_DATABASE = "mangome_uai_eval"\n'
+        'MANGOME_MONGODB_URI = "mongodb://legacy:secret@127.0.0.1:27017/?authSource=admin"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("MANGOME_MONGODB_URI", raising=False)
+    monkeypatch.delenv("MANGOME_MONGODB_URI_FILE", raising=False)
+    monkeypatch.setattr(
+        zero_touch,
+        "_probe_uri",
+        lambda uri, database: {"database_ready": True, "canonical_indexes_ready": True},
+    )
+    monkeypatch.setattr(zero_touch, "_live_process_candidates", lambda: [])
+
+    result = zero_touch.prepare_mongodb_runtime(
+        tmp_path, database="mangome", home=str(home)
+    )
+
+    target = home / ".config" / "mangome" / "mongodb-uri"
+    assert result["status"] == "READY"
+    assert result["legacy_source_adopted"] is True
+    assert result["credential_source"].startswith("CODEX_CONFIG:mangome_eval")
+    assert result["credential_file_bound"] is True
+    assert target.is_file()
+    assert target.stat().st_mode & 0o077 == 0
+    assert "legacy:secret" in target.read_text(encoding="utf-8")
+    assert "secret" not in json.dumps(result)
+    assert Path(os.environ["MANGOME_MONGODB_URI_FILE"]) == target.resolve()
+    assert "MANGOME_MONGODB_URI" not in os.environ
+
+
+def test_zero_touch_can_recover_credential_from_live_legacy_mcp_process(tmp_path: Path):
+    proc = tmp_path / "proc"
+    pid = proc / "1234"
+    pid.mkdir(parents=True)
+    (pid / "cmdline").write_bytes(b"python\0-m\0mangome.mcp_server\0")
+    (pid / "environ").write_bytes(
+        b"MANGOME_DATABASE=mangome_uai_eval\0"
+        b"MANGOME_MONGODB_URI=mongodb://legacy:secret@127.0.0.1:27017/?authSource=admin\0"
+    )
+
+    candidates = zero_touch._live_process_candidates(proc)
+
+    assert len(candidates) == 1
+    assert candidates[0].source == "LIVE_MANGOME_PROCESS:URI"
+    assert candidates[0].legacy is True
+    assert candidates[0].kind == "URI"
+
+
+def test_zero_touch_maps_missing_authority_to_single_fail_closed_error(tmp_path: Path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.delenv("MANGOME_MONGODB_URI", raising=False)
+    monkeypatch.delenv("MANGOME_MONGODB_URI_FILE", raising=False)
+    monkeypatch.setattr(zero_touch, "_collect_candidates", lambda workspace, home: [])
+
+    def denied(uri: str, database: str):
+        raise zero_touch.ZeroTouchBootstrapError(
+            "BOOTSTRAP_AUTHORITY_REQUIRED", "authority required"
+        )
+
+    monkeypatch.setattr(zero_touch, "_probe_uri", denied)
+    with pytest.raises(zero_touch.ZeroTouchBootstrapError) as exc:
+        zero_touch.prepare_mongodb_runtime(tmp_path, database="mangome", home=str(home))
+    assert exc.value.code == "BOOTSTRAP_AUTHORITY_REQUIRED"
 
 
 def test_unknown_workspace_auto_attaches_once_without_inventing_contract_truth(tmp_path: Path):

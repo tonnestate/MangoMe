@@ -1095,6 +1095,25 @@ def setup_clients(
         else:
             expanded.append(normalized)
     expanded = list(dict.fromkeys(expanded))
+
+    bootstrap: dict[str, Any]
+    if dry_run or str(backend or "mongo").strip().lower() == "memory":
+        bootstrap = {
+            "status": "DRY_RUN_SKIPPED" if dry_run else "NOT_APPLICABLE",
+            "database": None if backend == "memory" else database,
+        }
+    else:
+        # Zero-touch bootstrap MUST run before configure_* removes stale MangoMe
+        # aliases.  Old client bindings/backups or a still-live legacy MCP process
+        # may be the only safe source of an already-authorized MongoDB credential.
+        from .zero_touch import ZeroTouchBootstrapError, prepare_mongodb_runtime
+        try:
+            bootstrap = prepare_mongodb_runtime(
+                str(workspace), database=database, home=home,
+            )
+        except ZeroTouchBootstrapError as exc:
+            raise OperabilityError(exc.code, str(exc)) from exc
+
     results: list[dict[str, Any]] = []
     for client in expanded:
         if client in {"claude", "claude-code"}:
@@ -1123,6 +1142,10 @@ def setup_clients(
         "clients": results,
         "dry_run": dry_run,
         "surface": str(surface or "worker").strip().lower(),
+        "bootstrap": bootstrap,
+        "session_reload_required": any(
+            bool((row.get("change") or {}).get("removed_shadow_entries")) for row in results
+        ),
         "rule": "Safe managed configuration drift is repaired without requiring the user to know MangoMe internals.",
     }
 
