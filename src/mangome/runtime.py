@@ -13,11 +13,24 @@ from .operability import OperabilityError, attach_workspace, enforce_expected_id
 _service: MangoMeService | None = None
 _workspace_attachment: dict[str, object] | None = None
 _session_restore: dict[str, object] | None = None
+_database_bootstrap_attempted = False
+_database_bootstrap_snapshot: dict[str, object] | None = None
+_database_bootstrap_error: tuple[str, str] | None = None
 
 _LEGACY_EVAL_DATABASES = {"mangome_uai_eval"}
 
 def _truthy_env(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+def _runtime_zero_touch_enabled() -> bool:
+    """Enable automatic bootstrap only for managed runtimes unless the host overrides it."""
+    if "MANGOME_ZERO_TOUCH_BOOTSTRAP" in os.environ:
+        return _truthy_env("MANGOME_ZERO_TOUCH_BOOTSTRAP")
+    return bool(
+        os.environ.get("MANGOME_DEPLOYMENT_ID", "").strip()
+        or os.environ.get("MANGOME_EXPECTED_VERSION", "").strip()
+        or _truthy_env("MANGOME_AUTO_ATTACH")
+    )
 
 def database_binding_snapshot() -> dict[str, object]:
     backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
@@ -88,6 +101,77 @@ def ensure_workspace_binding(workspace_root: str | None = None) -> dict[str, obj
     return _workspace_attachment
 
 
+def database_bootstrap_snapshot() -> dict[str, object]:
+    """Return sanitized process-local zero-touch bootstrap state."""
+    if _database_bootstrap_snapshot is not None:
+        return dict(_database_bootstrap_snapshot)
+    return {
+        "status": "NOT_ATTEMPTED",
+        "attempted": _database_bootstrap_attempted,
+        "automatic_runtime_bootstrap_enabled": _runtime_zero_touch_enabled(),
+        "rule": "ZERO_TOUCH_BOOTSTRAP_RUNS_ON_FIRST_DATABASE_ACCESS_FOR_MANAGED_RUNTIMES",
+    }
+
+
+def _bootstrap_database_once(database: str) -> dict[str, object]:
+    """Run zero-touch MongoDB adoption/bootstrap at most once per process.
+
+    This closes the installation/runtime gap: a managed MCP process must not depend
+    on the user or agent remembering to run ``mangome setup`` first.  The bounded
+    bootstrap may adopt an already-authorized credential source and create declared
+    MongoDB indexes; it never creates users/roles or runs MangoMe schema migrations.
+    """
+    global _database_bootstrap_attempted, _database_bootstrap_snapshot, _database_bootstrap_error
+
+    if os.environ.get("MANGOME_BACKEND", "mongo").strip().lower() == "memory":
+        _database_bootstrap_snapshot = {"status": "NOT_APPLICABLE", "attempted": False, "database": None}
+        return dict(_database_bootstrap_snapshot)
+
+    if _database_bootstrap_error is not None:
+        code, message = _database_bootstrap_error
+        raise OperabilityError(code, message)
+    if _database_bootstrap_snapshot is not None and _database_bootstrap_attempted:
+        return dict(_database_bootstrap_snapshot)
+
+    _database_bootstrap_attempted = True
+    try:
+        from .zero_touch import ZeroTouchBootstrapError, prepare_mongodb_runtime
+
+        workspace = os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd()
+        result = prepare_mongodb_runtime(workspace, database=database)
+        _database_bootstrap_snapshot = {
+            **result,
+            "attempted": True,
+            "runtime_trigger": "MANAGED_STARTUP_OR_FIRST_DATABASE_ACCESS",
+        }
+        return dict(_database_bootstrap_snapshot)
+    except ZeroTouchBootstrapError as exc:
+        _database_bootstrap_error = (exc.code, str(exc))
+        _database_bootstrap_snapshot = {
+            "status": "BLOCKED",
+            "attempted": True,
+            "database": database,
+            "reason_code": exc.code,
+            "restart_required_after_repair": True,
+            "rule": "ZERO_TOUCH_FAILURE_IS_CACHED_PER_PROCESS_TO_PREVENT_RETRY_LOOPS",
+        }
+        raise OperabilityError(exc.code, str(exc)) from exc
+    except Exception as exc:
+        code = "ZERO_TOUCH_BOOTSTRAP_FAILED"
+        message = "zero-touch MongoDB bootstrap failed before MangoMe service initialization"
+        _database_bootstrap_error = (code, message)
+        _database_bootstrap_snapshot = {
+            "status": "BLOCKED",
+            "attempted": True,
+            "database": database,
+            "reason_code": code,
+            "error_type": type(exc).__name__,
+            "restart_required_after_repair": True,
+            "rule": "ZERO_TOUCH_FAILURE_IS_CACHED_PER_PROCESS_TO_PREVENT_RETRY_LOOPS",
+        }
+        raise OperabilityError(code, message) from exc
+
+
 def get_service() -> MangoMeService:
     global _service, _workspace_attachment, _session_restore
     if _service is not None:
@@ -110,6 +194,8 @@ def get_service() -> MangoMeService:
     if backend == "memory":
         store = InMemoryStore()
     else:
+        if _runtime_zero_touch_enabled():
+            _bootstrap_database_once(database)
         mongo = resolve_mongodb_connection()
         store = MongoStore(mongo.uri, database)
         enforce_mongo_role_boundary(store)
@@ -308,13 +394,27 @@ def refresh_workspace_attachment(workspace_root: str | None = None, *, force: bo
     return _workspace_attachment
 
 
-def health_snapshot() -> dict[str, object]:
-    """Return a health report even when backing-store bootstrap fails.
+def _trust_boundary_snapshot() -> dict[str, object] | None:
+    if os.environ.get("MANGOME_BACKEND", "mongo").lower() == "memory":
+        return None
+    try:
+        return dict(resolve_mongodb_connection().status)
+    except Exception as exc:
+        return {
+            "protocol": "MTB/1",
+            "mode": os.environ.get("MANGOME_TRUST_BOUNDARY", "WARN").strip().upper(),
+            "ok": False,
+            "reason_code": getattr(exc, "code", type(exc).__name__),
+        }
 
-    Health is an observability boundary, so it must not require a successfully
-    constructed MangoMeService. Diagnostics intentionally expose only the
-    exception class and a sanitized category, never connection strings or
-    exception messages that may contain credentials.
+
+def health_snapshot() -> dict[str, object]:
+    """Return sanitized readiness, including zero-touch bootstrap state.
+
+    The trust-boundary snapshot is intentionally computed *after* ``get_service``
+    gets a chance to run zero-touch adoption.  Otherwise the same HEALTH response can
+    report a recovered database while still describing the pre-recovery credential
+    source, which is misleading.
     """
     from . import __version__
     from .schema import CURRENT_SCHEMA_VERSION
@@ -323,17 +423,6 @@ def health_snapshot() -> dict[str, object]:
     binding = database_binding_snapshot()
     database = binding.get("database") if backend != "memory" else None
     backend_name = "memory" if backend == "memory" else "mongodb"
-    trust_boundary = None
-    if backend != "memory":
-        try:
-            trust_boundary = resolve_mongodb_connection().status
-        except Exception as exc:
-            trust_boundary = {
-                "protocol": "MTB/1",
-                "mode": os.environ.get("MANGOME_TRUST_BOUNDARY", "WARN").strip().upper(),
-                "ok": False,
-                "reason_code": getattr(exc, "code", type(exc).__name__),
-            }
 
     try:
         service = get_service()
@@ -341,8 +430,16 @@ def health_snapshot() -> dict[str, object]:
     except Exception as exc:  # health must survive failed store/bootstrap initialization
         error_type = type(exc).__name__
         code = getattr(exc, "code", None)
-        if isinstance(exc, OperabilityError):
-            diagnostic = "MangoMe client/runtime identity or workspace attachment failed"
+        if code == "BOOTSTRAP_AUTHORITY_REQUIRED":
+            diagnostic = "MongoDB bootstrap authority is unavailable"
+        elif code == "MONGODB_UNREACHABLE":
+            diagnostic = "MongoDB is unreachable during zero-touch bootstrap"
+        elif code == "DATABASE_BOOTSTRAP_FAILED":
+            diagnostic = "MongoDB zero-touch database bootstrap failed"
+        elif code == "ZERO_TOUCH_BOOTSTRAP_FAILED":
+            diagnostic = "MangoMe zero-touch bootstrap failed before service initialization"
+        elif isinstance(exc, OperabilityError):
+            diagnostic = "MangoMe client/runtime identity or deployment binding failed"
         elif code == 13 or error_type in {"AuthenticationFailure", "OperationFailure"}:
             diagnostic = "MongoDB authorization failed during MangoMe initialization"
         elif error_type in {"ServerSelectionTimeoutError", "ConnectionFailure", "AutoReconnect"}:
@@ -366,8 +463,9 @@ def health_snapshot() -> dict[str, object]:
             "version": __version__,
             "schema_version": CURRENT_SCHEMA_VERSION,
             "database_binding": binding,
+            "database_bootstrap": database_bootstrap_snapshot(),
             "store": store,
-            "trust_boundary": trust_boundary,
+            "trust_boundary": _trust_boundary_snapshot(),
             "workspace_attachment": _workspace_attachment,
         }
 
@@ -378,8 +476,9 @@ def health_snapshot() -> dict[str, object]:
         "version": __version__,
         "schema_version": CURRENT_SCHEMA_VERSION,
         "database_binding": binding,
+        "database_bootstrap": database_bootstrap_snapshot(),
         "store": store_health,
-        "trust_boundary": trust_boundary,
+        "trust_boundary": _trust_boundary_snapshot(),
         "workspace_attachment": _workspace_attachment,
     }
 
@@ -387,6 +486,10 @@ def health_snapshot() -> dict[str, object]:
 def reset_service_for_tests() -> None:
     """Reset process-global service/bootstrap state. Intended for tests only."""
     global _service, _workspace_attachment, _session_restore
+    global _database_bootstrap_attempted, _database_bootstrap_snapshot, _database_bootstrap_error
     _service = None
     _workspace_attachment = None
     _session_restore = None
+    _database_bootstrap_attempted = False
+    _database_bootstrap_snapshot = None
+    _database_bootstrap_error = None

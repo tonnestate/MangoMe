@@ -262,25 +262,31 @@ def _collect_candidates(workspace: Path, home: Path) -> list[_CredentialCandidat
     if managed.is_file():
         candidates.append(_CredentialCandidate("MANAGED_CREDENTIAL_FILE", "FILE", str(managed), False))
 
-    codex_paths = [
-        home / ".codex" / "config.toml",
-        home / ".codex" / "config.toml.mangome.bak",
-        workspace / ".codex" / "config.toml",
-        workspace / ".codex" / "config.toml.mangome.bak",
-    ]
-    for path in codex_paths:
-        candidates.extend(_codex_candidates(path, legacy=path.name.endswith(".mangome.bak")))
-
-    claude_paths = [
-        home / ".claude.json",
-        home / ".claude.json.mangome.bak",
-        workspace / ".mcp.json",
-        workspace / ".mcp.json.mangome.bak",
-    ]
-    for path in claude_paths:
-        candidates.extend(_claude_candidates(path, legacy=path.name.endswith(".mangome.bak")))
-
+    # A still-running legacy MCP process is often the only place where an older
+    # launcher inherited a MongoDB credential without persisting it to client config.
+    # Probe it before stale config/backups so startup does not spend multiple MongoDB
+    # timeouts on obsolete candidates before reaching the most likely live authority.
     candidates.extend(_live_process_candidates())
+
+    current_paths = [
+        (home / ".codex" / "config.toml", "codex"),
+        (workspace / ".codex" / "config.toml", "codex"),
+        (home / ".claude.json", "claude"),
+        (workspace / ".mcp.json", "claude"),
+    ]
+    backup_paths = [
+        (home / ".codex" / "config.toml.mangome.bak", "codex"),
+        (workspace / ".codex" / "config.toml.mangome.bak", "codex"),
+        (home / ".claude.json.mangome.bak", "claude"),
+        (workspace / ".mcp.json.mangome.bak", "claude"),
+    ]
+    for path, kind in [*current_paths, *backup_paths]:
+        legacy = path.name.endswith(".mangome.bak")
+        if kind == "codex":
+            candidates.extend(_codex_candidates(path, legacy=legacy))
+        else:
+            candidates.extend(_claude_candidates(path, legacy=legacy))
+
     return _dedupe(candidates)
 
 

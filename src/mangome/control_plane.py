@@ -61,9 +61,10 @@ def control_plane_maintenance_result(request_text: str, *, workspace_root: str) 
 
     This function is intentionally pure/read-only. It does not create WorkIdentity,
     Contracts, Plans, Slices, approvals, receipts, or database state. Explicit operator
-    intent governs only the named MangoMe control-plane surface. If a target update
-    requires a database/schema migration, the worker must stop and report that fact
-    instead of manufacturing an approval or writing the database.
+    intent governs only the named MangoMe control-plane surface. The built-in zero-touch
+    deployment bootstrap is a separate bounded installer primitive: it may adopt an
+    existing credential, bind the canonical database and ensure declared indexes, but it
+    is not authority for domain writes, user/role changes or registered schema migration.
     """
     db_disallowed = database_changes_explicitly_disallowed(request_text)
     return {
@@ -78,6 +79,12 @@ def control_plane_maintenance_result(request_text: str, *, workspace_root: str) 
         "workspace_root": workspace_root,
         "database_changes_explicitly_disallowed": db_disallowed,
         "database_write_allowed_by_this_disposition": False,
+        "zero_touch_deployment_bootstrap_allowed": True,
+        "zero_touch_deployment_bootstrap_scope": [
+            "adopt an already-authorized MongoDB credential source without exposing the secret",
+            "bind the configured canonical MangoMe database identity",
+            "run idempotent ensure_indexes for MangoMe's declared indexes",
+        ],
         "allowed_scope": [
             "MangoMe source checkout",
             "MangoMe virtual environment/package installation",
@@ -87,16 +94,21 @@ def control_plane_maintenance_result(request_text: str, *, workspace_root: str) 
         "forbidden_scope": [
             "application/project code not explicitly targeted by the maintenance request",
             "canonical MangoMe WorkIdentity/Contract/Specification/Plan/Slice state",
-            "MongoDB data or schema unless separately and explicitly authorized",
+            "canonical MangoMe domain documents or registered schema migrations unless separately authorized",
+            "MongoDB users, roles, authentication policy, or database identity changes",
         ],
         "stop_conditions": [
-            "target update requires a MongoDB/schema migration while database changes are not explicitly authorized",
+            "target update requires a registered MangoMe schema migration or canonical domain-data rewrite without separate authorization",
+            "zero-touch bootstrap reports BOOTSTRAP_AUTHORITY_REQUIRED because no reusable database authority exists",
             "maintenance would exceed the explicitly requested MangoMe control-plane scope",
             "target source/version cannot be established from a current authoritative source",
         ],
         "next_action": (
             "Perform only the explicitly requested MangoMe self-maintenance using current runtime/repository evidence. "
             "Do not call enter_work, create governance state, or write a self-approval to MangoMe. "
-            "If a database/schema migration is required, stop immediately and report DATABASE_CHANGE_REQUIRED."
+            "Run the built-in zero-touch deployment bootstrap when installation/runtime readiness requires it; "
+            "credential adoption, canonical binding and idempotent ensure_indexes are installation plumbing, not a domain migration. "
+            "If a registered schema migration, domain-data rewrite, MongoDB user/role change or database-identity change is required, "
+            "stop and report DATABASE_CHANGE_REQUIRED. If no reusable database authority exists, report BOOTSTRAP_AUTHORITY_REQUIRED."
         ),
     }

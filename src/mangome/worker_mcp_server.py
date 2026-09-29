@@ -208,7 +208,7 @@ def _guidance(
     allowed: list[str],
     forbidden: list[str] | None = None,
 ) -> dict[str, Any]:
-    failed = isinstance(result, dict) and result.get("ok") is False
+    failed = isinstance(result, dict) and (result.get("ok") is False or isinstance(result.get("error"), dict))
     reasons = _reason_codes(result)
     if failed:
         return {
@@ -256,16 +256,21 @@ def _call_allowlisted(table: dict[str, str], operation: str, payload: dict[str, 
     try:
         signature = inspect.signature(fn)
         signature.bind(**payload)
-        return fn(**payload)
     except TypeError as exc:
         return {
             "ok": False,
             "error": {"code": "INVALID_CAPABILITY_ARGUMENTS", "message": str(exc), "recoverable": True},
         }
+    try:
+        return fn(**payload)
     except Exception as exc:
         return {
             "ok": False,
-            "error": {"code": type(exc).__name__, "message": str(exc), "recoverable": True},
+            "error": {
+                "code": str(getattr(exc, "code", type(exc).__name__)),
+                "message": str(exc),
+                "recoverable": True,
+            },
         }
 
 

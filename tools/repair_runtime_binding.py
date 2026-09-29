@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair stale managed Codex/Claude MangoMe MCP bindings without touching MongoDB."""
+"""Repair managed bindings and run MangoMe's bounded zero-touch deployment bootstrap."""
 from __future__ import annotations
 
 import argparse
@@ -30,7 +30,9 @@ def main() -> int:
         database=args.database,
         dry_run=False,
     )
-    print("MangoMe runtime binding repaired without database mutation.")
+    bootstrap = result.get("bootstrap") or {}
+    print("MangoMe runtime binding repaired; bounded zero-touch bootstrap completed or reported its blocker.")
+    print(f"bootstrap={bootstrap.get('status', 'UNKNOWN')} database_ready={bootstrap.get('database_ready')}")
     print(f"workspace={result['workspace_root']} database={args.database} clients={','.join(args.client)}")
     print("Restart the agent/MCP session so the new managed binding is loaded.")
     return 0
