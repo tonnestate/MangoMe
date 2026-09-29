@@ -1,3 +1,18 @@
+## 0.3.11 — 2026-09-29 — Structural Intelligence / Semantic Worker Facade / Graceful Cognition
+
+- Adds SIM/1 bounded Structural Intelligence with lazy indexing, symbol lookup/relations, structural search/context, impact-frontier projection and explicit derived-observation semantics.
+- Reuses RepoMap design principles and Tree-sitter parsing without absorbing Aider as an application or making structural state canonical truth.
+- Guarantees `BOOTSTRAP_PERFORMS_NO_FULL_STRUCTURAL_SCAN`; structural indexing occurs only on explicit structural operations or bounded context requests.
+- Reduces the normal worker MCP surface to exactly seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`.
+- Retains the existing precise v0.3.10c capability surface as the explicit advanced/internal endpoint `mangome-mcp-advanced` / `mangome.mcp_server`.
+- Adds weak-agent guidance fields `disposition`, `recommended_next_action`, `allowed_next_actions`, `forbidden_next_actions`, and `reason_codes` to facade responses.
+- Adds staged graceful degradation: optional structural failure is non-blocking; context-budget pressure can drop structural detail and fall back to minimal viable canonical context before reporting `CONTEXT_UNAVAILABLE`.
+- Allows PCH to consume structural relevance only for residency/relevance and SRA to consume structural impact only as inspection candidates; neither path changes truth, assurance or mutation authority.
+- Routes the normal CLI/MCP package entry points through the small worker facade while preserving explicit advanced compatibility entry points.
+- Updates the canonical/package Agent Skill surfaces for the seven-tool semantic workflow and keeps both copies byte-identical.
+- Adds v0.3.11 structural/worker-facade documentation and third-party acknowledgements for Aider design lineage, Tree-sitter and tree-sitter-language-pack.
+- Does not add the planned cryptographic history chain, full bitemporal arbitration, or a new cross-agent protocol stack.
+
 ## 0.3.10 — 2026-09-28 — Persistent Effect Reconciliation & Slice Closure Semantics
 
 - Separates worker completion from Slice completion: `DONE_CLAIMED -> VALIDATED -> VERIFIED -> CLOSED`; owner `ACCEPTED` remains distinct.

@@ -49,3 +49,29 @@ License: Apache License 2.0
 Laya's public typed-decision approach informed the discussion that led to MangoMe FJD/1, particularly the usefulness of bounded choice/score/yes-no style outputs, explicit confidence, and fallback/gating for repeated low-cost decisions.
 
 MangoMe does **not** depend on Laya, does not bundle Laya models or source files, and does not reproduce Laya's API. FJD/1 is an independently implemented MangoMe protocol using `BOOL`, `SCORE`, and `CHOICE` worker judgments, progressive provenance, and MangoMe-specific epistemic/authority boundaries.
+
+## Structural Intelligence acknowledgements for v0.3.11
+
+### Aider RepoMap design lineage
+
+Project: **Aider-AI/aider**
+Repository: https://github.com/Aider-AI/aider
+License: Apache License 2.0
+
+MangoMe v0.3.11 reuses RepoMap design principles — structural definitions/references, dependency-graph centrality, task-conditioned relevance and bounded rendering — without bundling Aider source code or absorbing Aider's application, model routing, commands, sessions, or UI.
+
+### tree-sitter
+
+Project: **tree-sitter/tree-sitter**
+Repository: https://github.com/tree-sitter/tree-sitter
+License: MIT License
+
+MangoMe v0.3.11 depends on the Python `tree-sitter` runtime for syntax-tree parsing used by explicit Structural Intelligence operations.
+
+### tree-sitter-language-pack
+
+Project: **xberg-io/tree-sitter-language-pack**
+Repository: https://github.com/xberg-io/tree-sitter-language-pack
+License: MIT License
+
+MangoMe v0.3.11 depends on `tree-sitter-language-pack` to resolve supported language grammars. The upstream project documents that its included grammars are permissively licensed and that parsers may be downloaded and cached on first use. Structural parsing remains lazy; grammar/parser failure degrades to MangoMe's bounded text fallback rather than blocking canonical work.

@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.10-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.11-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -99,6 +99,30 @@ A Claude session ends. Codex continues. Another agent sees a different database.
 MangoMe moves that problem out of the prompt and into durable, inspectable state.
 
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
+
+---
+
+# v0.3.11 — Structural Intelligence, Small Worker Surface & Graceful Cognition
+
+v0.3.11 adds **SIM/1 Structural Intelligence** as a lazy, bounded and derived workspace map. Structural observation can identify symbols, relations, relevant files and bounded impact candidates, but it never becomes canonical truth, Evidence, Assurance, authority, WorkIdentity or normative baseline. Bootstrap performs no structural scan; parsing/indexing happens only on explicit structural operations or when bounded structural context is requested.
+
+The normal MCP worker surface is reduced to exactly seven semantic operations:
+
+```text
+mangome_status
+mangome_observe
+mangome_query
+mangome_work
+mangome_effect
+mangome_verify
+mangome_control
+```
+
+The existing precise capability surface remains available through `mangome.mcp_server` / `mangome-mcp-advanced`. The small facade routes deterministically to those capabilities and returns explicit `disposition`, `recommended_next_action`, `allowed_next_actions`, `forbidden_next_actions`, and `reason_codes`, so a weak worker does not need to understand MangoMe internals before acting safely.
+
+Structural context can assist ContextCompiler, PCH relevance and SRA inspection-frontier selection, but cannot expand mutation authority. Structural/parser failure returns `STRUCTURAL_CONTEXT_UNAVAILABLE` and remains non-blocking. Context pressure degrades from optional structural detail to bounded/minimal viable context before cognition becomes unavailable. Truth/effect mutation gates continue to fail closed.
+
+See [`docs/structural-intelligence.md`](docs/structural-intelligence.md), [`docs/worker-facade.md`](docs/worker-facade.md), and [`docs/v0.3.11-release-notes.md`](docs/v0.3.11-release-notes.md).
 
 ---
 
@@ -347,7 +371,6 @@ The release addresses an observed failure mode: an agent received an **audit ass
 MangoMe must allow agents to organize work internally without allowing planning to replace execution.
 
 The v0.2.2 execution rule is therefore:
-
 ```text
 USER ASSIGNMENT
       ↓
@@ -937,7 +960,9 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The v0.2.2 MCP surface includes the existing MangoMe tools plus the hardened assignment path.
+The normal v0.3.11 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
+
+The detailed capability surface remains available through the explicit advanced endpoint for operators, compatibility and internal integrations. That advanced surface includes:
 
 ```text
 Session / recovery
@@ -1047,7 +1072,6 @@ pytest
 ```
 
 Managed client setup:
-
 ```bash
 mangome setup --client auto
 ```
@@ -1068,11 +1092,17 @@ Claude Code can use private LOCAL scope by default; project scope remains explic
 mangome setup --client claude-code --claude-scope project
 ```
 
-For deterministic local tests:
+For deterministic local tests using the normal seven-tool worker facade:
 
 ```bash
 export MANGOME_BACKEND=memory
 mangome-mcp
+```
+
+For explicit advanced/internal compatibility use:
+
+```bash
+mangome-mcp-advanced
 ```
 
 For canonical MongoDB persistence:
@@ -1173,13 +1203,16 @@ reconcile_assignment
 │   ├── integrity.py          # assurance and authority invariants
 │   ├── hygiene.py            # PCH/1 thermal working-set / cognitive homeostasis
 │   ├── context.py            # bounded execution context / hard envelope
+│   ├── structural.py         # SIM/1 lazy structural observation / bounded map
+│   ├── worker_mcp_server.py  # default seven-tool semantic worker facade
+│   ├── worker_cli.py         # normal CLI bridge for managed worker bindings
 │   ├── interlingua.py        # UAI/1 compile/decode/render
 │   ├── importer.py           # Big-Bang discovery/reconciliation
 │   ├── filesystem.py         # deterministic filesystem inventory / evidence freshness
 │   ├── operability.py        # client bootstrap, identity/database binding, auto-attach
 │   ├── maintenance.py        # deterministic diagnostics/migrations
 │   ├── schema.py             # schema evolution / future-version fail-closed
-│   ├── mcp_server.py         # MCP v2 surface
+│   ├── mcp_server.py         # advanced/precise MCP capability surface
 │   └── storage/
 │       ├── mongo.py          # canonical MongoDB backend / indexes / OCC
 │       └── memory.py         # deterministic test backend
@@ -1222,17 +1255,18 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.9** keeps the v0.3.x governance architecture but hardens the live worker path around observation, discovery, Codex integration, workspace identity, and runtime-profile boundaries.
+**v0.3.11** keeps the v0.3.x governance architecture and adds bounded structural sight plus a small semantic worker surface. Canonical truth/effect gates remain unchanged; structural intelligence is derived observation and cognition degrades gracefully when optional structural/context services are unavailable.
 
 The current execution architecture is:
 
 ```text
 user intent
     ↓
-route operation type
-    ├─ observation/query → bounded direct tool → STOP
-    ├─ productive work   → reconcile_assignment → governed effect
-    └─ external dispatch → runtime eligibility / delegation policy
+seven-tool semantic worker facade
+    ├─ status / observe / query → bounded read-only path
+    ├─ work / effect            → existing governed mutation gates
+    ├─ verify / control         → existing capability/authority gates
+    └─ structural sight         → lazy derived observation only
 
 productive work
     ↓
