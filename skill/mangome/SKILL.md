@@ -115,7 +115,7 @@ When the current user explicitly asks to install, update, repair, hotfix, roll b
 
 Self-maintenance does not self-admit. Do not create a WorkIdentity, Contract, Specification, Plan, Slice, or self-approval merely to repair the governance substrate. Scope effects to the explicitly requested MangoMe source/package/runtime/client/service surface.
 
-Zero-touch deployment bootstrap is part of the explicit install/update/repair request and of normal managed-runtime readiness. A managed MangoMe runtime invokes this bootstrap automatically on first database access; the user or worker must not be required to run `mangome setup` as a prerequisite. The bootstrap may discover/adopt an existing MongoDB credential source without exposing secrets, bind the canonical `mangome` database, and run idempotent `ensure_indexes()` for the indexes declared by the installed MangoMe release. This bounded bootstrap is installation plumbing under CPM/1; it does not require a WorkIdentity or self-approval.
+Zero-touch deployment bootstrap is part of the explicit install/update/repair request and of normal managed-runtime readiness. A managed MangoMe runtime invokes this bootstrap automatically on first database access; the user or worker must not be required to run `mangome setup` as a prerequisite. The bootstrap may discover/adopt an existing MongoDB credential source without exposing secrets, preserve a verified existing deployment database identity (fresh installations default to `mangome`), and run idempotent `ensure_indexes()` for the indexes declared by the installed MangoMe release. It must never create a new database merely to normalize a historical name or silently move durable state between databases. This bounded bootstrap is installation plumbing under CPM/1; it does not require a WorkIdentity or self-approval.
 
 This exception does **not** authorize MongoDB user/role creation or changes, registered schema migrations, canonical domain-document mutation, business-data repair, or database-identity changes. If any of those are required, stop with `DATABASE_CHANGE_REQUIRED`. If MongoDB is authentication-protected and no reusable authority can be adopted, stop with `BOOTSTRAP_AUTHORITY_REQUIRED`.
 
@@ -127,7 +127,7 @@ Historical host memory is never current authority. Prior chats, old Claude/Codex
 
 Never recover current WorkIdentity, database identity, installation version/path, or controller authority from historical host memory.
 
-Database identity is deployment state, not agent discovery. For ordinary managed local operation the canonical database is `mangome`; `mangome_uai_eval` is eval-only and requires explicit opt-in. Do not search alternate databases because the expected state is missing.
+Database identity is deployment state, not agent discovery. Fresh managed installations default to `mangome`, but upgrades MUST preserve a proven existing MangoMe database identity even when it has a historical name such as `mangome_uai_eval`. Never rename, copy, migrate, or switch databases implicitly during install/update. A historical name is not evidence that the durable state is disposable; only an explicit verified database migration may change deployment identity.
 
 ## Structural Intelligence / SIM/1
 
@@ -254,5 +254,5 @@ MangoMe orchestration is normally internal. Do not expose Slice IDs, Plan IDs, r
 11. Historical host memory is candidate-only, never current authority.
 12. MangoMe is infrastructure; do not modify it unless MangoMe itself is the explicit assignment target.
 13. Runtime profiles govern dispatch/delegation, not ordinary local cognition or discovery.
-14. Database identity is deployment state; do not hunt for alternate databases.
+14. Database identity is deployment state; preserve a proven existing binding across upgrades and never perform an implicit cross-database migration.
 15. DONE is a claim; verification and acceptance remain separate.

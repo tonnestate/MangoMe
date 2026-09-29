@@ -47,10 +47,13 @@ def database_binding_snapshot() -> dict[str, object]:
     expected = os.environ.get("MANGOME_EXPECTED_DATABASE", "").strip() or configured
     legacy_eval = configured in _LEGACY_EVAL_DATABASES
     allow_eval = _truthy_env("MANGOME_ALLOW_EVAL_DATABASE")
+    adopted_existing = _truthy_env("MANGOME_ADOPT_EXISTING_DATABASE")
     if configured != expected:
         state = "MISMATCH"
-    elif legacy_eval and not allow_eval:
+    elif legacy_eval and not allow_eval and not adopted_existing:
         state = "LEGACY_EVAL_REQUIRES_OPT_IN"
+    elif legacy_eval and adopted_existing:
+        state = "ADOPTED_EXISTING_DATABASE"
     else:
         state = "BOUND"
     return {
@@ -61,7 +64,8 @@ def database_binding_snapshot() -> dict[str, object]:
         "state": state,
         "legacy_eval": legacy_eval,
         "eval_opt_in": allow_eval,
-        "rule": "DATABASE_IDENTITY_IS_DEPLOYMENT_STATE_NOT_AGENT_DISCOVERY",
+        "adopted_existing_database": adopted_existing,
+        "rule": "DATABASE_IDENTITY_IS_DEPLOYMENT_STATE; EXISTING_VERIFIED_BINDINGS_SURVIVE_UPGRADES",
     }
 
 
@@ -177,33 +181,43 @@ def get_service() -> MangoMeService:
     if _service is not None:
         return _service
     enforce_expected_identity()
-    binding = database_binding_snapshot()
     backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
-    database = str(binding.get("database") or "mangome")
-    expected_database = str(binding.get("expected_database") or database)
-    if backend != "memory" and binding.get("state") == "MISMATCH":
-        raise OperabilityError(
-            "WRONG_MANGOME_DATABASE",
-            f"managed MangoMe binding expects database {expected_database!r}, running configuration selects {database!r}",
-        )
-    if backend != "memory" and binding.get("state") == "LEGACY_EVAL_REQUIRES_OPT_IN":
-        raise OperabilityError(
-            "LEGACY_EVAL_DATABASE_REQUIRES_OPT_IN",
-            "legacy eval database binding is not valid for ordinary managed work; bind the runtime to 'mangome' or explicitly opt into eval mode",
-        )
+
     if backend == "memory":
         store = InMemoryStore()
     else:
+        # Bootstrap precedes database-name rejection. During an upgrade, zero-touch
+        # may prove that an existing deployment database (including a historically
+        # eval-named database) is the real durable MangoMe state. Installation must
+        # preserve that identity rather than forcing a fresh default database.
+        initial = database_binding_snapshot()
+        requested_database = str(initial.get("database") or "mangome")
         if _runtime_zero_touch_enabled():
-            _bootstrap_database_once(database)
+            _bootstrap_database_once(requested_database)
+
+        # Zero-touch may have adopted/persisted an existing database identity and
+        # updated the process environment. Recompute before constructing the store.
+        binding = database_binding_snapshot()
+        database = str(binding.get("database") or requested_database)
+        expected_database = str(binding.get("expected_database") or database)
+        if binding.get("state") == "MISMATCH":
+            raise OperabilityError(
+                "WRONG_MANGOME_DATABASE",
+                f"managed MangoMe binding expects database {expected_database!r}, running configuration selects {database!r}",
+            )
+        if binding.get("state") == "LEGACY_EVAL_REQUIRES_OPT_IN":
+            raise OperabilityError(
+                "LEGACY_EVAL_DATABASE_REQUIRES_OPT_IN",
+                "legacy eval database is allowed only when explicitly requested or when zero-touch has proven it is the existing deployment database",
+            )
         mongo = resolve_mongodb_connection()
         store = MongoStore(mongo.uri, database)
         enforce_mongo_role_boundary(store)
+
     _service = WorkGovernedMangoMeService(store)
     if os.environ.get("MANGOME_AUTO_ATTACH", "").strip().lower() in {"1", "true", "yes", "on"}:
-        # v0.3.4 hotfix: startup binding must be cheap and non-blocking.  Do not
-        # inventory the filesystem and do not run canonical recovery merely because
-        # the MCP process started.  Reconciliation is lazy at the effect boundary.
+        # Startup binding must remain cheap and non-blocking. Discovery and canonical
+        # recovery are explicit/lazy even after database identity adoption.
         _workspace_attachment = bind_workspace_read_only(os.environ.get("MANGOME_WORKSPACE_ROOT"))
     return _service
 
@@ -427,7 +441,13 @@ def health_snapshot() -> dict[str, object]:
     try:
         service = get_service()
         store_health = service.store.health()
+        binding = database_binding_snapshot()
+        database = binding.get("database") if backend != "memory" else None
     except Exception as exc:  # health must survive failed store/bootstrap initialization
+        # Bootstrap may have changed the effective database identity before failing.
+        # Always report the post-bootstrap binding rather than stale preflight state.
+        binding = database_binding_snapshot()
+        database = binding.get("database") if backend != "memory" else None
         error_type = type(exc).__name__
         code = getattr(exc, "code", None)
         if code == "BOOTSTRAP_AUTHORITY_REQUIRED":

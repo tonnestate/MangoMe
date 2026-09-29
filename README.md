@@ -208,7 +208,7 @@ Restore and reconciliation results now expose sanitized `database_binding` and `
 
 # v0.3.7 — deterministic runtime database binding
 
-v0.3.7 makes database identity deployment state rather than agent-discovered state. Ordinary managed operation defaults to the canonical local database `mangome`; the legacy `mangome_uai_eval` database is rejected unless eval mode is explicitly enabled. `health()` exposes process readiness, database readiness and the effective sanitized database binding, while managed MongoDB timeouts prevent a stale or unreachable binding from producing multi-minute startup loops. Re-running managed setup/doctor also removes stale MangoMe eval client entries and rebinds the current managed server.
+v0.3.7 makes database identity deployment state rather than agent-discovered state. Fresh managed installations default to the local database `mangome`, but upgrades preserve a verified existing MangoMe database identity instead of silently switching to a new default. A historical name such as `mangome_uai_eval` may therefore remain the active deployment database when zero-touch proves that it is the existing durable state. Database rename/copy/migration is never implicit. `health()` exposes process readiness, database readiness and the effective sanitized database binding, while managed MongoDB timeouts prevent a stale or unreachable binding from producing multi-minute startup loops.
 
 # v0.3.6 — bitemporal truth + hardened MongoDB trust boundary
 
@@ -218,7 +218,7 @@ v0.3.6 closes the two remaining core gaps identified after the v0.3.x architectu
 
 v0.3.5 closes a real control-plane deadlock found during live Codex operation. An explicit operator request to update/repair MangoMe itself must not require `enter_work`, a new WorkIdentity, or a self-approval persisted into the same MangoMe control plane being repaired. `reconcile_assignment` now returns the read-only `CPM/1` disposition for explicit MangoMe self-maintenance and short-circuits canonical restore/admission.
 
-`CPM/1` is deliberately narrow: it covers only MangoMe source/package/runtime/service maintenance named by the current user. For an explicit install/update/repair request, and for normal managed-runtime readiness, the zero-touch path may adopt an existing MongoDB credential source, bind the canonical `mangome` database, and run idempotent `ensure_indexes()` for MangoMe's declared indexes. Managed runtimes invoke that bounded bootstrap automatically on first canonical database access; it is not treated as a canonical domain/schema migration and does not require a separate `mangome setup` step. CPM/1 still does not authorize MongoDB user/role changes, registered schema migrations, canonical domain-document mutation, business-data repair, or database-identity changes; those require separate authority and otherwise stop with `DATABASE_CHANGE_REQUIRED`. If no reusable database authority exists, runtime/setup stops with `BOOTSTRAP_AUTHORITY_REQUIRED`. Historical host memory and old eval/audit artifacts remain candidate-only hints; current user intent plus current repository/runtime observation outrank them for maintenance state. Casual status remarks are not work orders.
+`CPM/1` is deliberately narrow: it covers only MangoMe source/package/runtime/service maintenance named by the current user. For an explicit install/update/repair request, and for normal managed-runtime readiness, the zero-touch path may adopt an existing MongoDB credential source, preserve a verified existing deployment database identity, and run idempotent `ensure_indexes()` for MangoMe's declared indexes. Fresh installations default to `mangome`; upgrades never rename, copy, migrate, or replace an established database merely to normalize its name. Managed runtimes invoke that bounded bootstrap automatically on first database access; it is not treated as a canonical domain/schema migration and does not require a separate `mangome setup` step. CPM/1 still does not authorize MongoDB user/role changes, registered schema migrations, canonical domain-document mutation, business-data repair, or an explicit database-identity migration; those require separate authority and otherwise stop with `DATABASE_CHANGE_REQUIRED`. If no reusable database authority exists, runtime/setup stops with `BOOTSTRAP_AUTHORITY_REQUIRED`.
 
 # v0.3.4 — non-blocking bootstrap / lazy discovery hotfix
 
@@ -634,6 +634,8 @@ Managed client configuration now carries the expected database identity:
 MANGOME_DATABASE
 MANGOME_EXPECTED_DATABASE
 ```
+
+For upgrade safety, zero-touch also persists a non-secret deployment binding under the managed MangoMe config directory after it has verified an existing database. That persisted binding can override a newer fresh-install default on later restarts. This is identity preservation, not cross-database migration.
 
 If the configured runtime database does not match the expected managed database, initialization fails closed with:
 

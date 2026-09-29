@@ -365,6 +365,7 @@ def _server_identity(
         "MANGOME_ENFORCE_LEAST_PRIVILEGE",
         "MANGOME_ALLOW_REMOTE_MONGODB",
         "MANGOME_ZERO_TOUCH_BOOTSTRAP",
+        "MANGOME_ADOPT_EXISTING_DATABASE",
     )
     for key in safe_host_env:
         value = os.environ.get(key, "").strip()
@@ -1115,17 +1116,23 @@ def setup_clients(
         except ZeroTouchBootstrapError as exc:
             raise OperabilityError(exc.code, str(exc)) from exc
 
+    effective_database = str(bootstrap.get("database") or database)
+    if effective_database != database:
+        os.environ["MANGOME_DATABASE"] = effective_database
+        os.environ["MANGOME_EXPECTED_DATABASE"] = effective_database
+        os.environ["MANGOME_ADOPT_EXISTING_DATABASE"] = "1"
+
     results: list[dict[str, Any]] = []
     for client in expanded:
         if client in {"claude", "claude-code"}:
             change = configure_claude_code(
-                str(workspace), backend=backend, database=database, dry_run=dry_run, home=home,
+                str(workspace), backend=backend, database=effective_database, dry_run=dry_run, home=home,
                 scope=claude_scope, surface=surface,
             )
             normalized = "claude-code"
         elif client == "codex":
             change = configure_codex(
-                str(workspace), backend=backend, database=database, dry_run=dry_run, home=home,
+                str(workspace), backend=backend, database=effective_database, dry_run=dry_run, home=home,
                 surface=surface,
             )
             normalized = "codex"
@@ -1133,7 +1140,7 @@ def setup_clients(
             results.append({"client": client, "status": "UNSUPPORTED_CLIENT"})
             continue
         attestation = None if dry_run else attest_client(
-            normalized, str(workspace), backend=backend, database=database, home=home, check_client=True,
+            normalized, str(workspace), backend=backend, database=effective_database, home=home, check_client=True,
             claude_scope=claude_scope, surface=surface,
         )
         results.append({"client": normalized, "change": change, "attestation": attestation})
@@ -1143,6 +1150,8 @@ def setup_clients(
         "clients": results,
         "dry_run": dry_run,
         "surface": str(surface or "worker").strip().lower(),
+        "database": effective_database,
+        "requested_database": database,
         "bootstrap": bootstrap,
         "session_reload_required": any(
             bool((row.get("change") or {}).get("removed_shadow_entries")) for row in results
@@ -1178,9 +1187,12 @@ def doctor(
                 str(workspace), clients=failing, backend=backend, database=database, dry_run=False, home=home,
                 claude_scope=claude_scope, surface=surface,
             )
+    effective_database = database
+    if repair_result is not None:
+        effective_database = str(repair_result.get("database") or database)
     after = [
         attest_client(
-            client, str(workspace), backend=backend, database=database, home=home, check_client=True,
+            client, str(workspace), backend=backend, database=effective_database, home=home, check_client=True,
             claude_scope=claude_scope, surface=surface,
         )
         for client in clients
