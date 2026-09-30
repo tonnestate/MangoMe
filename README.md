@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.12-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.13-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -99,6 +99,25 @@ A Claude session ends. Codex continues. Another agent sees a different database.
 MangoMe moves that problem out of the prompt and into durable, inspectable state.
 
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
+
+---
+
+# v0.3.13 — P0 Shared-MongoDB Safety Repair
+
+We are sorry for the v0.3.12 reset-path defect. On hosts where MangoMe shares one MongoDB service with other applications or databases, the earlier recovery/reset implementation could stop and restart that shared `mongod` service and could treat `mangome_*` as a destructive database scope. That was unsafe for multi-database deployments and could interrupt unrelated workloads.
+
+v0.3.13 makes the boundary explicit and fail-closed:
+
+- `mangome database-reset` is installed through the real `src/mangome` package and is available from the normal `mangome` CLI.
+- Accidental root-level shadow modules from the broken hotfix (`__init__.py`, `cli.py`, `database_admin.py`, `worker_cli.py`, `zero_touch.py`) are not part of the package and must be removed from the repository root.
+- The destructive database allowlist is exact: only `mangome` and `mangome_uai_eval` are reset targets. No wildcard or prefix matching is used.
+- The reset never stops, starts or restarts the shared MongoDB service, never launches a temporary `--noauth` MongoDB process, and never touches MongoDB data files directly.
+- The reset requires already-available online maintenance authority before the first database mutation. If that authority is unavailable, it aborts before changing MongoDB.
+- The fresh runtime principal is `mangome_runtime` with exactly `readWrite` on `mangome`; no admin, root, cluster-wide or global runtime role is created.
+- Managed runtime credentials and the persisted database binding are updated only after the fresh runtime user has been verified.
+- Automatic local root provisioning is disabled by default so ordinary zero-touch bootstrap cannot stop a shared MongoDB service merely because MangoMe runs as root. Explicit operator opt-in remains possible.
+
+For installations using multiple databases on one MongoDB service, v0.3.13 should be treated as the minimum safe release for the destructive MangoMe database-reset path.
 
 ---
 
@@ -897,7 +916,6 @@ RELATES_TO
 `effective_family_view` resolves confirmed supersession and exposes conflict/suggestion state without silently merging ambiguous prose.
 
 ---
-
 # AV/1 — adversarial completion verification
 
 MangoMe treats worker completion as a claim to inspect.
@@ -989,7 +1007,7 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The normal v0.3.12 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
+The normal v0.3.13 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
 
 The detailed capability surface remains available through the explicit advanced endpoint for operators, compatibility and internal integrations. That advanced surface includes:
 
@@ -1258,7 +1276,6 @@ reconcile_assignment
 
 ---
 
-
 ## Release-layout integrity
 
 v0.2.2 also hardens the repository/package boundary itself. The executable Python package lives under `src/mangome/`; package modules must not be duplicated into the repository root. Version metadata in `pyproject.toml`, `src/mangome/__init__.py`, and the MCP server must agree. Regression tests fail if shadow copies such as root-level `runtime.py`, `service.py`, `mcp_server.py`, `operability.py`, or duplicate root Skill files appear.
@@ -1284,7 +1301,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.12** keeps the v0.3.x governance architecture, repairs the semantic-facade capability loss, hardens Structural Intelligence, and formalizes a clean host-side enforcement boundary without adding HMAC, a new canonical store, or another security subsystem.
+**v0.3.13** keeps the v0.3.x governance architecture and adds the P0 shared-MongoDB safety repair for multi-database hosts. The normal worker surface remains unchanged; the destructive reset path is now exact-allowlist, online-only, fail-closed, and forbidden from stopping or restarting a shared MongoDB service.
 
 The current execution architecture is:
 

@@ -4,6 +4,12 @@ import argparse
 import json
 import os
 
+from .database_admin import (
+    DATABASE_RESET_CONFIRMATION,
+    DatabaseResetError,
+    database_reset_warning,
+    total_reset_database,
+)
 from .importer import BigBangScanner, serialize_discovery, serialize_git_discovery
 from .interlingua import UAICompiler, render_uai_result
 from .maintenance import MangoMaintainer
@@ -45,6 +51,17 @@ def main(*, surface: str = "advanced") -> None:
     client_attest.add_argument("--database", default="mangome")
     client_attest.add_argument("--static-only", action="store_true")
     client_attest.add_argument("--claude-scope", choices=["local", "project"], default="local")
+
+    reset = sub.add_parser(
+        "database-reset",
+        aliases=["db-reset", "total-reset"],
+        help="DESTRUCTIVE: reset only mangome and mangome_uai_eval without restarting shared MongoDB",
+    )
+    reset.add_argument(
+        "--confirm",
+        default="",
+        help=f"required exact confirmation: {DATABASE_RESET_CONFIRMATION}",
+    )
 
     attach = sub.add_parser("attach", help="explicitly refresh automatic workspace attachment/discovery")
     attach.add_argument("--workspace", default=None)
@@ -102,9 +119,9 @@ def main(*, surface: str = "advanced") -> None:
     uai_expand.add_argument("wire")
 
     uai_render = sub.add_parser("uai-render", help="render a UAI/1R result into human-readable text")
-    uai_render.add_argument("result_json")
     uai_render.add_argument("--language", choices=["en", "de"], default="en")
     uai_render.add_argument("--context-hash", required=True)
+    uai_render.add_argument("result_json")
 
     args = parser.parse_args()
 
@@ -128,6 +145,16 @@ def main(*, surface: str = "advanced") -> None:
             args.client, args.workspace or os.getcwd(), backend=args.backend,
             database=args.database, check_client=not args.static_only, claude_scope=args.claude_scope, surface=surface,
         ))
+        return
+    if args.cmd in {"database-reset", "db-reset", "total-reset"}:
+        _print(database_reset_warning())
+        if args.confirm != DATABASE_RESET_CONFIRMATION:
+            raise SystemExit(2)
+        try:
+            _print(total_reset_database(confirmation=args.confirm))
+        except DatabaseResetError as exc:
+            _print({"ok": False, "error": {"code": exc.code, "message": str(exc)}})
+            raise SystemExit(1) from exc
         return
     if args.cmd == "health":
         _print(health_snapshot())
