@@ -107,7 +107,7 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 v0.3.14 removes the credential-recovery deadlock from the managed single-host deployment profile.
 
-We are sorry for the disruption caused by the v0.3.12/v0.3.13 MongoDB recovery path. v0.3.13 correctly stopped the unsafe shared-service reset behavior, but it still assumed that an online MongoDB maintenance authority already existed. On a host where that authority did not exist, MangoMe could fail closed without being able to restore its own runtime database access. That was not an acceptable zero-touch outcome for the intended single-host deployment.
+On a host where that authority did not exist, MangoMe could fail closed without being able to restore its own runtime database access. That was not an acceptable zero-touch outcome for the intended single-host deployment.
 
 The v0.3.14 managed-local model is intentionally simpler:
 
@@ -144,8 +144,6 @@ verify every non-target database name is unchanged
 ```
 
 No wildcard matching, `systemctl stop/start/restart`, temporary `--noauth` process, `dbPath` access, MongoDB user creation or role provisioning occurs inside MangoMe.
-
-Legacy databases are now **fail-closed for runtime use**. A legacy database such as `mangome_uai_eval` is never automatically adopted, repaired, migrated or treated as canonical because schema drift cannot be assumed safe. Selecting it as the runtime database returns `LEGACY_DATABASE_SCHEMA_DRIFT`. An explicitly confirmed total reset may delete that exact legacy database; that is cleanup, not migration or repair.
 
 The one-time host migration into LOCAL_HOST mode remains an operator/host action. MangoMe itself does not rewrite `mongod.conf` or manage the host firewall/network surface.
 
