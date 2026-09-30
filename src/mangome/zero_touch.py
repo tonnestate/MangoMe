@@ -70,7 +70,7 @@ def _map_failure(exc: Exception) -> ZeroTouchBootstrapError:
 def _legacy_candidate_loopback_uri(home: str | None = None) -> str:
     """Derive only endpoint coordinates from stale local MangoMe bindings.
 
-    Credential material is never returned or logged. v0.3.16 supports the canonical
+    Credential material is never returned or logged. v0.3.17 supports the canonical
     local endpoint on port 27017; anything else fails closed instead of silently
     changing deployment identity.
     """
@@ -265,8 +265,20 @@ def _active_cmdline(service: str) -> list[str]:
     return [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
 
 
-def _rewrite_mongod_config(text: str) -> tuple[str, bool]:
-    """Set only security.authorization to disabled; reject ambiguous security modes."""
+def _rewrite_mongod_config(text: str) -> tuple[str, bool, str]:
+    """Prepare LOCAL_HOST access without breaking MongoDB member authentication.
+
+    Two supported configurations exist:
+
+    * no ``security.keyFile``: disable client authorization directly;
+    * ``security.keyFile`` present: preserve the key file and internal member
+      authentication, and enable ``security.transitionToAuth: true`` so local
+      unauthenticated clients are accepted while the deployment stays loopback-only.
+
+    ``clusterAuthMode`` is preserved when a keyFile exists. X.509/cluster-only
+    security without a keyFile remains fail-closed because MangoMe cannot prove a
+    safe automatic transition for that deployment.
+    """
 
     lines = text.splitlines(keepends=True)
     top_security = [
@@ -292,7 +304,7 @@ def _rewrite_mongod_config(text: str) -> tuple[str, bool]:
 
     if not security_indexes:
         suffix = "" if not text or text.endswith("\n") else "\n"
-        return text + suffix + "security:\n  authorization: disabled\n", True
+        return text + suffix + "security:\n  authorization: disabled\n", True, "AUTHORIZATION_DISABLED"
 
     start = security_indexes[0]
     end = len(lines)
@@ -305,45 +317,77 @@ def _rewrite_mongod_config(text: str) -> tuple[str, bool]:
             end = idx
             break
 
-    auth_indexes: list[int] = []
+    key_indexes: dict[str, list[int]] = {}
     for idx in range(start + 1, end):
         stripped = lines[idx].strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped or stripped.startswith("#") or ":" not in stripped:
             continue
         key = stripped.split(":", 1)[0].strip()
-        if key in {"keyFile", "clusterAuthMode", "transitionToAuth"}:
+        key_indexes.setdefault(key, []).append(idx)
+
+    for key in ("authorization", "keyFile", "clusterAuthMode", "transitionToAuth"):
+        if len(key_indexes.get(key, [])) > 1:
             raise ZeroTouchBootstrapError(
-                "LOCAL_HOST_COMPLEX_MONGODB_SECURITY_CONFIGURATION",
-                f"security.{key} is configured; MangoMe will not rewrite a clustered/transition MongoDB security model",
+                "LOCAL_HOST_MONGOD_CONFIG_AMBIGUOUS",
+                f"multiple security.{key} entries found in mongod.conf",
             )
-        if key == "authorization":
-            auth_indexes.append(idx)
 
-    if len(auth_indexes) > 1:
-        raise ZeroTouchBootstrapError(
-            "LOCAL_HOST_MONGOD_CONFIG_AMBIGUOUS",
-            "multiple security.authorization entries found in mongod.conf",
-        )
+    keyfile_idx = (key_indexes.get("keyFile") or [None])[0]
+    transition_idx = (key_indexes.get("transitionToAuth") or [None])[0]
+    cluster_mode_idx = (key_indexes.get("clusterAuthMode") or [None])[0]
+    auth_idx = (key_indexes.get("authorization") or [None])[0]
 
-    if auth_indexes:
-        idx = auth_indexes[0]
-        original = lines[idx]
+    # MongoDB documents transitionToAuth as the rolling state in which a process
+    # with an internal authentication mechanism such as keyFile accepts both
+    # authenticated and unauthenticated connections and does not enforce user access
+    # control. Keep the keyFile untouched: it may be required for replica-set/member
+    # authentication even though local client RBAC is intentionally not enforced.
+    if keyfile_idx is not None:
+        if transition_idx is None:
+            indent = lines[keyfile_idx][: len(lines[keyfile_idx]) - len(lines[keyfile_idx].lstrip(" "))]
+            newline = "\r\n" if lines[keyfile_idx].endswith("\r\n") else "\n"
+            lines.insert(keyfile_idx + 1, f"{indent}transitionToAuth: true{newline}")
+            return "".join(lines), True, "KEYFILE_TRANSITION_TO_AUTH"
+
+        original = lines[transition_idx]
         indent = original[: len(original) - len(original.lstrip(" "))]
         comment = ""
         if "#" in original:
-            comment = " " + original.split("#", 1)[1].rstrip("\r\n")
-            comment = " #" + comment.lstrip()
+            raw_comment = original.split("#", 1)[1].rstrip("\r\n")
+            comment = f" # {raw_comment.strip()}" if raw_comment.strip() else ""
+        newline = "\r\n" if original.endswith("\r\n") else "\n"
+        replacement = f"{indent}transitionToAuth: true{comment}{newline}"
+        if original == replacement:
+            return text, False, "KEYFILE_TRANSITION_TO_AUTH"
+        lines[transition_idx] = replacement
+        return "".join(lines), True, "KEYFILE_TRANSITION_TO_AUTH"
+
+    # A cluster security mode without keyFile may rely on X.509 or another internal
+    # mechanism. Do not guess at that topology in a zero-touch host rewrite.
+    if cluster_mode_idx is not None or transition_idx is not None:
+        key = "clusterAuthMode" if cluster_mode_idx is not None else "transitionToAuth"
+        raise ZeroTouchBootstrapError(
+            "LOCAL_HOST_COMPLEX_MONGODB_SECURITY_CONFIGURATION",
+            f"security.{key} is configured without security.keyFile; automatic LOCAL_HOST migration stopped",
+        )
+
+    if auth_idx is not None:
+        original = lines[auth_idx]
+        indent = original[: len(original) - len(original.lstrip(" "))]
+        comment = ""
+        if "#" in original:
+            raw_comment = original.split("#", 1)[1].rstrip("\r\n")
+            comment = f" # {raw_comment.strip()}" if raw_comment.strip() else ""
         newline = "\r\n" if original.endswith("\r\n") else "\n"
         replacement = f"{indent}authorization: disabled{comment}{newline}"
         if original == replacement:
-            return text, False
-        lines[idx] = replacement
-        return "".join(lines), True
+            return text, False, "AUTHORIZATION_DISABLED"
+        lines[auth_idx] = replacement
+        return "".join(lines), True, "AUTHORIZATION_DISABLED"
 
     insert = "  authorization: disabled\n"
     lines.insert(start + 1, insert)
-    return "".join(lines), True
-
+    return "".join(lines), True, "AUTHORIZATION_DISABLED"
 
 def _atomic_replace_config(path: Path, content: str) -> None:
     stat = path.stat()
@@ -381,7 +425,7 @@ def _mongod_config_path(cmdline: list[str]) -> Path:
 
 
 def _migrate_local_host_authorization(uri: str) -> dict[str, Any]:
-    """Perform the single supported v0.3.16 host migration, fail-closed."""
+    """Perform the supported v0.3.17 LOCAL_HOST host migration, fail-closed."""
 
     if not _truthy_env("MANGOME_ZERO_TOUCH_HOST_MIGRATION", default=True):
         raise ZeroTouchBootstrapError(
@@ -412,8 +456,8 @@ def _migrate_local_host_authorization(uri: str) -> dict[str, Any]:
         )
     if any(arg in {"--keyFile", "--clusterAuthMode"} or arg.startswith("--keyFile=") or arg.startswith("--clusterAuthMode=") for arg in cmdline):
         raise ZeroTouchBootstrapError(
-            "LOCAL_HOST_COMPLEX_MONGODB_SECURITY_CONFIGURATION",
-            "mongod uses command-line cluster/key-file security; MangoMe will not weaken that deployment",
+            "LOCAL_HOST_COMMAND_LINE_CLUSTER_SECURITY_UNSUPPORTED",
+            "mongod cluster/key-file security is forced by process arguments; zero-touch cannot safely persist transitionToAuth in that service command line",
         )
 
     config_path = _mongod_config_path(cmdline)
@@ -424,12 +468,12 @@ def _migrate_local_host_authorization(uri: str) -> dict[str, Any]:
         )
 
     original = config_path.read_text(encoding="utf-8")
-    updated, changed = _rewrite_mongod_config(original)
+    updated, changed, security_strategy = _rewrite_mongod_config(original)
     backup_path: Path | None = None
 
     if changed:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        backup_path = config_path.with_name(f"{config_path.name}.mangome-v0.3.16-{stamp}.bak")
+        backup_path = config_path.with_name(f"{config_path.name}.mangome-v0.3.17-{stamp}.bak")
         shutil.copy2(config_path, backup_path)
         _atomic_replace_config(config_path, updated)
 
@@ -470,7 +514,8 @@ def _migrate_local_host_authorization(uri: str) -> dict[str, Any]:
         "config_changed": changed,
         "listener_before": listener_before,
         "listener_after": listener_after,
-        "authorization": "disabled",
+        "authorization": "not_enforced",
+        "security_strategy": security_strategy,
         "restart_count": 1,
     }
 
@@ -496,11 +541,14 @@ def prepare_mongodb_runtime(
 ) -> dict[str, Any]:
     """Make the managed single-host MongoDB runtime ready without user intervention.
 
-    v0.3.16 LOCAL_HOST is intentionally credential-free. Zero-touch first removes
-    obsolete MangoMe credential/binding residue, then proves the loopback boundary.
-    If the existing local mongod still has authorization enabled, a root-managed
-    runtime may perform the one-time fail-closed host migration by changing only
-    security.authorization in /etc/mongod.conf and restarting mongod.service once.
+    v0.3.17 LOCAL_HOST is intentionally credential-free. Zero-touch proves the
+    loopback boundary before changing host security posture. If the existing local
+    mongod still enforces authorization, a root-managed runtime performs one bounded
+    migration: plain authorization is disabled directly; when security.keyFile is
+    present, the keyFile is preserved and security.transitionToAuth is enabled so
+    local client access is unauthenticated without breaking member authentication.
+    mongod.service is restarted once and readiness is proved before legacy MangoMe
+    credential/binding residue is deleted.
 
     No database is adopted or migrated. Legacy databases remain fail-closed.
     """
@@ -514,7 +562,7 @@ def prepare_mongodb_runtime(
     if requested_database != CANONICAL_DATABASE:
         raise ZeroTouchBootstrapError(
             "WRONG_MANGOME_DATABASE",
-            f"managed MangoMe v0.3.16 requires database {CANONICAL_DATABASE!r}, got {requested_database!r}",
+            f"managed MangoMe v0.3.17 requires database {CANONICAL_DATABASE!r}, got {requested_database!r}",
         )
 
     cleanup: dict[str, Any] = {

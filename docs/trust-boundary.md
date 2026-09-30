@@ -5,7 +5,7 @@ MangoMe v0.3.14 defines a deliberately simple managed single-host deployment pro
 ```text
 trusted Linux host
     |
-    +-- MongoDB: loopback only, authorization disabled
+    +-- MongoDB: loopback only, client access control not enforced
     |
     +-- MangoMe: no MongoDB principal / password / role
 ```
@@ -23,11 +23,10 @@ mongodb://127.0.0.1:27017
 LOCAL_HOST is valid only when:
 
 1. MongoDB listens only on loopback (`127.0.0.1`, `localhost`, or `::1`);
-2. MongoDB authorization is disabled;
+2. MongoDB client access control is not enforced (`authorization: disabled` or keyFile + `transitionToAuth: true`);
 3. local processes on the host are within the deployment trust boundary.
 
-MangoMe fails closed when a remote endpoint, credential file, authenticated URI,
-authenticated MongoDB identity, or enabled MongoDB authorization is detected.
+MangoMe fails closed when a remote endpoint, MangoMe credential file, authenticated URI, or authenticated MangoMe MongoDB identity is detected. A preserved `security.keyFile` is allowed only through the bounded LOCAL_HOST transition path with `security.transitionToAuth: true`; the keyFile is internal MongoDB member-authentication material, not a MangoMe client credential.
 
 ## No credential lifecycle
 
@@ -66,3 +65,10 @@ Before changing MongoDB authorization MangoMe must prove the live TCP listener i
 Credential-era MangoMe files and process bindings are deleted only after the replacement credential-free loopback path is proven ready. MangoMe does not alter firewall/network configuration, `dbPath`, unrelated MongoDB settings, other databases, or MongoDB users/roles during this host transition.
 
 Legacy database names are not deployment identity in v0.3.16. `mangome_uai_eval` is rejected for runtime use because schema drift cannot be assumed safe; it is never adopted, repaired, or migrated automatically.
+
+
+## v0.3.17 keyFile-preserving transition
+
+If the active loopback-only `mongod.service` contains `security.keyFile`, MangoMe no longer treats that fact alone as a terminal blocker. Zero-touch keeps the keyFile and any replication/member-authentication configuration unchanged and enables `security.transitionToAuth: true`. In that MongoDB transition state, user access control is not enforced, so MangoMe can use the same credential-free loopback client model while the keyFile remains available for internal member authentication.
+
+The transition is allowed only after live listener scope is proven as LOOPBACK. MangoMe does not remove the keyFile or rewrite replica-set topology. Command-line cluster security and cluster-only/X.509 configurations without a keyFile remain fail-closed.

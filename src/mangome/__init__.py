@@ -2,7 +2,7 @@
 
 import os
 
-# v0.3.16 managed single-host invariant:
+# v0.3.17 managed single-host invariant:
 # the Linux host/loopback boundary is the MongoDB trust boundary. MangoMe carries
 # no MongoDB credential lifecycle. If an older local deployment still has MongoDB
 # authorization enabled, zero-touch may perform the one-time fail-closed host
@@ -12,4 +12,4 @@ os.environ.setdefault("MANGOME_ZERO_TOUCH_BOOTSTRAP", "1")
 os.environ.setdefault("MANGOME_ZERO_TOUCH_HOST_MIGRATION", "1")
 os.environ.setdefault("MANGOME_ALLOW_EVAL_DATABASE", "0")
 
-__version__ = "0.3.16"
+__version__ = "0.3.17"

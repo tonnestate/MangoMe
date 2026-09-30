@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.16-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.17-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -102,6 +102,43 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 ---
 
+
+# v0.3.17 — KeyFile-Safe Zero-Touch LOCAL_HOST
+
+v0.3.17 closes the concrete blocker observed on the managed host after v0.3.16: the local MongoDB service uses `security.keyFile`. v0.3.16 correctly refused to delete or weaken an unknown cluster/member-authentication mechanism, but that made the promised zero-touch activation stop before MangoMe could become operational.
+
+The supported migration is now topology-preserving:
+
+```text
+prove live MongoDB listener is loopback-only
+        ↓
+inspect active mongod security configuration
+        ↓
+security.keyFile absent
+    → security.authorization: disabled
+
+security.keyFile present
+    → KEEP security.keyFile unchanged
+    → KEEP replication / clusterAuthMode unchanged
+    → security.transitionToAuth: true
+        ↓
+backup mongod.conf
+restart mongod.service once
+        ↓
+prove loopback-only listener again
+        ↓
+anonymous LOCAL_HOST ping/list/index readiness
+        ↓
+remove obsolete MangoMe credential residue
+        ↓
+READY
+```
+
+MongoDB documents `transitionToAuth` as a transition mode that accepts authenticated and unauthenticated connections and does not enforce user access controls while an internal authentication mechanism such as a keyFile remains available for member authentication. MangoMe uses that behavior only after proving the listener is loopback-only. It never removes the keyFile, rewrites replica-set membership, edits `dbPath`, opens MongoDB to the network, or touches unrelated databases.
+
+Command-line `--auth`/`--keyFile`/`--clusterAuthMode` remain fail-closed because MangoMe will not rewrite a systemd service command line implicitly. X.509/cluster-only security without a keyFile also remains fail-closed.
+
+---
 
 # v0.3.16 — Zero-Touch LOCAL_HOST Activation & Cleanup
 
@@ -1133,7 +1170,7 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The normal v0.3.16 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
+The normal v0.3.17 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
 
 The detailed capability surface remains available through the explicit advanced endpoint for operators, compatibility and internal integrations. That advanced surface includes:
 
@@ -1427,7 +1464,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.16** keeps MAC/1 and the seven-tool worker surface, and makes the credential-free LOCAL_HOST deployment actually zero-touch on the supported managed Linux host: obsolete MangoMe credential residue is removed automatically, loopback scope is proven, the one-time authorization transition can be completed by the root runtime, and canonical readiness is verified before work proceeds. Legacy databases remain schema-drift fail-closed.
+**v0.3.17** keeps MAC/1 and the seven-tool worker surface, and completes zero-touch LOCAL_HOST activation for the observed keyFile deployment. A loopback-only host may preserve `security.keyFile` for internal MongoDB member authentication while enabling `security.transitionToAuth`, giving MangoMe credential-free local client access without removing the keyFile. Plain non-keyFile authorization still transitions to `disabled`. Legacy databases remain schema-drift fail-closed.
 
 The current execution architecture is:
 
