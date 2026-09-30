@@ -2,29 +2,24 @@ from __future__ import annotations
 
 import os
 import secrets
-import shutil
-import subprocess
-import time
+import stat
 from pathlib import Path
-from typing import Any
-from urllib.parse import quote
+from typing import Any, Iterable
+from urllib.parse import parse_qs, quote, urlsplit
 
 from .storage.mongo import MongoStore
 from .zero_touch import (
     ZeroTouchBootstrapError,
-    _assert_local_provision_safety,
-    _free_loopback_port,
-    _mongod_config_path,
-    _mongod_service_name,
-    _parse_simple_mongod_config,
-    _probe_uri,
-    _secure_managed_credential_file,
+    _collect_candidates,
+    _read_uri_file,
     _secure_managed_database_binding,
 )
 
 
 DATABASE_RESET_CONFIRMATION = "TOTAL-RESET-MANGOME-DATABASES"
 CANONICAL_DATABASE = "mangome"
+LEGACY_EVAL_DATABASE = "mangome_uai_eval"
+RESET_DATABASES = (CANONICAL_DATABASE, LEGACY_EVAL_DATABASE)
 RUNTIME_USER = "mangome_runtime"
 
 
@@ -39,12 +34,17 @@ def database_reset_warning() -> dict[str, Any]:
         "ok": False,
         "warning": "DESTRUCTIVE_DATABASE_RESET",
         "message": (
-            "This permanently deletes all MangoMe-owned MongoDB databases and all "
-            "users defined in those databases. Non-MangoMe databases are not touched."
+            "This permanently resets only the explicitly allowlisted MangoMe databases. "
+            "The shared MongoDB service is never stopped or restarted."
         ),
         "database_scope": {
-            "deleted": ["mangome", "mangome_*"],
-            "preserved": ["admin", "config", "local", "all non-MangoMe databases"],
+            "deleted": [CANONICAL_DATABASE, LEGACY_EVAL_DATABASE],
+            "preserved": [
+                "admin",
+                "config",
+                "local",
+                "every database not explicitly listed above",
+            ],
         },
         "recreated": {
             "database": CANONICAL_DATABASE,
@@ -53,15 +53,12 @@ def database_reset_warning() -> dict[str, Any]:
             "credential_file": "~/.config/mangome/mongodb-uri",
             "database_binding": "~/.config/mangome/database-binding.json",
         },
-        "not_affected": [
-            "Git repository",
-            "MangoMe source code",
-            "Python/venv/package installation",
-            "Skills",
-            "workspaces and project files",
-            "Git history",
-            "non-MangoMe MongoDB databases",
-        ],
+        "safety": {
+            "shared_mongodb_service_restart": False,
+            "wildcard_database_matching": False,
+            "offline_noauth_bootstrap": False,
+            "fail_closed_without_online_maintenance_authority": True,
+        },
         "confirmation_required": DATABASE_RESET_CONFIRMATION,
         "example": (
             "mangome database-reset --confirm "
@@ -70,296 +67,326 @@ def database_reset_warning() -> dict[str, Any]:
     }
 
 
-def _is_mangome_database(name: str) -> bool:
-    return name == CANONICAL_DATABASE or name.startswith("mangome_")
+def _looks_like_mongodb_uri(value: str) -> bool:
+    text = str(value or "").strip()
+    return text.startswith("mongodb://") or text.startswith("mongodb+srv://")
 
 
-def _normal_port(config: dict[str, str]) -> int:
-    raw = str(config.get("net.port") or "27017").strip()
+def _auth_source(uri: str) -> str:
     try:
-        port = int(raw)
-    except ValueError as exc:
-        raise DatabaseResetError("DATABASE_RESET_CONFIG_INVALID", "MongoDB net.port is invalid") from exc
-    if not 1 <= port <= 65535:
-        raise DatabaseResetError("DATABASE_RESET_CONFIG_INVALID", "MongoDB net.port is outside the valid range")
-    return port
+        parsed = urlsplit(uri)
+    except ValueError:
+        return ""
+    query = parse_qs(parsed.query)
+    explicit = str((query.get("authSource") or [""])[0]).strip()
+    if explicit:
+        return explicit
+    database = parsed.path.lstrip("/").split("/", 1)[0].strip()
+    return database or "admin"
 
 
-def _service_user(systemctl: str, service: str) -> str:
-    result = subprocess.run(
-        [systemctl, "show", service, "--property=User", "--value"],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        timeout=5,
-    )
-    value = result.stdout.strip() if result.returncode == 0 else ""
-    return value or "mongodb"
-
-
-def _wait_for_temp_store(uri: str, process: subprocess.Popen[Any], timeout: float = 20.0) -> MongoStore:
-    deadline = time.monotonic() + timeout
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
+def _stage_runtime_credential(home: Path, uri: str) -> tuple[Path, Path]:
+    if not _looks_like_mongodb_uri(uri):
+        raise DatabaseResetError(
+            "DATABASE_RESET_CREDENTIAL_INVALID",
+            "generated runtime MongoDB URI is invalid",
+        )
+    directory = home / ".config" / "mangome"
+    try:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(directory, 0o700)
+        target = directory / "mongodb-uri"
+        if target.is_symlink():
             raise DatabaseResetError(
-                "DATABASE_RESET_TEMP_MONGOD_FAILED",
-                "temporary MongoDB reset process exited before becoming ready",
+                "DATABASE_RESET_CREDENTIAL_TARGET_UNSAFE",
+                "managed MongoDB credential target must not be a symlink",
             )
-        store: MongoStore | None = None
-        try:
-            store = MongoStore(uri, "admin")
-            store.client.admin.command("ping")
-            return store
-        except Exception as exc:
-            last_error = exc
-            if store is not None:
-                try:
-                    store.client.close()
-                except Exception:
-                    pass
-            time.sleep(0.25)
-    raise DatabaseResetError(
-        "DATABASE_RESET_TEMP_MONGOD_TIMEOUT",
-        f"temporary MongoDB reset process did not become ready ({type(last_error).__name__ if last_error else 'timeout'})",
-    )
+        staged = directory / ".mongodb-uri.reset.pending"
+        if staged.is_symlink():
+            staged.unlink()
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(uri.strip() + "\n")
+        os.chmod(staged, 0o600)
+        info = staged.stat()
+        if not stat.S_ISREG(info.st_mode):
+            raise DatabaseResetError(
+                "DATABASE_RESET_CREDENTIAL_STAGE_UNSAFE",
+                "staged MongoDB credential is not a regular file",
+            )
+        return staged, target
+    except DatabaseResetError:
+        raise
+    except OSError as exc:
+        raise DatabaseResetError(
+            "DATABASE_RESET_CREDENTIAL_STAGE_FAILED",
+            "cannot stage the fresh MangoMe runtime credential",
+        ) from exc
 
 
-def _stop_temp_process(process: subprocess.Popen[Any] | None, store: MongoStore | None) -> None:
-    if store is not None:
-        try:
-            store.client.admin.command({"shutdown": 1, "force": True})
-        except Exception:
-            pass
-        try:
-            store.client.close()
-        except Exception:
-            pass
-    if process is None or process.poll() is not None:
-        return
+def _commit_runtime_credential(staged: Path, target: Path) -> Path:
     try:
-        process.wait(timeout=10)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-    process.terminate()
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=5)
+        os.replace(staged, target)
+        os.chmod(target, 0o600)
+        return target.resolve()
+    except OSError as exc:
+        raise DatabaseResetError(
+            "DATABASE_RESET_CREDENTIAL_COMMIT_FAILED",
+            "fresh MangoMe runtime credential could not be committed",
+        ) from exc
 
 
-def _verify_fresh_runtime(uri: str, timeout: float = 20.0) -> dict[str, Any]:
-    deadline = time.monotonic() + timeout
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
+def _explicit_maintenance_candidates() -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    file_value = os.environ.get("MANGOME_MONGODB_MAINTENANCE_URI_FILE", "").strip()
+    uri_value = os.environ.get("MANGOME_MONGODB_MAINTENANCE_URI", "").strip()
+    if file_value:
         try:
-            probe = _probe_uri(uri, CANONICAL_DATABASE)
-            store = MongoStore(uri, CANONICAL_DATABASE)
+            out.append(("MANGOME_MONGODB_MAINTENANCE_URI_FILE", _read_uri_file(file_value)))
+        except ZeroTouchBootstrapError:
+            pass
+    if _looks_like_mongodb_uri(uri_value):
+        out.append(("MANGOME_MONGODB_MAINTENANCE_URI", uri_value))
+    return out
+
+
+def _candidate_uris(workspace: Path, home: Path) -> list[tuple[str, str]]:
+    out = _explicit_maintenance_candidates()
+    try:
+        discovered = _collect_candidates(workspace, home)
+    except Exception:
+        discovered = []
+    for candidate in discovered:
+        try:
+            uri = _read_uri_file(candidate.value) if candidate.kind == "FILE" else str(candidate.value).strip()
+        except Exception:
+            continue
+        if _looks_like_mongodb_uri(uri):
+            out.append((str(candidate.source), uri))
+
+    deduped: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for source, uri in out:
+        if uri in seen:
+            continue
+        seen.add(uri)
+        deduped.append((source, uri))
+    return deduped
+
+
+def _privilege_matches_database(resource: dict[str, Any], database: str) -> bool:
+    if bool(resource.get("anyResource")):
+        return True
+    resource_db = str(resource.get("db") or "")
+    collection = str(resource.get("collection") or "")
+    return resource_db == database and collection == ""
+
+
+def _has_action(privileges: Iterable[dict[str, Any]], database: str, action: str) -> bool:
+    wanted = str(action)
+    for privilege in privileges:
+        if not isinstance(privilege, dict):
+            continue
+        resource = privilege.get("resource") or {}
+        actions = {str(item) for item in (privilege.get("actions") or [])}
+        if wanted in actions and isinstance(resource, dict) and _privilege_matches_database(resource, database):
+            return True
+    return False
+
+
+def _maintenance_authority(uri: str) -> tuple[bool, dict[str, Any]]:
+    if _auth_source(uri) in RESET_DATABASES:
+        return False, {"reason": "AUTHORITY_USER_LIVES_IN_RESET_DATABASE"}
+
+    store: MongoStore | None = None
+    try:
+        store = MongoStore(uri, "admin")
+        status = store.client.admin.command({"connectionStatus": 1, "showPrivileges": True})
+        auth_info = status.get("authInfo") or {}
+        privileges = auth_info.get("authenticatedUserPrivileges") or []
+        roles = auth_info.get("authenticatedUserRoles") or []
+        requirements = {
+            CANONICAL_DATABASE: {"dropDatabase", "dropUser", "createUser"},
+            LEGACY_EVAL_DATABASE: {"dropDatabase", "dropUser"},
+        }
+        missing: dict[str, list[str]] = {}
+        for database, actions in requirements.items():
+            absent = sorted(
+                action for action in actions
+                if not _has_action(privileges, database, action)
+            )
+            if absent:
+                missing[database] = absent
+        return not missing, {
+            "roles": roles,
+            "missing_actions": missing,
+        }
+    except Exception as exc:
+        return False, {"reason": type(exc).__name__}
+    finally:
+        if store is not None:
             try:
-                status = store.db.command("connectionStatus")
-                roles = [
-                    {"role": str(row.get("role")), "db": str(row.get("db"))}
-                    for row in ((status.get("authInfo") or {}).get("authenticatedUserRoles") or [])
-                    if isinstance(row, dict)
-                ]
-            finally:
                 store.client.close()
-            expected = {"role": "readWrite", "db": CANONICAL_DATABASE}
-            if expected not in roles:
-                raise DatabaseResetError(
-                    "DATABASE_RESET_ROLE_VERIFY_FAILED",
-                    "fresh MangoMe runtime user does not have readWrite on mangome",
-                )
-            return {
-                "database_ready": bool(probe.get("database_ready")),
-                "canonical_indexes_ready": bool(probe.get("canonical_indexes_ready")),
-                "runtime_role_verified": True,
-                "runtime_roles": roles,
-            }
-        except DatabaseResetError:
-            raise
-        except Exception as exc:
-            last_error = exc
-            time.sleep(0.25)
+            except Exception:
+                pass
+
+
+def _select_online_maintenance_uri(workspace: Path, home: Path) -> tuple[str, str]:
+    attempted: list[dict[str, Any]] = []
+    for source, uri in _candidate_uris(workspace, home):
+        ok, detail = _maintenance_authority(uri)
+        attempted.append({"source": source, **detail})
+        if ok:
+            return source, uri
     raise DatabaseResetError(
-        "DATABASE_RESET_VERIFY_FAILED",
-        f"fresh MangoMe runtime could not be verified ({type(last_error).__name__ if last_error else 'timeout'})",
+        "DATABASE_RESET_AUTHORITY_REQUIRED",
+        (
+            "no already-available online MongoDB credential with authority over exactly "
+            "mangome and mangome_uai_eval was discovered; no database was modified and "
+            "the shared MongoDB service was left running"
+        ),
     )
+
+
+def _database_names_if_allowed(store: MongoStore) -> set[str] | None:
+    try:
+        return set(store.client.list_database_names())
+    except Exception:
+        return None
+
+
+def _verify_runtime(uri: str) -> dict[str, Any]:
+    store = MongoStore(uri, CANONICAL_DATABASE)
+    try:
+        store.db.command("ping")
+        store.ensure_indexes()
+        status = store.db.command("connectionStatus")
+        roles = [
+            {"role": str(item.get("role")), "db": str(item.get("db"))}
+            for item in ((status.get("authInfo") or {}).get("authenticatedUserRoles") or [])
+            if isinstance(item, dict)
+        ]
+        expected = [{"role": "readWrite", "db": CANONICAL_DATABASE}]
+        if roles != expected:
+            raise DatabaseResetError(
+                "DATABASE_RESET_ROLE_VERIFY_FAILED",
+                "fresh mangome_runtime does not have exactly readWrite on mangome",
+            )
+        return {
+            "database_ready": True,
+            "canonical_indexes_ready": True,
+            "runtime_role_verified": True,
+            "runtime_roles": roles,
+        }
+    except DatabaseResetError:
+        raise
+    except Exception as exc:
+        raise DatabaseResetError(
+            "DATABASE_RESET_VERIFY_FAILED",
+            f"fresh MangoMe runtime could not be verified ({type(exc).__name__})",
+        ) from exc
+    finally:
+        store.client.close()
 
 
 def total_reset_database(
     *,
     confirmation: str,
     home: str | None = None,
+    workspace: str | None = None,
 ) -> dict[str, Any]:
     if confirmation != DATABASE_RESET_CONFIRMATION:
         raise DatabaseResetError(
             "DATABASE_RESET_CONFIRMATION_REQUIRED",
             f"exact confirmation required: {DATABASE_RESET_CONFIRMATION}",
         )
-    if not hasattr(os, "geteuid") or os.geteuid() != 0:
-        raise DatabaseResetError(
-            "DATABASE_RESET_ROOT_REQUIRED",
-            "database total reset requires local root authority",
-        )
 
     home_path = Path(home).expanduser().resolve() if home else Path.home().resolve()
+    workspace_path = Path(workspace).expanduser().resolve() if workspace else Path.cwd().resolve()
 
-    try:
-        service = _mongod_service_name()
-        config_path = _mongod_config_path()
-        config = _parse_simple_mongod_config(config_path)
-        _assert_local_provision_safety(config)
-    except ZeroTouchBootstrapError as exc:
-        raise DatabaseResetError(exc.code, str(exc)) from exc
-
-    systemctl = shutil.which("systemctl")
-    mongod = shutil.which("mongod") or ("/usr/bin/mongod" if Path("/usr/bin/mongod").is_file() else None)
-    runuser = shutil.which("runuser")
-    if not systemctl or not mongod or not runuser:
-        raise DatabaseResetError(
-            "DATABASE_RESET_UNSUPPORTED",
-            "required local MongoDB service-management tools are unavailable",
-        )
-
-    active = subprocess.run(
-        [systemctl, "is-active", "--quiet", service],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=5,
-    ).returncode == 0
-    if not active:
-        raise DatabaseResetError(
-            "DATABASE_RESET_SERVICE_NOT_ACTIVE",
-            "MongoDB systemd service must be active before total reset",
-        )
-
-    port = _normal_port(config)
-    service_user = _service_user(systemctl, service)
-    temp_port = _free_loopback_port()
-    temp_uri = f"mongodb://127.0.0.1:{temp_port}"
-    temp_process: subprocess.Popen[Any] | None = None
-    temp_store: MongoStore | None = None
+    authority_source, authority_uri = _select_online_maintenance_uri(workspace_path, home_path)
+    authority = MongoStore(authority_uri, "admin")
+    before = _database_names_if_allowed(authority)
 
     password = secrets.token_urlsafe(36)
     encoded_user = quote(RUNTIME_USER, safe="")
     encoded_password = quote(password, safe="")
     encoded_db = quote(CANONICAL_DATABASE, safe="")
+
+    parsed = urlsplit(authority_uri)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 27017
+    if host in {"localhost", "::1"}:
+        host = "127.0.0.1"
     runtime_uri = (
-        f"mongodb://{encoded_user}:{encoded_password}@127.0.0.1:{port}/"
+        f"mongodb://{encoded_user}:{encoded_password}@{host}:{port}/"
         f"{encoded_db}?authSource={encoded_db}"
     )
 
+    staged, credential_target = _stage_runtime_credential(home_path, runtime_uri)
     dropped_databases: list[str] = []
-    service_restart_error: Exception | None = None
-
-    subprocess.run(
-        [systemctl, "stop", service],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=30,
-    )
 
     try:
-        env = dict(os.environ)
-        env.pop("MONGODB_CONFIG_OVERRIDE_NOFORK", None)
-        temp_process = subprocess.Popen(
-            [
-                runuser, "-u", service_user, "--",
-                mongod, "--config", str(config_path),
-                "--noauth",
-                "--bind_ip", "127.0.0.1",
-                "--port", str(temp_port),
-                "--nounixsocket",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=env,
-        )
-        temp_store = _wait_for_temp_store(temp_uri, temp_process)
-
-        discovered = set(temp_store.client.list_database_names())
-        targets = sorted(
-            {name for name in discovered if _is_mangome_database(name)}
-            | {CANONICAL_DATABASE, "mangome_uai_eval"}
-        )
-
-        for name in targets:
-            db = temp_store.client[name]
-            # dropDatabase intentionally does not delete DB users; remove those
-            # first so no legacy/eval MangoMe principal survives the total reset.
+        for name in RESET_DATABASES:
+            db = authority.client[name]
             db.command({"dropAllUsersFromDatabase": 1})
             db.command({"dropDatabase": 1})
-            if name in discovered:
-                dropped_databases.append(name)
+            dropped_databases.append(name)
 
-        fresh = temp_store.client[CANONICAL_DATABASE]
+        fresh = authority.client[CANONICAL_DATABASE]
         fresh.command({
             "createUser": RUNTIME_USER,
             "pwd": password,
             "roles": [{"role": "readWrite", "db": CANONICAL_DATABASE}],
         })
 
-        # Persist only the scoped runtime credential; never an admin/no-auth secret.
-        credential_path = _secure_managed_credential_file(home_path, runtime_uri)
+        verification = _verify_runtime(runtime_uri)
+        credential_path = _commit_runtime_credential(staged, credential_target)
         _secure_managed_database_binding(
             home_path,
             database=CANONICAL_DATABASE,
-            source="DATABASE_TOTAL_RESET",
+            source="DATABASE_TOTAL_RESET_ONLINE",
             adopted_existing=False,
         )
 
-        _stop_temp_process(temp_process, temp_store)
-        temp_process = None
-        temp_store = None
+        after = _database_names_if_allowed(authority)
+        preserved_verified: bool | None = None
+        if before is not None and after is not None:
+            preserved_verified = (before - set(RESET_DATABASES)) == (after - set(RESET_DATABASES))
+
+        os.environ["MANGOME_MONGODB_URI_FILE"] = str(credential_path)
+        os.environ.pop("MANGOME_MONGODB_URI", None)
+        os.environ["MANGOME_DATABASE"] = CANONICAL_DATABASE
+        os.environ["MANGOME_EXPECTED_DATABASE"] = CANONICAL_DATABASE
+        os.environ.pop("MANGOME_ALLOW_EVAL_DATABASE", None)
+        os.environ.pop("MANGOME_ADOPT_EXISTING_DATABASE", None)
+
+        return {
+            "ok": True,
+            "operation": "DATABASE_TOTAL_RESET",
+            "destructive": True,
+            "scope": "EXACT_DATABASE_ALLOWLIST",
+            "allowlist": list(RESET_DATABASES),
+            "dropped_databases": dropped_databases,
+            "database": CANONICAL_DATABASE,
+            "legacy_eval_database_removed": LEGACY_EVAL_DATABASE in dropped_databases,
+            "runtime_user": RUNTIME_USER,
+            "runtime_role": {"role": "readWrite", "db": CANONICAL_DATABASE},
+            "credential_file": str(credential_path),
+            "database_binding": str(home_path / ".config" / "mangome" / "database-binding.json"),
+            "maintenance_authority_source": authority_source,
+            "database_migration_performed": False,
+            "shared_mongodb_service_restarted": False,
+            "offline_noauth_bootstrap_used": False,
+            "wildcard_database_matching_used": False,
+            "non_target_databases_preservation_verified": preserved_verified,
+            "mcp_restart_required": True,
+            **verification,
+        }
     finally:
-        _stop_temp_process(temp_process, temp_store)
-        try:
-            subprocess.run(
-                [systemctl, "start", service],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=30,
-            )
-        except Exception as exc:
-            service_restart_error = exc
-
-    if service_restart_error is not None:
-        raise DatabaseResetError(
-            "DATABASE_RESET_SERVICE_RESTART_FAILED",
-            "database reset completed but the normal authenticated MongoDB service could not be restarted",
-        ) from service_restart_error
-
-    verification = _verify_fresh_runtime(runtime_uri)
-
-    os.environ["MANGOME_MONGODB_URI_FILE"] = str(credential_path)
-    os.environ.pop("MANGOME_MONGODB_URI", None)
-    os.environ["MANGOME_DATABASE"] = CANONICAL_DATABASE
-    os.environ["MANGOME_EXPECTED_DATABASE"] = CANONICAL_DATABASE
-    os.environ.pop("MANGOME_ALLOW_EVAL_DATABASE", None)
-    os.environ.pop("MANGOME_ADOPT_EXISTING_DATABASE", None)
-
-    return {
-        "ok": True,
-        "operation": "DATABASE_TOTAL_RESET",
-        "destructive": True,
-        "scope": "MANGOME_DATABASES_ONLY",
-        "dropped_databases": dropped_databases,
-        "database": CANONICAL_DATABASE,
-        "legacy_eval_database_removed": "mangome_uai_eval" in dropped_databases,
-        "runtime_user": RUNTIME_USER,
-        "runtime_role": {"role": "readWrite", "db": CANONICAL_DATABASE},
-        "credential_file": str(credential_path),
-        "database_binding": str(home_path / ".config" / "mangome" / "database-binding.json"),
-        "database_migration_performed": False,
-        "non_mangome_databases_touched": False,
-        "mongodb_service_restarted": True,
-        "mcp_restart_required": True,
-        **verification,
-    }
+        authority.client.close()
+        if staged.exists():
+            try:
+                staged.unlink()
+            except OSError:
+                pass
