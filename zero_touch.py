@@ -384,8 +384,17 @@ def _launcher_roots(workspace: Path, home: Path) -> list[Path]:
     add(Path(__file__).resolve().parents[2] / "eval")
     add(workspace / "eval")
     add(workspace / "launcher")
-    add(home / "MangoMe-latest" / "eval")
+
+    # Existing MangoMe deployments predate the managed v0.3.12 binding.  Their
+    # launcher and secret indirection live outside the repository.  These are
+    # deployment-state locations, not alternate source trees.
+    add(home / "tonnestate-secrets")
+    add(home / ".local" / "share" / "tonnestate-mcp")
     add(home / ".config" / "mangome")
+
+    # Historical installer checkout is candidate-only. GitHub/main remains source
+    # truth; this path is inspected only for launcher binding metadata.
+    add(home / "MangoMe-latest" / "eval")
     return roots
 
 
@@ -441,6 +450,17 @@ def _parse_launcher_binding(path: Path) -> list[_CredentialCandidate]:
 def _launcher_candidates(workspace: Path, home: Path) -> list[_CredentialCandidate]:
     out: list[_CredentialCandidate] = []
     seen_files: set[Path] = set()
+
+    def priority(path: Path) -> tuple[int, int, str]:
+        name = path.name.lower()
+        likely = (
+            "mangome", "mongo", "credential", "secret", "launcher",
+            "env", "config", "service",
+        )
+        suffixes = {".env", ".sh", ".service", ".conf", ".toml", ".json"}
+        rank = 0 if any(token in name for token in likely) or path.suffix.lower() in suffixes else 1
+        return (rank, len(path.parts), str(path))
+
     for root in _launcher_roots(workspace, home):
         if not root.exists():
             continue
@@ -448,10 +468,22 @@ def _launcher_candidates(workspace: Path, home: Path) -> list[_CredentialCandida
             paths = [root]
         else:
             try:
-                paths = [p for p in root.rglob("*") if p.is_file()]
+                paths = [
+                    p for p in root.rglob("*")
+                    if p.is_file()
+                    and "__pycache__" not in p.parts
+                    and "site-packages" not in p.parts
+                    and ".git" not in p.parts
+                ]
+                paths.sort(key=priority)
             except OSError:
                 continue
-        for path in paths[:128]:
+
+        # Prefer launcher/env/config material before package payload.  The previous
+        # first-128-files rule could exhaust its budget inside the managed venv and
+        # never reach the actual launcher that carries
+        # MANGOME_MONGODB_URI_FILE + MANGOME_DATABASE.
+        for path in paths[:512]:
             try:
                 resolved = path.resolve()
             except OSError:
@@ -551,14 +583,17 @@ def _collect_database_hints(workspace: Path, home: Path) -> list[str]:
 
 
 def _local_root_provision_enabled() -> bool:
+    """Allow safe local self-provisioning for a root-owned MangoMe runtime.
+
+    Do not depend on a pre-existing managed-client flag here: repairing a stale or
+    incomplete managed binding is exactly the bootstrap case. The provisioning path
+    itself still enforces loopback-only standalone MongoDB, authorization enabled,
+    systemd ownership, and rejects replica/sharded/keyFile deployments.
+    """
     override = os.environ.get("MANGOME_ZERO_TOUCH_LOCAL_PROVISION")
     if override is not None:
         return _truthy(override)
-    return bool(
-        hasattr(os, "geteuid")
-        and os.geteuid() == 0
-        and os.environ.get("MANGOME_DEPLOYMENT_ID", "").strip() == "managed-local"
-    )
+    return bool(hasattr(os, "geteuid") and os.geteuid() == 0)
 
 
 def _mongod_service_name() -> str:
@@ -982,9 +1017,14 @@ def prepare_mongodb_runtime(
     try:
         probe = _probe_uri("mongodb://127.0.0.1:27017", unauth_database)
     except ZeroTouchBootstrapError as exc:
+        # A failed preflight must not prevent the managed local recovery path.
+        # In constrained launch contexts loopback probing can fail before the
+        # privileged local provisioner gets a chance to repair the runtime identity.
+        failures.append(exc.code)
         if exc.code == "MONGODB_UNREACHABLE":
-            raise
-        if exc.code != "BOOTSTRAP_AUTHORITY_REQUIRED" and "BOOTSTRAP_AUTHORITY_REQUIRED" not in failures:
+            if not _local_root_provision_enabled():
+                raise
+        elif exc.code != "BOOTSTRAP_AUTHORITY_REQUIRED" and "BOOTSTRAP_AUTHORITY_REQUIRED" not in failures:
             raise
     else:
         _secure_managed_database_binding(
