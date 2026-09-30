@@ -1,14 +1,27 @@
-MangoMe v0.3.14 DELTA WEBUPLOAD
+MangoMe v0.3.15 DELTA WEBUPLOAD
 
-Upload/replace:
-README.md
-pyproject.toml
-src/mangome/__init__.py
-src/mangome/database_admin.py
-src/mangome/trust_boundary.py
-src/mangome/zero_touch.py
-docs/trust-boundary.md
-docs/v0.3.14-release-notes.md
+Authoritative base:
+GitHub main commit dcb090908fe154e23f88f36fb704e1be75397a2d
+https://github.com/tonnestate/MangoMe
 
-No test data is included.
-No repository source file needs to be deleted by the web upload.
+UPLOAD / REPLACE
+- README.md
+- pyproject.toml
+- src/mangome/__init__.py
+- src/mangome/context.py
+- src/mangome/agent_context.py
+- docs/agent-context.md
+- docs/v0.3.15-release-notes.md
+
+DELETE FROM REPOSITORY
+- nothing
+
+DO NOT UPLOAD TO REPOSITORY
+- __WEBUPLOAD_META__/*
+
+Scope:
+- native MAC/1 worker-context compilation only
+- no CogC package dependency
+- no MongoDB schema/database migration
+- no MCP top-level tool expansion
+- no test fixtures/data included

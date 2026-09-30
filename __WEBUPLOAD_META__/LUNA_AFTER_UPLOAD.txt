@@ -1,99 +1,60 @@
-LUNA / CODEX P0 HANDOFF — MangoMe v0.3.14
+LUNA / CODEX HANDOFF — MangoMe v0.3.15
 
-GitHub main is the only source truth after the v0.3.14 web upload.
+SOURCE OF TRUTH
+GitHub main only: https://github.com/tonnestate/MangoMe
+The v0.3.15 delta was built against main commit:
+dcb090908fe154e23f88f36fb704e1be75397a2d
 
-GOAL
-Convert the existing single-host deployment to LOCAL_HOST, delete obsolete MangoMe
-credential residue, restore health, then perform the already-authorized MangoMe total
-database reset.
+PURPOSE
+Install the uploaded v0.3.15 and verify the new native MAC/1 agent-context projection.
+Do not reimplement CogC and do not add CogC as a MangoMe dependency.
 
-HARD SAFETY BOUNDARY
-- Never touch a non-MangoMe database.
-- Never delete or edit MongoDB dbPath files.
-- Never start a temporary --noauth mongod.
-- Never create a MongoDB user or role.
-- Never expose MongoDB beyond loopback.
-- If MongoDB is not loopback-only, STOP before disabling authorization.
-- Do not change unrelated client configuration.
+HARD BOUNDARIES
+- No database reset for this context-compiler update.
+- If the v0.3.14 LOCAL_HOST migration is already complete and stale MangoMe-only credential residue still exists, delete only the old MangoMe artifacts `~/.config/mangome/mongodb-uri`, `~/.config/mangome/mongodb-maintenance-uri` and stale MangoMe client env keys `MANGOME_MONGODB_URI_FILE`, `MANGOME_MONGODB_URI`, `MANGOME_ADOPT_EXISTING_DATABASE`, `MANGOME_ZERO_TOUCH_LOCAL_PROVISION`. Do not scan for or delete credentials belonging to other applications. If LOCAL_HOST migration is not complete, do not improvise this cleanup as part of v0.3.15; report the existing v0.3.14 blocker first.
+- No mongod stop/start/restart.
+- No mongod.conf, firewall, dbPath, MongoDB-user or role changes.
+- No legacy-database adoption/repair/migration.
+- No synthetic canonical Contract/Family/WorkIdentity test data in production.
+- Do not edit MangoMe source after pulling GitHub main.
+- Do not reread complete local Contract files to prove MAC/1; the point of MAC/1 is canonical MongoDB context.
 
-PHASE 1 — UPDATE
-1. Update the existing MangoMe checkout exactly to GitHub main.
-2. Reinstall the existing MangoMe environment from that checkout.
-3. Confirm installed version is 0.3.14.
+AFTER WEB UPLOAD
+1. Confirm GitHub main contains version 0.3.15 and `src/mangome/agent_context.py`.
+2. Update the existing MangoMe checkout exactly to GitHub main.
+3. Reinstall the existing MangoMe environment from that checkout.
+4. Restart/reload only the MangoMe MCP/client process if required by the existing deployment. Do not restart MongoDB.
+5. Run `mangome health`.
 
-PHASE 2 — DELETE OBSOLETE MANGOME CREDENTIAL RESIDUE
-Remove only if present:
-- ~/.config/mangome/mongodb-uri
-- ~/.config/mangome/mongodb-maintenance-uri
-- ~/.config/mangome/database-binding.json
-
-From MangoMe entries only in managed Claude/Codex configuration, remove stale keys:
-- MANGOME_MONGODB_URI_FILE
-- MANGOME_MONGODB_URI
-- MANGOME_ADOPT_EXISTING_DATABASE
-- MANGOME_ZERO_TOUCH_LOCAL_PROVISION
-
-Do not delete unrelated configuration.
-Keep/set:
-- MANGOME_TRUST_BOUNDARY=LOCAL_HOST
-- MANGOME_DATABASE=mangome
-- MANGOME_EXPECTED_DATABASE=mangome
-- MANGOME_ZERO_TOUCH_BOOTSTRAP=1
-- MANGOME_ALLOW_EVAL_DATABASE=0
-
-PHASE 3 — ONE-TIME HOST MIGRATION
-1. Read the active MongoDB service and /etc/mongod.conf.
-2. Before changing authorization, prove the active MongoDB listener is loopback-only.
-   Accept only 127.0.0.1 / localhost / ::1.
-   If any non-loopback bind/listener exists: STOP. Do not disable authorization.
-3. Make one timestamped backup of /etc/mongod.conf.
-4. Change only MongoDB authorization for this deployment to disabled.
-   Preserve loopback-only binding and all unrelated MongoDB settings.
-5. Restart the existing mongod.service exactly once to apply this host configuration.
-6. Verify again that the listener remains loopback-only.
-
-PHASE 4 — READINESS
-Run the installed v0.3.14:
-  mangome health
-
-Required before reset:
-- version = 0.3.14
+EXPECTED HEALTH
+- version = 0.3.15
 - process_ready = true
 - database_ready = true
-- trust_boundary.mode = LOCAL_HOST
-- trust_boundary.credential_source = NONE
-- trust_boundary.endpoint_scope = LOOPBACK
-- database = mangome
+- existing v0.3.14 LOCAL_HOST posture remains unchanged
 
-If any condition fails: STOP. Do not improvise.
+MAC/1 READ-ONLY VERIFICATION
+If an already-existing canonical Family with a current canonical Contract generation is available, use that existing state only and compile its context through the normal MangoMe context path.
 
-PHASE 5 — EXPLICIT TOTAL RESET
-The owner already authorized this MangoMe-only reset in the current recovery task.
+Verify in the result:
+- agent_context.protocol = MAC/1
+- source_policy.routine_contract_source = MONGODB_CANONICAL_CONTRACT_GENERATION
+- source_policy.local_contract_file_read = false
+- source_policy.full_contract_in_worker_context = false
+- source_policy.omitted_text_embedded_in_handles = false
+- fidelity.critical_retention = 1.0
+- no expandable handle contains a `text` field
+- C0/C1 units remain resident even under a constrained agent token budget
+- if C0/C1 alone exceed the configured profile budget, routing_signal = SPLIT_OR_ROUTE_LARGER_CONTEXT
 
-Run exactly:
-  mangome database-reset --confirm TOTAL-RESET-MANGOME-DATABASES
+If no existing canonical Contract generation is available, do not create production test state merely to prove this release. Report that the live MAC/1 contract-path verification is not applicable yet.
 
-The implementation itself must report:
-- exact allowlist = mangome, mangome_uai_eval
-- no MongoDB service restart by MangoMe
-- no wildcard matching
-- no credential/user/role bootstrap
-- non-target database preservation verified
+FAIL-CLOSED CONDITIONS
+If a current Contract head points to a missing, non-CANONICAL or hash-mismatched generation, STOP. Do not fall back to a local Contract file and do not repair/migrate the Contract automatically.
 
-Legacy rule:
-- mangome_uai_eval must never be adopted/repaired/migrated.
-- It may only be deleted by this explicit reset because schema drift is fail-closed.
-
-PHASE 6 — FINAL CHECK
-Reload/restart only the MangoMe MCP/client process as needed; do not restart MongoDB.
-Run:
-  mangome health
-
-Report:
+REPORT ONLY
 - Git commit
 - installed MangoMe version
-- MongoDB listener scope
-- authorization mode
-- deleted MangoMe databases
-- non-target preservation verification
-- final health
+- health result
+- whether a pre-existing canonical Contract generation was available for MAC/1 verification
+- MAC/1 protocol/profile/token receipt/fidelity/routing signal (sanitized)
+- confirmation that no local Contract file was read by MAC/1

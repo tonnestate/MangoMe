@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.14-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.15-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -102,6 +102,50 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 ---
 
+
+# v0.3.15 — Native Agent Context Compilation
+
+v0.3.15 moves capacity-aware worker-context compilation into MangoMe itself. CogC remains a separate experimental project; MangoMe does **not** add a CogC runtime dependency or copy CogC as a second subsystem. Instead, MangoMe adopts the relevant design principles at the canonical-state boundary where it already knows Contract generations, PCH residency, Specifications, Slices, Evidence and truth.
+
+The execution path is now:
+
+```text
+canonical Contract generation in MongoDB
+        ↓
+deterministic clause projection
+        ↓
+PCH/1 resident Contract selection
+        ↓
+MAC/1 worker-context compiler
+        ↓
+capacity-specific cognitive package
+        ↓
+UAI/1 / normal worker transport
+        ↓
+agent
+```
+
+The full Contract body remains in the canonical `contract_generations` collection and in its human-readable local artifact. Routine agent context does not reread the complete local Contract file. MAC/1 reads the current canonical MongoDB generation, projects stable clause handles with source spans and hashes, keeps the critical/relevant text in the worker package, and leaves omitted text outside the active context.
+
+MAC/1 uses deterministic C0–C3 criticality for this release. Explicit Specification constraints, out-of-scope boundaries, acceptance criteria, required Evidence, Slice gates and normative Contract language become worker units. C0/C1 units are never dropped merely to satisfy a model budget. If the critical set itself exceeds the configured capacity, MangoMe reports `SPLIT_OR_ROUTE_LARGER_CONTEXT` instead of silently truncating normative truth.
+
+Omitted material is represented only by metadata handles such as generation id, clause span and content hash. The omitted text is **not** embedded behind the handle, avoiding the common failure mode where a supposedly compressed JSON package still contains the full source text.
+
+Target profiles are deployment hints, not model-quality claims. v0.3.15 includes deterministic profiles for `generic-small-agent`, `qwen-4b`, `qwen-9b`, and `frontier-specialist`, selectable through `MANGOME_AGENT_CONTEXT_PROFILE`; the token envelope can be overridden through `MANGOME_AGENT_CONTEXT_TOKEN_BUDGET`. Canonical truth and mutation authority remain independent of that profile.
+
+The trust split is explicit:
+
+```text
+MangoMe canonical state  = what is true / binding
+PCH/1                    = what is currently resident/relevant
+MAC/1                    = what this worker should see
+UAI/1                    = how the projection is transported
+worker                    = reason / act within existing authority
+```
+
+MAC/1 creates no second truth store, no new authorization layer and no model inference dependency. Contract generation integrity remains fail-closed: a missing, non-canonical or hash-mismatched current generation blocks the clause projection rather than being reconstructed from a local file or agent memory.
+
+---
 
 # v0.3.14 — LOCAL_HOST Trust, Credential Removal & Legacy Schema Fail-Closed
 
@@ -1054,7 +1098,7 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The normal v0.3.14 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
+The normal v0.3.15 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
 
 The detailed capability surface remains available through the explicit advanced endpoint for operators, compatibility and internal integrations. That advanced surface includes:
 
@@ -1348,7 +1392,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.14** keeps the v0.3.x governance architecture and adds the P0 shared-MongoDB safety repair for multi-database hosts. The normal worker surface remains unchanged; the destructive reset path is now exact-allowlist, online-only, fail-closed, and forbidden from stopping or restarting a shared MongoDB service.
+**v0.3.15** keeps the v0.3.14 LOCAL_HOST safety model and adds native MAC/1 capacity-aware worker-context compilation. Canonical Contract bodies remain in MongoDB; agents receive only bounded critical/relevant clause projections plus metadata-only expansion handles, while C0/C1 truth is never silently truncated for a model budget.
 
 The current execution architecture is:
 

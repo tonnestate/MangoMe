@@ -4,6 +4,7 @@ import json
 import os
 from typing import Any
 
+from .agent_context import AgentContextCompiler
 from .hygiene import CognitiveHygieneService
 from .service import MangoMeService
 from .truth import BitemporalTruthService
@@ -36,8 +37,17 @@ def _compact_evidence(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _compact_agent_handle(item: dict[str, Any]) -> dict[str, Any]:
+    """Keep an omitted source resolvable without smuggling its text into worker context."""
+    return {
+        key: item.get(key)
+        for key in ("handle", "kind", "criticality", "content_hash", "contract_id", "generation_id", "section_path")
+        if item.get(key) not in (None, "")
+    }
+
+
 class ContextCompiler:
-    """Deterministic execution-context projection for IntakeGov/CogC downstream use."""
+    """Deterministic execution-context projection for capacity-aware worker use."""
 
     def __init__(self, service: MangoMeService) -> None:
         self.service = service
@@ -75,6 +85,10 @@ class ContextCompiler:
             e for e in ctx["evidence"]
             if e.get("subject_id") in evidence_subjects and e["entity_id"] in resident_ids
         ]
+        current_spec = next(
+            (x for x in ctx.get("specs", []) if x.get("entity_id") == ctx["family"].get("current_spec_id")),
+            None,
+        )
         payload = {
             "family": {
                 "entity_id": ctx["family"]["entity_id"],
@@ -93,7 +107,7 @@ class ContextCompiler:
                 "acceptance": "OWNER_CAPABILITY_REQUIRED",
             },
             "effective_family": ctx["effective"],
-            "current_spec": next((x for x in ctx.get("specs", []) if x.get("entity_id") == ctx["family"].get("current_spec_id")), None),
+            "current_spec": current_spec,
             "current_slice": selected,
             "active_plan_id": selected.get("active_plan_id") if selected else None,
             "relevant_contracts": relevant_contracts,
@@ -117,6 +131,24 @@ class ContextCompiler:
                 "user_result": "OUTCOME_FINDINGS_EVIDENCE_ONLY",
             },
         }
+
+        # v0.3.15 native worker-context compilation.  Contract bodies remain canonical
+        # in MongoDB; the agent receives only the exact critical/relevant clause units
+        # needed for this task plus metadata-only handles for omitted material.
+        payload["agent_context"] = AgentContextCompiler(self.service).compile(
+            family_id=family_id,
+            family=ctx["family"],
+            current_spec=current_spec,
+            current_slice=selected,
+            relevant_contracts=relevant_contracts,
+            task_query=hygiene.get("task_query"),
+        )
+        payload["instruction"] += (
+            " Use agent_context as the default worker projection. When its canonical MongoDB clauses already contain "
+            "the required contract truth, do not reread the complete local contract file. Omitted source handles are "
+            "metadata references only; expand narrowly when the bounded task actually requires more detail. "
+            "If agent_context.routing_signal is not READY, do not execute from the reduced projection; split/route or repair the canonical source first."
+        )
 
         # v0.3 persistence boundary: durable identity/assurance is mandatory context,
         # progressive checkpoints are recoverable but non-normative, and Playbooks are
@@ -227,7 +259,7 @@ class ContextCompiler:
         if original_bytes <= budget:
             payload["context_budget"] = {
                 "max_bytes": budget, "original_bytes": original_bytes, "compiled_bytes": original_bytes,
-                "truncated": False, "omitted_evidence": 0,
+                "truncated": False, "omitted_evidence": 0, "omitted_agent_facts": 0,
             }
             final_bytes = _json_bytes(payload)
             if final_bytes <= budget:
@@ -238,8 +270,8 @@ class ContextCompiler:
             payload.pop("context_budget", None)
             return payload
 
-        # Never truncate normative state, current Slice identity, gates or acceptance semantics.
-        # PCH/1 telemetry is disposable: compact it before historical Evidence/Contract payload detail.
+        # Never truncate normative state, current Slice identity, gates, acceptance semantics,
+        # or MAC/1 C0/C1 units. PCH/1 telemetry and optional agent facts are disposable.
         hygiene_projection = payload.get("cognitive_hygiene") or {}
         if hygiene_projection:
             policy = hygiene_projection.get("policy") or {}
@@ -253,11 +285,43 @@ class ContextCompiler:
                 "counts": hygiene_projection.get("counts"),
                 "rule": "COLD means non-resident, never deleted; temperature is not truth or assurance.",
             }
-        # Then remove bulky optional Evidence payloads and Contract storage detail.
+
+        # Remove bulky optional Evidence/Contract storage detail first.
         payload["evidence"] = [_compact_evidence(item) for item in payload["evidence"]]
         payload["relevant_contracts"] = [_compact_contract(item) for item in payload["relevant_contracts"]]
         omitted = 0
-        # Context reduction order is explicit: volatile -> progressive detail -> old evidence.
+        omitted_agent_facts = 0
+
+        # MAC/1 already performs model-targeted selection. If the outer transport envelope is
+        # tighter still, fold only optional worker facts behind metadata handles. Critical
+        # C0/C1 text remains resident and therefore fail-closed if it cannot fit.
+        agent = payload.get("agent_context") or {}
+        if _json_bytes(payload) > max(0, budget - 512) and agent:
+            handles = list(agent.get("expandable_handles") or [])
+            facts = list(agent.get("facts") or [])
+            while facts and _json_bytes(payload) > max(0, budget - 512):
+                item = facts.pop()
+                metadata = item.get("metadata") or {}
+                handles.append(_compact_agent_handle({
+                    "handle": item.get("id"),
+                    "kind": item.get("kind"),
+                    "criticality": item.get("criticality"),
+                    "content_hash": metadata.get("content_hash"),
+                    **metadata,
+                }))
+                omitted_agent_facts += 1
+                agent["facts"] = facts
+                agent["expandable_handles"] = handles
+            agent["transport"] = {
+                "optional_facts_folded": omitted_agent_facts,
+                "critical_units_dropped": 0,
+                "rule": "OUTER_TRANSPORT_MAY_FOLD_OPTIONAL_FACTS_BUT_NEVER_MAC_C0_C1",
+            }
+
+        if _json_bytes(payload) > max(0, budget - 512) and agent.get("expandable_handles"):
+            agent["expandable_handles"] = [_compact_agent_handle(item) for item in agent["expandable_handles"]]
+
+        # Context reduction order continues with volatile -> progressive detail -> old evidence.
         # Canonical WorkIdentity/baseline/assurance summary is never removed.
         if _json_bytes(payload) > max(0, budget - 512) and payload.get("persistence"):
             volatile = payload["persistence"].get("volatile") or {}
@@ -278,16 +342,24 @@ class ContextCompiler:
         while payload["evidence"] and _json_bytes(payload) > max(0, budget - 512):
             payload["evidence"].pop(0)
             omitted += 1
+        # Expandable handles are useful but non-normative.  Drop them before ever dropping
+        # critical text when the hard byte envelope is exceptionally small.
+        while agent.get("expandable_handles") and _json_bytes(payload) > max(0, budget - 512):
+            agent["expandable_handles"].pop()
+            agent.setdefault("transport", {})["handles_omitted_for_byte_envelope"] = (
+                int(agent.get("transport", {}).get("handles_omitted_for_byte_envelope") or 0) + 1
+            )
+
         compiled_bytes = _json_bytes(payload)
         if compiled_bytes > budget:
             raise ContextBudgetExceeded(
                 f"mandatory MangoMe execution context requires {compiled_bytes} bytes, budget is {budget}; "
-                "increase MANGOME_CONTEXT_MAX_BYTES or narrow the requested execution scope"
+                "critical MAC/1 truth was not truncated; route to a larger context or narrow/split the execution scope"
             )
         payload["context_budget"] = {
             "max_bytes": budget, "original_bytes": original_bytes, "compiled_bytes": compiled_bytes,
-            "truncated": True, "omitted_evidence": omitted,
-            "rule": "Canonical truth is never truncated; only this disposable execution projection is bounded.",
+            "truncated": True, "omitted_evidence": omitted, "omitted_agent_facts": omitted_agent_facts,
+            "rule": "Canonical truth and MAC/1 C0/C1 are never truncated; only disposable execution projection detail is bounded.",
         }
         final_bytes = _json_bytes(payload)
         payload["context_budget"]["compiled_bytes"] = final_bytes
