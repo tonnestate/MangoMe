@@ -53,7 +53,7 @@ class MongoConnectionConfig:
 
 
 def resolve_mongodb_connection() -> MongoConnectionConfig:
-    """Resolve the v0.3.14 single-host MongoDB binding.
+    """Resolve the v0.3.16 single-host MongoDB binding.
 
     LOCAL_HOST intentionally has no MongoDB principal, role, password, credential
     file, maintenance identity, credential adoption or offline no-auth recovery.
@@ -64,7 +64,7 @@ def resolve_mongodb_connection() -> MongoConnectionConfig:
     if mode != LOCAL_HOST_MODE:
         raise OperabilityError(
             "LEGACY_TRUST_MODE_REJECTED",
-            "v0.3.14 managed local operation requires MANGOME_TRUST_BOUNDARY=LOCAL_HOST",
+            "v0.3.16 managed local operation requires MANGOME_TRUST_BOUNDARY=LOCAL_HOST",
         )
 
     if os.environ.get("MANGOME_MONGODB_URI_FILE", "").strip():

@@ -56,3 +56,13 @@ exact-allowlist total reset.
 With MongoDB authorization disabled, any local process that can reach the loopback
 MongoDB listener can access MongoDB. LOCAL_HOST is therefore unsuitable for an
 untrusted multi-user machine. The security boundary is the host, not MongoDB RBAC.
+
+## v0.3.16 zero-touch transition
+
+On the supported managed Linux host, `LOCAL_HOST` readiness no longer requires an operator checklist when an older standalone `mongod.service` still has authorization enabled.
+
+Before changing MongoDB authorization MangoMe must prove the live TCP listener is loopback-only. A managed root runtime may then back up the active `mongod.conf`, change only `security.authorization` to `disabled`, restart `mongod.service` once, and prove loopback-only scope again. Non-loopback listeners, command-line `--auth`, clustered/key-file/transition security, ambiguous configuration, or non-root execution fail closed before authorization is weakened.
+
+Credential-era MangoMe files and process bindings are deleted only after the replacement credential-free loopback path is proven ready. MangoMe does not alter firewall/network configuration, `dbPath`, unrelated MongoDB settings, other databases, or MongoDB users/roles during this host transition.
+
+Legacy database names are not deployment identity in v0.3.16. `mangome_uai_eval` is rejected for runtime use because schema drift cannot be assumed safe; it is never adopted, repaired, or migrated automatically.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from .operability import OperabilityError
@@ -24,7 +25,8 @@ def database_reset_warning() -> dict[str, Any]:
         "warning": "DESTRUCTIVE_DATABASE_RESET",
         "message": (
             "LOCAL_HOST reset permanently deletes only the exact MangoMe database allowlist. "
-            "The shared MongoDB service is never stopped or restarted."
+            "The reset body never stops or restarts MongoDB; v0.3.16 zero-touch may first perform "
+            "the one-time loopback-only LOCAL_HOST authorization migration if still required."
         ),
         "database_scope": {
             "targets": list(RESET_DATABASES),
@@ -49,7 +51,8 @@ def database_reset_warning() -> dict[str, Any]:
             "reason": "SCHEMA_DRIFT_FAIL_CLOSED",
         },
         "safety": {
-            "shared_mongodb_service_restart": False,
+            "reset_shared_mongodb_service_restart": False,
+            "zero_touch_host_migration_may_restart_once": True,
             "wildcard_database_matching": False,
             "offline_noauth_bootstrap": False,
             "credential_or_role_bootstrap": False,
@@ -92,6 +95,17 @@ def total_reset_database(
     authority: MongoStore | None = None
     fresh: MongoStore | None = None
     try:
+        # Zero-touch must make LOCAL_HOST ready before the destructive reset begins.
+        # This may perform the one-time host authorization migration, but it never
+        # broadens the reset allowlist or adopts/migrates a legacy database.
+        from .zero_touch import ZeroTouchBootstrapError, prepare_mongodb_runtime
+        try:
+            bootstrap = prepare_mongodb_runtime(
+                workspace or os.getcwd(), database=CANONICAL_DATABASE, home=home,
+            )
+        except ZeroTouchBootstrapError as exc:
+            raise DatabaseResetError(exc.code, str(exc)) from exc
+
         config = resolve_mongodb_connection()
         authority = MongoStore(config.uri, "admin")
         authority.client.admin.command("ping")
@@ -147,7 +161,9 @@ def total_reset_database(
             "database_migration_performed": False,
             "legacy_database_adopted": False,
             "legacy_database_repaired": False,
-            "shared_mongodb_service_restarted": False,
+            "shared_mongodb_service_restarted": bool((bootstrap.get("host_migration") or {}).get("performed")),
+            "reset_body_restarted_shared_mongodb_service": False,
+            "zero_touch_host_migration_performed": bool((bootstrap.get("host_migration") or {}).get("performed")),
             "offline_noauth_bootstrap_used": False,
             "wildcard_database_matching_used": False,
             "credential_bootstrap_used": False,

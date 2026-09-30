@@ -7,7 +7,7 @@ description: Use MangoMe for durable multi-agent work, recovery, evidence, verif
 
 MangoMe is the canonical operational-memory and verification substrate for durable multi-agent work. Workers and sessions are replaceable; admitted WorkIdentity, normative state, Evidence and assurance history are not.
 
-## v0.3.12 semantic worker surface
+## v0.3.16 semantic worker surface
 
 Normal workers use exactly seven top-level MangoMe tools:
 
@@ -115,9 +115,13 @@ When the current user explicitly asks to install, update, repair, hotfix, roll b
 
 Self-maintenance does not self-admit. Do not create a WorkIdentity, Contract, Specification, Plan, Slice, or self-approval merely to repair the governance substrate. Scope effects to the explicitly requested MangoMe source/package/runtime/client/service surface.
 
-Zero-touch deployment bootstrap is part of the explicit install/update/repair request and of normal managed-runtime readiness. A managed MangoMe runtime invokes this bootstrap automatically on first database access; the user or worker must not be required to run `mangome setup` as a prerequisite. The bootstrap may discover/adopt an existing MongoDB credential source without exposing secrets, preserve a verified existing deployment database identity (fresh installations default to `mangome`), and run idempotent `ensure_indexes()` for the indexes declared by the installed MangoMe release. It must never create a new database merely to normalize a historical name or silently move durable state between databases. This bounded bootstrap is installation plumbing under CPM/1; it does not require a WorkIdentity or self-approval.
+Zero-touch deployment bootstrap is part of the explicit install/update/repair request and of normal managed-runtime readiness. Under v0.3.16 `LOCAL_HOST`, MangoMe carries no MongoDB credential lifecycle and canonical runtime database identity is `mangome`. The bootstrap removes obsolete MangoMe credential/binding residue only after a replacement credential-free loopback path has been proven. If the local standalone `mongod.service` still has authorization enabled, a managed root runtime may perform the one-time fail-closed host transition: prove the live listener is loopback-only, back up the active `mongod.conf`, change only `security.authorization` to `disabled`, restart `mongod.service` once, prove loopback-only scope again, and run idempotent `ensure_indexes()`.
 
-This exception does **not** authorize MongoDB user/role creation or changes, registered schema migrations, canonical domain-document mutation, business-data repair, or database-identity changes. If any of those are required, stop with `DATABASE_CHANGE_REQUIRED`. If MongoDB is authentication-protected and no reusable authority can be adopted, stop with `BOOTSTRAP_AUTHORITY_REQUIRED`.
+That transition MUST stop before weakening authorization when the listener is non-loopback, the runtime is not root, `mongod` is started with command-line `--auth`, clustered/key-file/transition security is configured, or the active configuration is ambiguous. It never edits firewall/network configuration, `dbPath`, unrelated MongoDB settings, users/roles, or non-MangoMe databases.
+
+Legacy databases are never adopted, repaired, or migrated into the canonical runtime. `mangome_uai_eval` is schema-drift fail-closed and may only be deleted by the explicitly confirmed exact-allowlist MangoMe reset.
+
+If an older managed activation block still contains v0.3.12/v0.3.13 wording about credential adoption or `BOOTSTRAP_AUTHORITY_REQUIRED`, treat that wording as legacy bootstrap prose. The installed v0.3.16 Skill and runtime behavior are authoritative.
 
 ## Source precedence and memory
 
@@ -127,7 +131,7 @@ Historical host memory is never current authority. Prior chats, old Claude/Codex
 
 Never recover current WorkIdentity, database identity, installation version/path, or controller authority from historical host memory.
 
-Database identity is deployment state, not agent discovery. Fresh managed installations default to `mangome`, but upgrades MUST preserve a proven existing MangoMe database identity even when it has a historical name such as `mangome_uai_eval`. Never rename, copy, migrate, or switch databases implicitly during install/update. A historical name is not evidence that the durable state is disposable; only an explicit verified database migration may change deployment identity.
+Database identity is deployment state, not agent discovery. The managed LOCAL_HOST runtime uses canonical database `mangome`. Historical names such as `mangome_uai_eval` are not compatible-state evidence and MUST NOT be adopted, renamed, copied, repaired, migrated, or selected implicitly. Schema drift fails closed.
 
 ## Structural Intelligence / SIM/1
 
@@ -223,7 +227,21 @@ BTTM/1 separates when an assertion is valid in the represented world from when M
 
 PCH/1 temperature (`HOT/WARM/COLD`) is task-relative cognitive residency, not truth, assurance, or deletion. Truth maintenance decides what may be supported; Cognitive Hygiene decides what should be active; the ContextCompiler decides what can fit.
 
-Under v0.3.12, structural relevance is a separate derived projection beside PCH/1; it may guide bounded inspection but does not silently rewrite canonical PCH temperature or residency. If structural context is unavailable or too large, continue with canonical/PCH context; do not block ordinary cognition solely because the map is unavailable.
+Under v0.3.16, structural relevance is a separate derived projection beside PCH/1; it may guide bounded inspection but does not silently rewrite canonical PCH temperature or residency. If structural context is unavailable or too large, continue with canonical/PCH context; do not block ordinary cognition solely because the map is unavailable.
+
+## Agent context compilation / MAC/1
+
+MangoMe compiles worker context from canonical state instead of asking agents to reread full local Contract files. The canonical Contract generation remains in MongoDB; PCH/1 selects resident/relevant state; MAC/1 projects bounded clause/evidence/truth units for the target worker; UAI/1 remains transport.
+
+```text
+MangoMe canonical truth
+→ PCH/1 relevance/residency
+→ MAC/1 worker-context compilation
+→ UAI/1 / normal transport
+→ worker
+```
+
+Critical C0/C1 units are never silently dropped for a model budget. If the mandatory critical set does not fit, return `SPLIT_OR_ROUTE_LARGER_CONTEXT`. Omitted Contract text stays outside the worker context and is represented by metadata-only source handles; do not reconstruct omitted normative text from local files or agent memory. A missing/non-canonical/hash-mismatched Contract generation fails closed instead of being reinterpreted.
 
 ## Scoped recursive audit
 
@@ -241,7 +259,7 @@ MangoMe orchestration is normally internal. Do not expose Slice IDs, Plan IDs, r
 
 ## Non-negotiable summary
 
-1. Normal workers use seven semantic facade tools; v0.3.12 routes the full existing capability set behind them.
+1. Normal workers use seven semantic facade tools; v0.3.16 routes the existing capability set behind them.
 2. Observation-only requests stay observation-only.
 3. Structural Map is derived observation, never truth/evidence/assurance/authority.
 4. Bootstrap performs no full structural scan.
@@ -254,5 +272,5 @@ MangoMe orchestration is normally internal. Do not expose Slice IDs, Plan IDs, r
 11. Historical host memory is candidate-only, never current authority.
 12. MangoMe is infrastructure; do not modify it unless MangoMe itself is the explicit assignment target.
 13. Runtime profiles govern dispatch/delegation, not ordinary local cognition or discovery.
-14. Database identity is deployment state; preserve a proven existing binding across upgrades and never perform an implicit cross-database migration.
+14. LOCAL_HOST uses canonical database `mangome`; legacy database schema drift fails closed and is never implicitly adopted or migrated.
 15. DONE is a claim; verification and acceptance remain separate.

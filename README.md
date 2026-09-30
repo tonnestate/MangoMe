@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.15-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.16-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -103,6 +103,41 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 ---
 
 
+# v0.3.16 — Zero-Touch LOCAL_HOST Activation & Cleanup
+
+v0.3.16 closes the remaining deployment gap between the credential-free `LOCAL_HOST` design and an older host that still runs MongoDB with authorization enabled. The managed root runtime can now complete the one-time transition itself instead of returning an operator checklist.
+
+The zero-touch sequence is deliberately narrow and fail-closed:
+
+```text
+remove obsolete MangoMe credential/binding residue
+        ↓
+prove configured MongoDB endpoint is loopback
+        ↓
+prove the active TCP listener is loopback-only
+        ↓
+if authorization is still enabled:
+    backup /etc/mongod.conf
+    change only security.authorization -> disabled
+    restart mongod.service once
+        ↓
+prove loopback-only listener again
+        ↓
+anonymous ping/list access
+        ↓
+ensure canonical MangoMe indexes
+        ↓
+READY
+```
+
+MangoMe does **not** edit firewall/network configuration, `dbPath`, unrelated MongoDB settings, other databases, MongoDB users/roles or application credentials. A non-loopback listener, clustered/key-file security configuration, command-line `--auth`, unsupported service manager, non-root runtime, or ambiguous `mongod.conf` stops the migration before authorization is weakened.
+
+The old v0.3.12/v0.3.13 credential lifecycle is now treated strictly as cleanup residue in `LOCAL_HOST`. Exact obsolete MangoMe files (`mongodb-uri`, `mongodb-maintenance-uri`, `database-binding.json`) and the corresponding legacy MangoMe environment bindings are removed before readiness. Managed Codex/Claude setup then rewrites only the MangoMe MCP block from the clean credential-free environment.
+
+The explicitly confirmed total reset remains scoped to exactly `mangome` and `mangome_uai_eval`. It now invokes the same zero-touch readiness path first, so an authorized reset does not require a separate manual host-migration ritual. Legacy databases remain schema-drift fail-closed and are never adopted, repaired or migrated.
+
+---
+
 # v0.3.15 — Native Agent Context Compilation
 
 v0.3.15 moves capacity-aware worker-context compilation into MangoMe itself. CogC remains a separate experimental project; MangoMe does **not** add a CogC runtime dependency or copy CogC as a second subsystem. Instead, MangoMe adopts the relevant design principles at the canonical-state boundary where it already knows Contract generations, PCH residency, Specifications, Slices, Evidence and truth.
@@ -189,7 +224,7 @@ verify every non-target database name is unchanged
 
 No wildcard matching, `systemctl stop/start/restart`, temporary `--noauth` process, `dbPath` access, MongoDB user creation or role provisioning occurs inside MangoMe.
 
-The one-time host migration into LOCAL_HOST mode remains an operator/host action. MangoMe itself does not rewrite `mongod.conf` or manage the host firewall/network surface.
+Starting with v0.3.16, a managed root runtime may perform the narrowly bounded one-time LOCAL_HOST authorization transition automatically after proving that the active MongoDB listener is loopback-only. MangoMe still never edits firewall/network configuration or `dbPath`.
 
 ---
 
@@ -1098,7 +1133,7 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The normal v0.3.15 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
+The normal v0.3.16 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
 
 The detailed capability surface remains available through the explicit advanced endpoint for operators, compatibility and internal integrations. That advanced surface includes:
 
@@ -1392,7 +1427,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.15** keeps the v0.3.14 LOCAL_HOST safety model and adds native MAC/1 capacity-aware worker-context compilation. Canonical Contract bodies remain in MongoDB; agents receive only bounded critical/relevant clause projections plus metadata-only expansion handles, while C0/C1 truth is never silently truncated for a model budget.
+**v0.3.16** keeps MAC/1 and the seven-tool worker surface, and makes the credential-free LOCAL_HOST deployment actually zero-touch on the supported managed Linux host: obsolete MangoMe credential residue is removed automatically, loopback scope is proven, the one-time authorization transition can be completed by the root runtime, and canonical readiness is verified before work proceeds. Legacy databases remain schema-drift fail-closed.
 
 The current execution architecture is:
 
