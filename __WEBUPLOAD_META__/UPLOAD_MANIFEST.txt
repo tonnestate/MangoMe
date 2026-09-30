@@ -1,0 +1,14 @@
+MangoMe v0.3.14 DELTA WEBUPLOAD
+
+Upload/replace:
+README.md
+pyproject.toml
+src/mangome/__init__.py
+src/mangome/database_admin.py
+src/mangome/trust_boundary.py
+src/mangome/zero_touch.py
+docs/trust-boundary.md
+docs/v0.3.14-release-notes.md
+
+No test data is included.
+No repository source file needs to be deleted by the web upload.

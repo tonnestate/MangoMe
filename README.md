@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.13-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.14-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -99,6 +99,55 @@ A Claude session ends. Codex continues. Another agent sees a different database.
 MangoMe moves that problem out of the prompt and into durable, inspectable state.
 
 A normal worker should not need to know or expose MangoMe internals to the user. The worker should use MangoMe to organize its execution, persist progress and recover safely.
+
+---
+
+
+# v0.3.14 — LOCAL_HOST Trust, Credential Removal & Legacy Schema Fail-Closed
+
+v0.3.14 removes the credential-recovery deadlock from the managed single-host deployment profile.
+
+We are sorry for the disruption caused by the v0.3.12/v0.3.13 MongoDB recovery path. v0.3.13 correctly stopped the unsafe shared-service reset behavior, but it still assumed that an online MongoDB maintenance authority already existed. On a host where that authority did not exist, MangoMe could fail closed without being able to restore its own runtime database access. That was not an acceptable zero-touch outcome for the intended single-host deployment.
+
+The v0.3.14 managed-local model is intentionally simpler:
+
+```text
+Linux host / firewall boundary
+        ↓
+MongoDB bound to loopback only
+        ↓
+MongoDB authorization disabled
+        ↓
+MangoMe uses mongodb://127.0.0.1:27017
+        ↓
+canonical database = mangome
+```
+
+For this profile MangoMe has **no MongoDB principal, password, role, credential file, maintenance identity or credential-adoption lifecycle**. The host is the trust boundary. This mode is appropriate only when MongoDB is strictly loopback-only and local host processes are inside the deployment trust boundary. It must not be used for a remotely reachable MongoDB listener or an untrusted multi-user host.
+
+The destructive reset path remains tightly bounded:
+
+```text
+explicit confirmation
+        ↓
+verify LOCAL_HOST + loopback + authorization disabled
+        ↓
+exact allowlist only:
+  mangome
+  mangome_uai_eval
+        ↓
+drop exact targets
+        ↓
+recreate mangome indexes
+        ↓
+verify every non-target database name is unchanged
+```
+
+No wildcard matching, `systemctl stop/start/restart`, temporary `--noauth` process, `dbPath` access, MongoDB user creation or role provisioning occurs inside MangoMe.
+
+Legacy databases are now **fail-closed for runtime use**. A legacy database such as `mangome_uai_eval` is never automatically adopted, repaired, migrated or treated as canonical because schema drift cannot be assumed safe. Selecting it as the runtime database returns `LEGACY_DATABASE_SCHEMA_DRIFT`. An explicitly confirmed total reset may delete that exact legacy database; that is cleanup, not migration or repair.
+
+The one-time host migration into LOCAL_HOST mode remains an operator/host action. MangoMe itself does not rewrite `mongod.conf` or manage the host firewall/network surface.
 
 ---
 
@@ -1007,7 +1056,7 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The normal v0.3.13 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
+The normal v0.3.14 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
 
 The detailed capability surface remains available through the explicit advanced endpoint for operators, compatibility and internal integrations. That advanced surface includes:
 
@@ -1301,7 +1350,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.13** keeps the v0.3.x governance architecture and adds the P0 shared-MongoDB safety repair for multi-database hosts. The normal worker surface remains unchanged; the destructive reset path is now exact-allowlist, online-only, fail-closed, and forbidden from stopping or restarting a shared MongoDB service.
+**v0.3.14** keeps the v0.3.x governance architecture and adds the P0 shared-MongoDB safety repair for multi-database hosts. The normal worker surface remains unchanged; the destructive reset path is now exact-allowlist, online-only, fail-closed, and forbidden from stopping or restarting a shared MongoDB service.
 
 The current execution architecture is:
 

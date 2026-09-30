@@ -2,8 +2,12 @@
 
 import os
 
-# v0.3.13 P0 invariant: a shared MongoDB service must never be stopped/restarted
-# merely because MangoMe runs as root. Explicit operator opt-in remains possible.
+# v0.3.14 deployment invariant:
+# local-host MongoDB is the trust boundary for the managed single-host profile.
+# No MongoDB credential/user bootstrap is performed by MangoMe.
+os.environ.setdefault("MANGOME_TRUST_BOUNDARY", "LOCAL_HOST")
+os.environ.setdefault("MANGOME_ZERO_TOUCH_BOOTSTRAP", "1")
 os.environ.setdefault("MANGOME_ZERO_TOUCH_LOCAL_PROVISION", "0")
+os.environ.setdefault("MANGOME_ALLOW_EVAL_DATABASE", "0")
 
-__version__ = "0.3.13"
+__version__ = "0.3.14"

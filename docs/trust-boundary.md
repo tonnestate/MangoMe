@@ -1,38 +1,58 @@
-# MTB/1 — MongoDB Trust Boundary
+# MTB/2 — LOCAL_HOST MongoDB Trust Boundary
 
-MangoMe can enforce its invariants only when untrusted workers cannot bypass the service and write directly to the canonical MongoDB database.
-
-v0.3.6 therefore adds an explicit MongoDB trust-boundary profile. The default `WARN` mode preserves compatibility and reports unsafe deployment characteristics. `STRICT` mode fails closed.
-
-A strict production deployment requires:
+MangoMe v0.3.14 defines a deliberately simple managed single-host deployment profile.
 
 ```text
-Worker / Agent process
-    X  no canonical MongoDB credential
-
-MangoMe service identity
-    |  credential loaded from owner-only file
-    |  expected OS uid verified
-    v
-MongoDB
-    database-scoped runtime role
+trusted Linux host
+    |
+    +-- MongoDB: loopback only, authorization disabled
+    |
+    +-- MangoMe: no MongoDB principal / password / role
 ```
 
-Configure strict mode with environment variables held by the MangoMe service, not the worker:
+The default managed profile is:
 
 ```text
-MANGOME_TRUST_BOUNDARY=STRICT
-MANGOME_MONGODB_URI_FILE=/etc/mangome/mongodb-uri
-MANGOME_EXPECTED_SERVICE_UID=<uid-of-dedicated-mangome-user>
-MANGOME_ENFORCE_LEAST_PRIVILEGE=1
+MANGOME_TRUST_BOUNDARY=LOCAL_HOST
+MANGOME_DATABASE=mangome
+mongodb://127.0.0.1:27017
 ```
 
-The credential file must be a regular file owned by the MangoMe service uid with no group/other permission bits. In strict mode a MongoDB URI supplied directly through `MANGOME_MONGODB_URI` is rejected because child/worker processes can inherit environment variables.
+## Preconditions
 
-Remote MongoDB endpoints are rejected in strict mode unless the deployment explicitly sets `MANGOME_ALLOW_REMOTE_MONGODB=1` and provides the network/authentication controls required for that environment. Loopback or a local socket is the default trust posture.
+LOCAL_HOST is valid only when:
 
-When `MANGOME_ENFORCE_LEAST_PRIVILEGE=1`, MangoMe inspects authenticated built-in MongoDB roles where the server permits it and rejects known global/admin roles such as `root`, `dbOwner`, `readWriteAnyDatabase`, `userAdminAnyDatabase`, and `clusterAdmin`. Custom deployment-specific roles remain possible.
+1. MongoDB listens only on loopback (`127.0.0.1`, `localhost`, or `::1`);
+2. MongoDB authorization is disabled;
+3. local processes on the host are within the deployment trust boundary.
 
-`trust_boundary_status` and `health` expose only sanitized posture metadata. They never return the MongoDB URI, username, password, credential-file contents, or other secrets.
+MangoMe fails closed when a remote endpoint, credential file, authenticated URI,
+authenticated MongoDB identity, or enabled MongoDB authorization is detected.
 
-MTB/1 cannot magically revoke credentials already given to an untrusted worker. The strict profile makes the required deployment boundary explicit and fail-closed; the host must run MangoMe under a separate OS/service identity and keep the credential file inaccessible to workers.
+## No credential lifecycle
+
+LOCAL_HOST deliberately has no:
+
+- `mangome_runtime` MongoDB user;
+- maintenance/admin MangoMe MongoDB user;
+- MongoDB credential file;
+- credential discovery/adoption;
+- role bootstrap;
+- temporary no-auth MongoDB process.
+
+Stale v0.3.12/v0.3.13 credential files/configuration must be removed during migration.
+
+## Legacy databases
+
+A legacy database is not proof of compatible state. MangoMe does not infer that an
+older database can be repaired into the current schema.
+
+`mangome_uai_eval` is therefore rejected for runtime selection with
+`LEGACY_DATABASE_SCHEMA_DRIFT`. It may only be removed by the explicitly confirmed
+exact-allowlist total reset.
+
+## Security consequence
+
+With MongoDB authorization disabled, any local process that can reach the loopback
+MongoDB listener can access MongoDB. LOCAL_HOST is therefore unsuitable for an
+untrusted multi-user machine. The security boundary is the host, not MongoDB RBAC.
