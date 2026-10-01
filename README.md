@@ -105,25 +105,21 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 # v0.3.18 — Bounded User-Intent Execution Authority
 
-v0.3.18 removes an unnecessary control-plane dependency from ordinary execution admission. An explicit current user request may enter bounded `EXECUTE` work inside an already-admitted workspace without requiring a separate controller runtime.
+v0.3.18 removes an over-strict requirement from ordinary work admission while keeping privileged authority boundaries intact.
 
-Recovered state remains context, never authority. `VERIFY`, normative `MODIFY`, `CONTROL`, owner acceptance, and router authority keep their existing capability boundaries. A worker therefore gains only the execution authority required for the current explicit task; it does not gain permission to verify, accept, or redefine that work.
+For an already-admitted workspace, an explicit current user request may enter bounded ordinary execution without requiring a separate external control-plane actor solely to create the `EXECUTE` turn.
 
 ```text
 explicit current user intent
         ↓
-bounded task admission
+existing admitted workspace
+        ↓
+task-specific WorkIdentity
         ↓
 EXECUTE WorkTurn
-        ↓
-normal Plan / Slice execution
-
-privileged assurance / normative transitions
-        ↓
-remain capability-protected
 ```
 
-There is no persistence-schema or MongoDB migration in this release.
+This authority remains deliberately narrow. It does **not** grant verification, normative mutation, control, owner acceptance, or routing authority. Existing assurance and privileged-transition boundaries remain unchanged.
 
 ---
 
@@ -583,7 +579,7 @@ may guide or corroborate
 MUST NOT reconstruct WorkIdentity, current normative truth, or assurance
 ```
 
-For managed MCP operation, explicit current user intent may admit a bounded task-specific `EXECUTE` WorkTurn, including when canonical workspace state already exists. Recovered state alone never authorizes a turn. `VERIFY`, normative `MODIFY`, `CONTROL`, owner acceptance, and router authority remain capability-protected. Direct library use remains a lower-level integration boundary and must be isolated from untrusted workers in high-assurance deployments.
+For managed MCP operation, explicit current user intent may admit bounded ordinary `EXECUTE` work even when canonical workspace state already exists. Recovered state remains context rather than privileged authority. Verification, normative mutation, control, owner acceptance, and routing remain separately protected. Direct library use remains a lower-level integration boundary and must be isolated from untrusted workers in high-assurance deployments.
 
 The ContextCompiler and UAI projection now expose the persistence boundary explicitly so canonical identity/assurance survives context reduction while volatile Playbook material is trimmed first.
 
@@ -591,7 +587,7 @@ The ContextCompiler and UAI projection now expose the persistence boundary expli
 
 # v0.2.2 — execution integrity hardening
 
-v0.2.2 is a hardening release built on the previously verified `v0.1.9rc4` baseline.
+v0.2.2 is a hardening release built on the `v0.1.9rc4` baseline.
 
 The release addresses an observed failure mode: an agent received an **audit assignment**, but instead of performing the audit it generated a large new audit/planning artifact and presented that planning output as the result.
 
@@ -1482,7 +1478,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.18** keeps MAC/1 and the seven-tool worker surface, preserves the v0.3.17 LOCAL_HOST activation model, and allows explicit current user intent to admit bounded ordinary `EXECUTE` work without an otherwise unnecessary external controller hop. Privileged assurance, normative mutation, acceptance, and routing boundaries remain unchanged. Legacy databases remain schema-drift fail-closed.
+**v0.3.18** keeps MAC/1, the seven-tool worker surface, and the established LOCAL_HOST deployment model. Ordinary current-user work may enter bounded `EXECUTE` mode in an already-admitted workspace without a separate controller solely for that transition. Verification, normative mutation, acceptance, control, and routing remain separately protected. Legacy databases remain schema-drift fail-closed.
 
 The current execution architecture is:
 
