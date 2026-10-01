@@ -1,0 +1,27 @@
+MangoMe v0.3.18 DELTA
+
+Authoritative base:
+GitHub main commit 1924e87d22b99acae1108391a0a8898d831531a5 (v0.3.17)
+
+Purpose:
+Remove only the over-strict CONTROL requirement for ordinary current-user ENTER_WORK
+inside an already-admitted workspace.
+
+Files in this delta:
+- tools/apply_v0_3_18_delta.py
+- tests/test_v0318_bounded_user_intent.py
+- docs/v0.3.18-release-notes.md
+
+Application:
+Run tools/apply_v0_3_18_delta.py from the exact clean v0.3.17 repository root.
+The script deterministically patches:
+- src/mangome/mcp_server.py
+- pyproject.toml
+- src/mangome/__init__.py
+- README.md
+- CHANGELOG.md
+and installs the included regression test/release notes.
+
+No MongoDB mutation.
+No runtime configuration change.
+No verifier/owner/router/control capability relaxation.
