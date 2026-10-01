@@ -549,14 +549,10 @@ def enter_work(
     blocked = _restore_gate("enter_work", allow_new_work=True)
     if blocked:
         return blocked
-    # First admission may trust the current client-relayed user intent. Once canonical
-    # workspace state already exists, minting additional durable work authority requires
-    # the external control plane instead of letting a recovered worker self-authorize.
-    restored = session_restore_snapshot()
-    if restored and str(restored.get("restore_state") or "") == "STATE_FOUND":
-        blocked = _controller_gate("enter_work(existing workspace)", controller_actor_id, controller_token)
-        if blocked:
-            return blocked
+    # Explicit current user intent may admit ordinary task-scoped EXECUTE work even
+    # when this workspace already has canonical state. Recovered state alone never
+    # grants authority. Privileged VERIFY/MODIFY/CONTROL/OWNER/ROUTER transitions
+    # keep their existing capability boundaries.
     attachment = workspace_attachment_snapshot() or ensure_workspace_binding()
     root = str(attachment.get("workspace_root") or os.environ.get("MANGOME_WORKSPACE_ROOT") or os.getcwd())
     result = _domain_call(
