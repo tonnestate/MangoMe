@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.18-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.19-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -102,6 +102,45 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 ---
 
+
+# v0.3.19 — Compact Human Folder Status
+
+v0.3.19 adds a deliberately small, deterministic human-facing workspace view without creating another source of truth.
+
+The normal worker can request:
+
+```text
+mangome_status(scope="WORKSPACE", payload={"human": true})
+```
+
+The result is a display-only summary designed for people rather than agents. It reports only the information needed to understand roughly what MangoMe sees:
+
+```text
+MangoMe · workspace
+HEALTH      OK
+WORKSPACE   KNOWN
+DISCOVERY   EXACT · indexed files · no scan triggered
+CONTRACTS   known · local · canonical · current / drifted / missing
+WORK        active · verified · blocked
+WARNINGS    none
+FOLDERS
+  contracts/  files · contracts · current
+  src/        files
+  tests/      files
+```
+
+The view is intentionally dumb:
+
+- no LLM call;
+- no semantic reconstruction;
+- no new canonical state;
+- no automatic discovery or structural scan;
+- no Contract bodies, Evidence payloads, entity IDs, WorkTurn IDs, actor IDs or hashes;
+- no duplication into MAC/1, PCH/1 or UAI/1.
+
+Folder counts reuse the process-local SIM/1 structural cache when it already exists. Contract status is aggregated from canonical MangoMe state and bounded local bindings: `known`, `canonical`, `current`, `drifted`, or `missing`. Full machine detail remains available through the existing technical status/query paths when explicitly requested.
+
+---
 
 # v0.3.18 — Bounded User-Intent Execution Authority
 
@@ -1184,7 +1223,7 @@ Convenience composition for an already admitted Family/Specification when a spec
 
 # MCP tools
 
-The normal v0.3.18 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
+The normal v0.3.19 worker endpoint deliberately exposes only seven semantic tools: `mangome_status`, `mangome_observe`, `mangome_query`, `mangome_work`, `mangome_effect`, `mangome_verify`, and `mangome_control`. Each tool contains a typed, allow-listed sub-operation rather than exposing dozens of top-level choices.
 
 The detailed capability surface remains available through the explicit advanced endpoint for operators, compatibility and internal integrations. That advanced surface includes:
 
@@ -1478,7 +1517,7 @@ v0.2.2 does **not**:
 
 # Current status
 
-**v0.3.18** keeps MAC/1, the seven-tool worker surface, and the established LOCAL_HOST deployment model. Ordinary current-user work may enter bounded `EXECUTE` mode in an already-admitted workspace without a separate controller solely for that transition. Verification, normative mutation, acceptance, control, and routing remain separately protected. Legacy databases remain schema-drift fail-closed.
+**v0.3.19** keeps the v0.3.18 authority model and adds a compact display-only folder status for human operators. The view reuses already available structural state, reports aggregate Contract/current-drift health and work readiness, and deliberately omits internal IDs, hashes and Evidence payloads. It performs no automatic structural scan and creates no canonical state.
 
 The current execution architecture is:
 

@@ -33,6 +33,7 @@ from .reconciliation import assignment_reconciliation_result
 from .control_plane import is_mangome_self_maintenance_request, control_plane_maintenance_result
 from .truth import BitemporalTruthService
 from .trust_boundary import resolve_mongodb_connection, inspect_authenticated_roles
+from .human_status import human_status_snapshot
 
 mcp = MCPServer(
     "MangoMe",
@@ -281,8 +282,10 @@ def health() -> dict[str, Any]:
 
 
 @mcp.tool()
-def workspace_status(workspace_root: str | None = None, refresh: bool = False) -> dict[str, Any]:
-    """Return attachment state plus any durable workspace project already known to MangoMe."""
+def workspace_status(workspace_root: str | None = None, refresh: bool = False, human: bool = False, max_folders: int = 8) -> dict[str, Any]:
+    """Return workspace state, or a bounded display-only folder summary when ``human`` is true."""
+    if human:
+        return human_status_snapshot(workspace_root=workspace_root, max_folders=max_folders)
     current = workspace_attachment_snapshot()
     if refresh:
         current = refresh_workspace_attachment(workspace_root, force=True)

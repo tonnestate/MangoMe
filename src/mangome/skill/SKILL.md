@@ -7,7 +7,7 @@ description: Use MangoMe for durable multi-agent work, recovery, evidence, verif
 
 MangoMe is the canonical operational-memory and verification substrate for durable multi-agent work. Workers and sessions are replaceable; admitted WorkIdentity, normative state, Evidence and assurance history are not.
 
-## v0.3.17 semantic worker surface
+## v0.3.19 semantic worker surface
 
 Normal workers use exactly seven top-level MangoMe tools:
 
@@ -77,6 +77,14 @@ For an explicit discovery/structural request, perform exactly the bounded reques
 
 A `STATE_NOT_FOUND` value is irrelevant to a pure observation request; observation does not require admitted WorkIdentity.
 
+For normal **user-facing MangoMe status**, prefer the compact display projection:
+
+```text
+mangome_status(scope="WORKSPACE", payload={"human": true})
+```
+
+Return its `rendered` text directly unless the user explicitly asks for technical details. The human view is folder-level and display-only: it reuses an already-built SIM/1 cache, never triggers a structural scan itself, never returns Contract bodies/Evidence payloads/internal IDs/hashes, and never enters MAC/1/PCH/1/UAI/1 as additional canonical context. Use the ordinary technical status/query paths only when the user or the task actually needs them.
+
 ### B. Productive assignment
 
 For work that may change code, files, databases, deployments, external systems, canonical MangoMe state, or assurance:
@@ -115,13 +123,13 @@ When the current user explicitly asks to install, update, repair, hotfix, roll b
 
 Self-maintenance does not self-admit. Do not create a WorkIdentity, Contract, Specification, Plan, Slice, or self-approval merely to repair the governance substrate. Scope effects to the explicitly requested MangoMe source/package/runtime/client/service surface.
 
-Zero-touch deployment bootstrap is part of the explicit install/update/repair request and of normal managed-runtime readiness. Under v0.3.17 `LOCAL_HOST`, MangoMe carries no MongoDB credential lifecycle and canonical runtime database identity is `mangome`. The bootstrap removes obsolete MangoMe credential/binding residue only after a replacement credential-free loopback path has been proven. If the local `mongod.service` still enforces authorization, a managed root runtime may perform the one-time fail-closed host transition after proving the live listener is loopback-only. Plain authorization is changed to `disabled`. If `security.keyFile` is configured, MangoMe MUST preserve the keyFile and any member-authentication settings and enable `security.transitionToAuth: true` instead; MongoDB then accepts local unauthenticated client operations while retaining keyfile-based internal authentication. The service is restarted once, loopback scope is re-proven, and canonical indexes are ensured before cleanup completes.
+Zero-touch deployment bootstrap is part of the explicit install/update/repair request and of normal managed-runtime readiness. Under v0.3.19 `LOCAL_HOST`, MangoMe carries no MongoDB credential lifecycle and canonical runtime database identity is `mangome`. The bootstrap removes obsolete MangoMe credential/binding residue only after a replacement credential-free loopback path has been proven. If the local `mongod.service` still enforces authorization, a managed root runtime may perform the one-time fail-closed host transition after proving the live listener is loopback-only. Plain authorization is changed to `disabled`. If `security.keyFile` is configured, MangoMe MUST preserve the keyFile and any member-authentication settings and enable `security.transitionToAuth: true` instead; MongoDB then accepts local unauthenticated client operations while retaining keyfile-based internal authentication. The service is restarted once, loopback scope is re-proven, and canonical indexes are ensured before cleanup completes.
 
 That transition MUST stop before weakening client access control when the listener is non-loopback, the runtime is not root, `mongod` is started with command-line `--auth`/cluster-security switches that cannot be safely persisted, X.509/cluster-only security is present without a keyFile, or the active configuration is ambiguous. It never removes or rewrites a keyFile, edits firewall/network configuration, touches `dbPath`, mutates unrelated MongoDB settings, or changes non-MangoMe databases.
 
 Legacy databases are never adopted, repaired, or migrated into the canonical runtime. `mangome_uai_eval` is schema-drift fail-closed and may only be deleted by the explicitly confirmed exact-allowlist MangoMe reset.
 
-If an older managed activation block still contains v0.3.12/v0.3.13 wording about credential adoption or `BOOTSTRAP_AUTHORITY_REQUIRED`, treat that wording as legacy bootstrap prose. The installed v0.3.17 Skill and runtime behavior are authoritative.
+If an older managed activation block still contains v0.3.12/v0.3.13 wording about credential adoption or `BOOTSTRAP_AUTHORITY_REQUIRED`, treat that wording as legacy bootstrap prose. The installed v0.3.19 Skill and runtime behavior are authoritative.
 
 ## Source precedence and memory
 
@@ -255,11 +263,11 @@ Human-visible MangoMe narration must stay in the user's current working language
 
 ## Presentation rule
 
-MangoMe orchestration is normally internal. Do not expose Slice IDs, Plan IDs, recovery cursors, WorkTurn IDs, or internal routing mechanics unless the user explicitly asks to inspect MangoMe itself. Report outcomes, evidence, blockers and decisions.
+MangoMe orchestration is normally internal. For ordinary user-facing status, use the compact human workspace projection and keep the output folder-level. Do not expose Slice IDs, Plan IDs, recovery cursors, WorkTurn IDs, actor IDs, hashes, raw Evidence payloads, or internal routing mechanics unless the user explicitly asks to inspect technical MangoMe state. Report health, discovery/index readiness, aggregate Contract state, work state, warnings and the relevant next outcome.
 
 ## Non-negotiable summary
 
-1. Normal workers use seven semantic facade tools; v0.3.16 routes the existing capability set behind them.
+1. Normal workers use seven semantic facade tools; v0.3.19 keeps the existing capability set behind them.
 2. Observation-only requests stay observation-only.
 3. Structural Map is derived observation, never truth/evidence/assurance/authority.
 4. Bootstrap performs no full structural scan.
