@@ -177,6 +177,7 @@ class MangoMeService:
         classification_source: str | None = None,
         source_ref: str | None = None,
         family_id: str | None = None,
+        admission_key: str | None = None,
     ) -> dict[str, Any]:
         if family_id:
             self._must_get("families", family_id)
@@ -191,7 +192,11 @@ class MangoMeService:
             classification_source=classification_source,
             source_ref=source_ref,
             family_id=family_id,
+            admission_key=admission_key,
         )
+        if admission_key:
+            saved, _ = self.store.get_or_create("requests", {"admission_key": admission_key}, _dump(req))
+            return saved
         return self.store.insert("requests", _dump(req))
 
     @staticmethod
@@ -258,11 +263,38 @@ class MangoMeService:
         return saved
 
     # ---------- identity / registry ----------
-    def create_project(self, project_key: str, title: str, description: str | None = None) -> dict[str, Any]:
-        existing = self.store.find("projects", {"project_key": project_key})
-        if existing:
-            return existing[0]
-        return self.store.insert("projects", _dump(Project(project_key=project_key, title=title, description=description)))
+    def create_project(
+        self,
+        project_key: str,
+        title: str,
+        description: str | None = None,
+        workspace_root: str | None = None,
+    ) -> dict[str, Any]:
+        candidate = Project(
+            project_key=project_key,
+            title=title,
+            description=description,
+            workspace_root=workspace_root,
+        )
+        project, _ = self.store.get_or_create("projects", {"project_key": project_key}, _dump(candidate))
+        if workspace_root and project.get("workspace_root") != workspace_root:
+            # Backfill the direct workspace binding for a legacy deterministic project.
+            for _ in range(3):
+                current = self._must_get("projects", project["entity_id"])
+                if current.get("workspace_root") == workspace_root:
+                    project = current
+                    break
+                try:
+                    project = self._update(
+                        "projects",
+                        current["entity_id"],
+                        {"workspace_root": workspace_root, "updated_at": utcnow()},
+                        expected_revision=int(current.get("revision", 0)),
+                    )
+                    break
+                except RevisionConflict:
+                    continue
+        return project
 
     def create_family(
         self,
@@ -270,42 +302,69 @@ class MangoMeService:
         title: str,
         project_ids: list[str] | None = None,
         scope_ids: list[str] | None = None,
+        admission_key: str | None = None,
     ) -> dict[str, Any]:
-        existing = self.store.find("families", {"family_key": family_key})
         project_ids = project_ids or []
         scope_ids = scope_ids or []
         for project_id in project_ids:
             self._must_get("projects", project_id)
-        if existing:
-            family = existing[0]
-            merged_projects = list(dict.fromkeys(family.get("project_ids", []) + project_ids))
-            merged_scopes = list(dict.fromkeys(family.get("scope_ids", []) + scope_ids))
-            if merged_projects != family.get("project_ids", []) or merged_scopes != family.get("scope_ids", []):
+
+        candidate = Family(
+            family_key=family_key,
+            title=title,
+            admission_key=admission_key,
+            project_ids=project_ids,
+            scope_ids=scope_ids,
+        )
+        query = {"admission_key": admission_key} if admission_key else {"family_key": family_key}
+        family, _ = self.store.get_or_create("families", query, _dump(candidate))
+
+        for _ in range(3):
+            current = self._must_get("families", family["entity_id"])
+            merged_projects = list(dict.fromkeys(current.get("project_ids", []) + project_ids))
+            merged_scopes = list(dict.fromkeys(current.get("scope_ids", []) + scope_ids))
+            patch: dict[str, Any] = {}
+            if merged_projects != current.get("project_ids", []):
+                patch["project_ids"] = merged_projects
+            if merged_scopes != current.get("scope_ids", []):
+                patch["scope_ids"] = merged_scopes
+            if admission_key and current.get("admission_key") != admission_key:
+                patch["admission_key"] = admission_key
+            if not patch:
+                family = current
+                break
+            patch["updated_at"] = utcnow()
+            try:
                 family = self._update(
-                    "families", family["entity_id"],
-                    {"project_ids": merged_projects, "scope_ids": merged_scopes, "updated_at": utcnow()},
-                    expected_revision=int(family.get("revision", 0)),
+                    "families",
+                    current["entity_id"],
+                    patch,
+                    expected_revision=int(current.get("revision", 0)),
                 )
-            for project_id in project_ids:
+                break
+            except RevisionConflict:
+                continue
+
+        for project_id in project_ids:
+            for _ in range(3):
                 project = self._must_get("projects", project_id)
-                if family["entity_id"] not in project.get("family_ids", []):
+                if family["entity_id"] in project.get("family_ids", []):
+                    break
+                try:
                     self._update(
-                        "projects", project_id,
-                        {"family_ids": list(dict.fromkeys(project.get("family_ids", []) + [family["entity_id"]])), "updated_at": utcnow()},
+                        "projects",
+                        project_id,
+                        {
+                            "family_ids": list(dict.fromkeys(project.get("family_ids", []) + [family["entity_id"]])),
+                            "last_activity_at": utcnow(),
+                            "updated_at": utcnow(),
+                        },
                         expected_revision=int(project.get("revision", 0)),
                     )
-            return family
-        family = Family(family_key=family_key, title=title, project_ids=project_ids, scope_ids=scope_ids)
-        saved = self.store.insert("families", _dump(family))
-        for project_id in project_ids:
-            project = self._must_get("projects", project_id)
-            family_ids = list(dict.fromkeys(project.get("family_ids", []) + [family.entity_id]))
-            self._update(
-                "projects", project_id,
-                {"family_ids": family_ids, "last_activity_at": utcnow(), "updated_at": utcnow()},
-                expected_revision=int(project.get("revision", 0)),
-            )
-        return saved
+                    break
+                except RevisionConflict:
+                    continue
+        return family
 
     def register_contract(
         self,
@@ -850,8 +909,12 @@ class MangoMeService:
                 origin=SliceOrigin.PLANNED,
                 gates=gates,
             )
-            self.store.insert("slices", _dump(slice_obj))
-            family["slice_ids"] = list(dict.fromkeys(family.get("slice_ids", []) + [slice_obj.entity_id]))
+            saved_slice, _ = self.store.get_or_create(
+                "slices",
+                {"family_id": plan.family_id, "declared_id": ps.declared_id},
+                _dump(slice_obj),
+            )
+            family["slice_ids"] = list(dict.fromkeys(family.get("slice_ids", []) + [saved_slice["entity_id"]]))
         all_slices = self.store.find("slices", {"family_id": plan.family_id})
         lookup = {s["declared_id"]: s["entity_id"] for s in all_slices}
         for ps in plan.proposed_slices:
@@ -878,12 +941,18 @@ class MangoMeService:
                     },
                     expected_revision=int(sl.get("revision", 0)),
                 )
-        current_family = self._must_get("families", plan.family_id)
-        self._update(
-            "families", plan.family_id,
-            {"slice_ids": family.get("slice_ids", []), "updated_at": utcnow()},
-            expected_revision=int(current_family.get("revision", 0)),
-        )
+        for _ in range(3):
+            current_family = self._must_get("families", plan.family_id)
+            merged_ids = list(dict.fromkeys(current_family.get("slice_ids", []) + family.get("slice_ids", [])))
+            try:
+                self._update(
+                    "families", plan.family_id,
+                    {"slice_ids": merged_ids, "updated_at": utcnow()},
+                    expected_revision=int(current_family.get("revision", 0)),
+                )
+                break
+            except RevisionConflict:
+                continue
 
     def import_slice(
         self,
@@ -933,9 +1002,13 @@ class MangoMeService:
             depends_on=[d.slice_id for d in deps],
             dependency_requirements=deps,
         )
-        saved = self.store.insert("slices", _dump(slice_obj))
+        saved, _ = self.store.get_or_create(
+            "slices",
+            {"family_id": family_id, "declared_id": declared_id},
+            _dump(slice_obj),
+        )
         family = self._must_get("families", family_id)
-        ids = list(dict.fromkeys(family.get("slice_ids", []) + [slice_obj.entity_id]))
+        ids = list(dict.fromkeys(family.get("slice_ids", []) + [saved["entity_id"]]))
         self._update(
             "families", family_id,
             {"slice_ids": ids, "updated_at": utcnow()},
@@ -1514,7 +1587,9 @@ class MangoMeService:
         }
 
     def status(self, family_id: str) -> dict[str, Any]:
-        return self._project_family(family_id)
+        # Read paths are projections only. Materialized views are refreshed by
+        # mutation paths, never as a side effect of status/query.
+        return self._project_family(family_id, persist=False)
 
     def collision_warnings(self, plan_id: str) -> CollisionWarning:
         plan = self._must_get("plans", plan_id)
@@ -1872,7 +1947,7 @@ class MangoMeService:
             AssuranceState.VERIFIED.value, AssuranceState.ACCEPTED.value
         }
 
-    def _project_family(self, family_id: str) -> dict[str, Any]:
+    def _project_family(self, family_id: str, *, persist: bool = True) -> dict[str, Any]:
         family = self._must_get("families", family_id)
         slices = self.store.find("slices", {"family_id": family_id})
         warnings = list(family.get("current", {}).get("warning_flags", []))
@@ -1938,17 +2013,18 @@ class MangoMeService:
             )
 
         now = utcnow()
-        for _ in range(3):
-            family = self._must_get("families", family_id)
-            try:
-                family = self._update(
-                    "families", family_id,
-                    {"current": current.model_dump(mode="python"), "last_activity_at": current.last_timestamp, "updated_at": now},
-                    expected_revision=int(family.get("revision", 0)),
-                )
-                break
-            except RevisionConflict:
-                continue
+        if persist:
+            for _ in range(3):
+                family = self._must_get("families", family_id)
+                try:
+                    family = self._update(
+                        "families", family_id,
+                        {"current": current.model_dump(mode="python"), "last_activity_at": current.last_timestamp, "updated_at": now},
+                        expected_revision=int(family.get("revision", 0)),
+                    )
+                    break
+                except RevisionConflict:
+                    continue
         counts = Counter(s["execution_state"] for s in slices)
         assurance_counts = Counter(s["assurance_state"] for s in slices)
         validation_counts = Counter(str(s.get("validation_state") or "NOT_STARTED") for s in slices)
@@ -1977,6 +2053,10 @@ class MangoMeService:
         )
         previous = self.store.find("project_views", {"family_id": family_id})
         payload = view.model_dump(mode="python")
+        # LOCAL_HOST v0.3.20 verification is a workflow/role separation inside a
+        # cooperative host trust boundary. A direct host/DB writer can bypass it.
+        payload["verification_boundary"] = "COOPERATIVE_HOST"
+        payload["verification_tamper_resistant"] = False
         payload["validation_counts"] = dict(validation_counts)
         payload["closure_counts"] = dict(closure_counts)
         payload["pending_validation_slice_ids"] = [
@@ -1994,16 +2074,42 @@ class MangoMeService:
         payload["entity_id"] = previous[0]["entity_id"] if previous else family_id
         payload["schema_version"] = CURRENT_SCHEMA_VERSION
         payload["updated_at"] = now
+        if persist:
+            if previous:
+                payload.pop("revision", None)
+                for _ in range(3):
+                    current_view = self.store.get("project_views", previous[0]["entity_id"])
+                    if current_view is None:
+                        break
+                    try:
+                        return self._update(
+                            "project_views", current_view["entity_id"], payload,
+                            expected_revision=int(current_view.get("revision", 0)),
+                        )
+                    except RevisionConflict:
+                        continue
+                # If a racing writer deleted/replaced the view, fall through to a
+                # pure computed payload rather than failing a productive transition.
+                payload["revision"] = int((current_view or {}).get("revision", 0))
+                payload["created_at"] = (current_view or {}).get("created_at", now)
+                return payload
+            payload["revision"] = 0
+            payload["created_at"] = now
+            try:
+                return self.store.insert("project_views", payload)
+            except ValueError:
+                # In-memory uniqueness parity: another writer materialized it.
+                existing_view = self.store.get("project_views", family_id)
+                return existing_view or payload
+
+        # Pure projection: preserve materialized-view metadata when it exists but
+        # never mutate family/current or project_views on a read.
         if previous:
-            payload.pop("revision", None)
-            self._update(
-                "project_views", previous[0]["entity_id"], payload,
-                expected_revision=int(previous[0].get("revision", 0)),
-            )
+            payload["revision"] = int(previous[0].get("revision", 0))
+            payload["created_at"] = previous[0].get("created_at", now)
         else:
             payload["revision"] = 0
             payload["created_at"] = now
-            self.store.insert("project_views", payload)
         return payload
 
     def _claim(self, actor_id: str, subject_id: str, claim_type: ClaimType, value: Any) -> dict[str, Any]:

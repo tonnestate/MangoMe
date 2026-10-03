@@ -93,10 +93,12 @@ def resolve_mongodb_connection() -> MongoConnectionConfig:
         "credential_source": "NONE",
         "credentials_in_environment": False,
         "endpoint_scope": endpoint_scope,
-        "authorization_model": "HOST_LOCAL_ONLY",
+        "authorization_model": "COOPERATIVE_HOST_LOCAL",
+        "verification_boundary": "COOPERATIVE_HOST",
+        "tamper_resistant_verification": False,
         "warnings": [],
         "violations": [],
-        "rule": "LOOPBACK_ONLY; NO_MONGODB_PRINCIPAL; HOST_IS_THE_TRUST_BOUNDARY",
+        "rule": "LOOPBACK_ONLY; NO_MONGODB_PRINCIPAL; DIRECT_HOST_OR_DB_WRITES_ARE_INSIDE_THE_TRUST_BOUNDARY",
     }
     return MongoConnectionConfig(uri=uri, source="LOCAL_HOST_LOOPBACK", mode=mode, status=status)
 
@@ -135,7 +137,9 @@ def inspect_authenticated_roles(store: Any) -> dict[str, Any]:
         "role_count": 0,
         "authenticated_roles": [],
         "least_privilege_ok": True,
-        "authorization_model": "HOST_LOCAL_ONLY",
+        "authorization_model": "COOPERATIVE_HOST_LOCAL",
+        "verification_boundary": "COOPERATIVE_HOST",
+        "tamper_resistant_verification": False,
     }
 
 

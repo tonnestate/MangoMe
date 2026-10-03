@@ -191,55 +191,60 @@ def _restore_gate(operation: str, *, allow_new_work: bool = False) -> dict[str, 
 
 
 def _known_admitted_workspace_roots() -> list[Path]:
-    """Return canonical workspace roots for already-admitted zero-touch Projects.
+    """Return admitted workspace roots without projecting every Family.
 
-    Family ``scope_ids`` are the primary identity source. Persisted filesystem roots
-    are compatibility observations only and count as admitted roots when the matching
-    deterministic workspace Project actually exists.
+    v0.3.20 makes this gate a bounded read: one Projects query, one legacy Families
+    query and one filesystem-roots query. No ``project_overview``/``status`` calls
+    are made, so discovery checks cannot materialize views or grow cubically.
     """
     svc = get_service()
     roots: list[Path] = []
+    projects = svc.store.find("projects")
+    by_id = {str(row.get("entity_id")): row for row in projects if row.get("entity_id")}
+    project_keys = {str(row.get("project_key")) for row in projects if row.get("project_key")}
 
-    def add_if_admitted(raw: str, project_key: str | None = None) -> None:
+    def add(raw: str, *, require_project: bool = True) -> None:
         value = str(raw or "").strip()
         if not value:
             return
         try:
             path = Path(value).expanduser().resolve()
-            key = project_key or workspace_project_key(str(path))
-            svc.project_overview(key)
-        except (OSError, KeyError):
+        except OSError:
+            return
+        if require_project and workspace_project_key(str(path)) not in project_keys:
             return
         if path not in roots:
             roots.append(path)
 
+    # New v0.3.20 projects carry the direct indexed binding.
+    for project in projects:
+        if project.get("workspace_root"):
+            add(str(project["workspace_root"]), require_project=False)
+
+    # Compatibility for previously admitted projects that stored workspace identity
+    # only in Family scope_ids. This remains O(projects + families + scopes).
     for family in svc.store.find("families"):
-        project_ids = list(family.get("project_ids") or [])
-        projects = [svc.store.get("projects", pid) for pid in project_ids]
-        projects = [p for p in projects if p]
+        linked = {
+            str((by_id.get(str(pid)) or {}).get("project_key") or "")
+            for pid in list(family.get("project_ids") or [])
+        }
         for scope in list(family.get("scope_ids") or []):
             text = str(scope)
             if not text.startswith("workspace:"):
                 continue
             raw = text[len("workspace:"):]
-            # Prefer the canonical project already linked to the family.  If more
-            # than one is linked, the deterministic workspace key still prevents a
-            # filesystem observation from inventing identity.
-            matched = False
-            deterministic = workspace_project_key(str(Path(raw).expanduser().resolve()))
-            for project in projects:
-                if str(project.get("project_key") or "") == deterministic:
-                    add_if_admitted(raw, deterministic)
-                    matched = True
-                    break
-            if not matched:
-                add_if_admitted(raw, deterministic)
+            try:
+                deterministic = workspace_project_key(str(Path(raw).expanduser().resolve()))
+            except OSError:
+                continue
+            if deterministic in linked or deterministic in project_keys:
+                add(raw, require_project=False)
 
     for row in svc.store.find("filesystem_roots"):
-        add_if_admitted(str(row.get("root_path") or ""))
+        add(str(row.get("root_path") or ""))
 
     current = workspace_attachment_snapshot()
-    add_if_admitted(str((current or {}).get("workspace_root") or ""))
+    add(str((current or {}).get("workspace_root") or ""))
     return roots
 
 
@@ -534,6 +539,7 @@ def enter_work(
     request_text: str,
     controller_actor_id: str | None = None,
     controller_token: str | None = None,
+    work_ref: str | None = None,
     intent: str | None = None,
     slice_title: str | None = None,
     slice_objective: str | None = None,
@@ -545,7 +551,7 @@ def enter_work(
 ) -> dict[str, Any]:
     """Enter governed work from ordinary user intent with no MangoMe identifiers required.
 
-    The managed workspace becomes a deterministic operational Project/Family + WorkIdentity.
+    The managed workspace gets a deterministic Project admission scope; prompt fingerprints are dedup hints, while WorkIdentity remains explicit and durable.
     The current user request is admitted as an operational-intent baseline, not automatically as
     a Specification or Contract. Discovery candidates are never promoted automatically.
     """
@@ -564,6 +570,7 @@ def enter_work(
         workspace_title=Path(root).name or "Workspace",
         actor_id=actor_id,
         request_text=request_text,
+        work_ref=work_ref,
         intent=intent,
         slice_title=slice_title,
         slice_objective=slice_objective,
@@ -573,8 +580,11 @@ def enter_work(
         expected_scope=expected_scope,
         estimate=estimate,
     )
-    if result.get("ok") is not False:
-        set_session_restore_snapshot({"restore_state": "STATE_FOUND", "mode": "NEW_WORK_ADMITTED"})
+    if result.get("ok") is not False and result.get("disposition") != "EXISTING_WORK_CANDIDATE":
+        set_session_restore_snapshot({
+            "restore_state": "STATE_FOUND",
+            "mode": str(result.get("disposition") or "WORK_BOUND"),
+        })
     return result
 
 

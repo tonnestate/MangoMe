@@ -9,6 +9,10 @@ Use this checklist before publishing a MangoMe release.
 - Optional repository-local Skill mirrors, when present, are byte-identical to the canonical Skill.
 - README and CHANGELOG describe the current release.
 - Beginner documentation links resolve.
+- Default worker MCP surface lists exactly seven semantic tools; `mangome-mcp-advanced` retains the precise compatibility API.
+- `structural_status` does not create a cache or scan the repository.
+- Structural refresh respects configured file/depth/time/relation bounds and reports `PARTIAL` when bounded.
+- Root process artifacts `DELTA-MANIFEST.txt`, `REPO_AUDIT_2026-09-24.md`, and `UPLOAD_DOTFILES.md` are absent.
 
 ## Deterministic gate
 
@@ -18,7 +22,7 @@ make check
 python -m pip check
 ```
 
-For environment-dependent release validation, also run the suite with the MCP dependency installed and a real MongoDB test instance configured.
+GitHub Actions must be green. The `mongo-integration` job runs the release regressions against a real MongoDB service with `MANGOME_TEST_MONGO_URI` configured. Environment-dependent checks are not PASS unless they actually ran.
 
 ## Package gate
 

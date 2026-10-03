@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import unicodedata
 from typing import Any
 
 from .authority import CapabilityDenied, require_verifier
@@ -55,6 +57,20 @@ def _canonical_hash(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _normalize_admission_text(text: str) -> str:
+    """Return a conservative zero-touch deduplication fingerprint input.
+
+    This normalization is intentionally mechanical, not semantic. It removes only
+    representation noise (Unicode form, case, repeated whitespace and trailing
+    sentence punctuation). The resulting hash is a candidate/admission key; it is
+    never the durable WorkIdentity itself.
+    """
+    value = unicodedata.normalize("NFKC", str(text or "")).casefold()
+    value = re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"[\s.!?;:,]+$", "", value).strip()
+    return value
+
+
 class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
     """v0.3 control plane: durable work identity around evolving specs and transient playbooks.
 
@@ -106,9 +122,6 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             raise WorkIdentityError("work project must own the admitted family")
         if request and request.get("family_id") and request.get("family_id") != family_id:
             raise WorkIdentityError("admission request must belong to the admitted family")
-        existing = self._work_for_family(family_id)
-        if existing:
-            return existing
         key_material = family_id + ":" + (request_id or str(source_ref or admission_source))
         key = str(work_key or f"WORK-{hashlib.sha256(key_material.encode()).hexdigest()[:16].upper()}")
         doc = {
@@ -128,9 +141,10 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             "status": "ADMITTED",
             "persistence_level": "CANONICAL",
         }
-        saved = self.store.insert("work_identities", doc)
-        self._refresh_normative_baseline(saved["entity_id"])
-        self._refresh_work_view(saved["entity_id"])
+        saved, created = self.store.get_or_create("work_identities", {"family_id": family_id}, doc)
+        if created:
+            self._refresh_normative_baseline(saved["entity_id"])
+            self._refresh_work_view(saved["entity_id"])
         return saved
 
     def backfill_work_identity(
@@ -715,6 +729,7 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         workspace_title: str,
         actor_id: str,
         request_text: str,
+        work_ref: str | None = None,
         intent: str | None = None,
         slice_title: str | None = None,
         slice_objective: str | None = None,
@@ -729,38 +744,111 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         actor_id = str(actor_id).strip()
         if not workspace_id or not request_text or not actor_id:
             raise ValueError("workspace_id, request_text and actor_id are required")
+
         intent_text = str(intent or request_text).strip() or request_text
         project_key = workspace_project_key(workspace_id)
-        task_digest = hashlib.sha256(request_text.encode("utf-8")).hexdigest()[:12].upper()
-        project = self.create_project(project_key, str(workspace_title or "Workspace"), description="MangoMe managed workspace")
-        family = self.create_family(
-            f"{project_key}-WORK-{task_digest}", str(slice_title or intent_text), project_ids=[project["entity_id"]],
-            scope_ids=[f"workspace:{workspace_id}", f"user-intent:{task_digest}"],
-        )
-        request = self.intake_request(
-            request_text=request_text, classification="OPERATIONAL_TASK",
-            classification_source="MANGOME_WORK_ADMISSION", family_id=family["entity_id"],
-        )
-        work = self.admit_work(
-            family_id=family["entity_id"], project_id=project["entity_id"], request_id=request["entity_id"],
-            title=str(slice_title or intent_text), admitted_by=actor_id,
-        )
+        normalized_intent = _normalize_admission_text(request_text)
+        task_digest = hashlib.sha256(normalized_intent.encode("utf-8")).hexdigest()[:16].upper()
+        admission_key = f"{project_key}:INTENT:{task_digest}"
+
+        if work_ref:
+            work = self._resolve_work(work_ref)
+            project = self._must_get("projects", work["project_id"])
+            if str(project.get("project_key") or "") != project_key:
+                raise WorkIdentityError("work_ref belongs to another workspace")
+            family = self._must_get("families", work["family_id"])
+            request = self.intake_request(
+                request_text=request_text,
+                classification="OPERATIONAL_TASK",
+                classification_source="MANGOME_WORK_CONTINUATION",
+                family_id=family["entity_id"],
+            )
+        else:
+            project = self.create_project(
+                project_key,
+                str(workspace_title or "Workspace"),
+                description="MangoMe managed workspace",
+                workspace_root=workspace_id,
+            )
+            family = self.create_family(
+                f"{project_key}-WORK-{new_id()}",
+                str(slice_title or intent_text),
+                project_ids=[project["entity_id"]],
+                scope_ids=[f"workspace:{workspace_id}", f"user-intent:{task_digest}"],
+                admission_key=admission_key,
+            )
+
+            # A prompt fingerprint is only a dedup candidate. Once durable work
+            # already exists, a new caller must bind explicitly to that WorkIdentity
+            # rather than silently minting another execution context.
+            existing_work = self._work_for_family(family["entity_id"])
+            if existing_work is not None:
+                open_slices = [
+                    row for row in self.store.find("slices", {"family_id": family["entity_id"]})
+                    if row.get("execution_state") not in {ExecutionState.DONE_CLAIMED.value, ExecutionState.CANCELLED.value}
+                ]
+                return {
+                    "project": project,
+                    "family": family,
+                    "work_identity": existing_work,
+                    "disposition": "EXISTING_WORK_CANDIDATE",
+                    "requires_explicit_work_ref": True,
+                    "candidate_work_ref": existing_work["entity_id"],
+                    "open_slices": open_slices,
+                    "admission": {
+                        "fingerprint": task_digest,
+                        "normalized_match": True,
+                        "identity_role": "DEDUP_HINT_ONLY",
+                    },
+                    "rule": "Prompt similarity never silently creates or rebinds durable WorkIdentity; continue explicitly with work_ref.",
+                }
+
+            request = self.intake_request(
+                request_text=request_text,
+                classification="OPERATIONAL_TASK",
+                classification_source="MANGOME_WORK_ADMISSION",
+                family_id=family["entity_id"],
+                admission_key=admission_key,
+            )
+            work = self.admit_work(
+                family_id=family["entity_id"],
+                project_id=project["entity_id"],
+                request_id=request["entity_id"],
+                title=str(slice_title or intent_text),
+                admitted_by=actor_id,
+            )
+
         bound = self.bind_work_turn(
-            work_ref=work["entity_id"], request_text=request_text, mode="EXECUTE", actor_id=actor_id,
+            work_ref=work["entity_id"],
+            request_text=request_text,
+            mode="EXECUTE",
+            actor_id=actor_id,
             authorized_by="USER_INTENT_RELAYED_BY_CLIENT",
         )
         criteria = list(acceptance_criteria or [])
-        # Deliberately do NOT create a Specification from the prompt. Criteria remain
-        # plan-local until an explicit MODIFY/admission path creates normative truth.
+        proposed: dict[str, Any] = {
+            "title": str(slice_title or intent_text) or "Work item",
+            "objective": slice_objective or request_text,
+            "acceptance": criteria,
+        }
+        if not work_ref:
+            # The admission fingerprint is stable across punctuation/case noise and
+            # prevents a concurrent zero-touch admission from materializing two
+            # execution slices. It is not exposed as the WorkIdentity.
+            proposed["declared_id"] = f"INTENT-{task_digest}"
+
         plan = self.submit_plan(
-            family_id=family["entity_id"], request_id=request["entity_id"], actor_id=actor_id,
-            intent=intent_text, spec_id=None, work_id=work["entity_id"], turn_id=bound["turn"]["entity_id"],
-            proposed_slices=[{
-                "title": str(slice_title or intent_text) or "Work item",
-                "objective": slice_objective or request_text,
-                "acceptance": criteria,
-            }],
-            expected_artifacts=expected_artifacts, expected_scope=expected_scope, estimate=estimate,
+            family_id=family["entity_id"],
+            request_id=request["entity_id"],
+            actor_id=actor_id,
+            intent=intent_text,
+            spec_id=None,
+            work_id=work["entity_id"],
+            turn_id=bound["turn"]["entity_id"],
+            proposed_slices=[proposed],
+            expected_artifacts=expected_artifacts,
+            expected_scope=expected_scope,
+            estimate=estimate,
             acceptance_expectations=criteria,
         )
         targets = self.store.find("slices", {"family_id": family["entity_id"]})
@@ -768,7 +856,38 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         target = next((row for row in targets if row.get("declared_id") in declared), None)
         if target is None:
             raise RuntimeError("enter_work failed to resolve materialized execution target")
-        started = self.start_slice(slice_id=target["entity_id"], actor_id=actor_id, plan_id=plan["entity_id"])
+
+        try:
+            started = self.start_slice(
+                slice_id=target["entity_id"],
+                actor_id=actor_id,
+                plan_id=plan["entity_id"],
+            )
+            disposition = "NEW_WORK_ADMITTED" if not work_ref else "EXISTING_WORK_BOUND"
+        except (PlanRequired, RevisionConflict):
+            # A concurrent admission may have activated the same unique Slice after
+            # this Plan was recorded. Preserve one active execution target and
+            # cancel this redundant plan rather than creating parallel work.
+            current = self._must_get("slices", target["entity_id"])
+            active_plan_id = current.get("active_plan_id")
+            if not active_plan_id or active_plan_id == plan["entity_id"]:
+                raise
+            current_plan = self._must_get("plans", plan["entity_id"])
+            try:
+                self._update(
+                    "plans",
+                    plan["entity_id"],
+                    {"status": "CANCELLED", "updated_at": utcnow()},
+                    expected_revision=int(current_plan.get("revision", 0)),
+                )
+            except RevisionConflict:
+                pass
+            started = {
+                "slice": current,
+                "collision_warning": self.collision_warnings(active_plan_id).model_dump(mode="python"),
+            }
+            disposition = "CONCURRENT_WORK_REUSED"
+
         baseline = self._must_get("normative_baselines", plan["normative_baseline_id"])
         return {
             "project": project,
@@ -779,8 +898,18 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             "spec": None,
             "spec_admitted": False,
             "work": {"request": request, "plan": plan, "slice": started["slice"]},
-            "persistence": {"identity": "CANONICAL", "working_state": "PROGRESSIVE", "playbook": "VOLATILE/PROGRESSIVE"},
-            "rule": "A prompt may admit durable work identity; it does not automatically become a Specification or Contract.",
+            "disposition": disposition,
+            "admission": {
+                "fingerprint": task_digest,
+                "normalized_match": not bool(work_ref),
+                "identity_role": "DEDUP_HINT_ONLY",
+            },
+            "persistence": {
+                "identity": "CANONICAL",
+                "working_state": "PROGRESSIVE",
+                "playbook": "VOLATILE/PROGRESSIVE",
+            },
+            "rule": "Prompt fingerprints deduplicate admission candidates; WorkIdentity is durable and explicit after admission.",
         }
 
     # ---------- normative mutation closure ----------

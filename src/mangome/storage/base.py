@@ -13,6 +13,20 @@ class Store(ABC):
     def insert(self, collection: str, doc: dict[str, Any]) -> dict[str, Any]: ...
 
     @abstractmethod
+    def get_or_create(
+        self,
+        collection: str,
+        query: dict[str, Any],
+        doc: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        """Atomically return the row matching ``query`` or create ``doc``.
+
+        ``created`` is True only for the caller that won creation. Implementations
+        must preserve the same uniqueness semantics across production and test stores.
+        """
+        ...
+
+    @abstractmethod
     def get(self, collection: str, entity_id: str) -> dict[str, Any] | None: ...
 
     @abstractmethod

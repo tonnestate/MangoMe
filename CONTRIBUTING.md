@@ -20,7 +20,7 @@ make check
 python -m pip check
 ```
 
-GitHub CI runs the suite with MongoDB 7 and the installed MCP dependency on Python 3.10, 3.11, and 3.12. See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the release gate.
+GitHub Actions runs the deterministic suite on Python 3.10–3.12 and a separate real-MongoDB integration job. A release claim requires both CI and the local deterministic/package gates described in [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) to be green; a web-upload transport does not bypass those gates.
 
 If the change touches the Agent Skill, the two authoritative release surfaces must remain byte-identical:
 
@@ -31,7 +31,9 @@ src/mangome/skill/SKILL.md
 
 Repository-local `.github` / `.claude` Skill mirrors are optional convenience surfaces. If present, they must match the canonical Skill exactly.
 
-Do not weaken a failing integrity regression merely to make CI green. Preserve the failing case, repair the underlying invariant, then rerun the same case.
+The default worker MCP surface must remain small. Add low-level operations to the internal/advanced surface unless a new worker-visible semantic domain is justified; `mangome-mcp-advanced` / `mangome.mcp_server` is the explicit compatibility surface.
+
+Do not weaken a failing integrity regression merely to make the release gate green. Preserve the failing case, repair the underlying invariant, then rerun the same case.
 
 ## Community conduct
 

@@ -32,7 +32,7 @@ MANGOME_RUNTIME_ROLE=OWNER
 MANGOME_RUNTIME_ACTOR=human-owner
 ```
 
-The process role authorizes only the configured actor. Protect access to that endpoint with OS/network/transport controls. No capability token is required in the tool call when the dedicated runtime role is used.
+The process role authorizes only the configured actor. Protect access to that endpoint with OS/network/transport controls. No capability token is required in the tool call when the dedicated runtime role is used. In v0.3.20 LOCAL_HOST this is still cooperative host configuration, not tamper resistance against a worker that can launch arbitrary same-host processes or write MongoDB directly. There is no aggregate `FULL` role; use the exact privileged role required.
 
 ## Shared-process capability fallback
 

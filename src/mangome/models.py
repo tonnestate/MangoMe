@@ -43,6 +43,9 @@ class IntakeRequest(BaseEntity):
     classification_source: str = "MANGOME_RULES"
     source_ref: str | None = None
     family_id: str | None = None
+    # Optional zero-touch admission idempotency key. This is a deduplication handle,
+    # not the durable WorkIdentity itself.
+    admission_key: str | None = None
 
 
 class Specification(BaseEntity):
@@ -63,6 +66,9 @@ class Project(BaseEntity):
     project_key: str
     title: str
     description: str | None = None
+    # Canonical workspace binding for zero-touch projects. Older projects may not
+    # have this field and remain readable through the legacy family-scope fallback.
+    workspace_root: str | None = None
     scope_ids: list[str] = Field(default_factory=list)
     family_ids: list[str] = Field(default_factory=list)
     last_activity_at: datetime = Field(default_factory=utcnow)
@@ -84,6 +90,9 @@ class FamilyCurrent(BaseModel):
 class Family(BaseEntity):
     family_key: str
     title: str
+    # Stable deduplication key for zero-touch admission. It is deliberately separate
+    # from family_key so prompt-derived material is never the family identity itself.
+    admission_key: str | None = None
     project_ids: list[str] = Field(default_factory=list)
     scope_ids: list[str] = Field(default_factory=list)
     contract_ids: list[str] = Field(default_factory=list)

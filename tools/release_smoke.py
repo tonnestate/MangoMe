@@ -71,71 +71,34 @@ def _repo_layout_gate() -> None:
 
 
 def _database_identity_gate() -> None:
-    """Prove upgrade adoption preserves an existing database identity without MongoDB."""
-    import mangome.zero_touch as zero_touch
+    """Prove current LOCAL_HOST identity semantics without touching MongoDB."""
+    from mangome.runtime import database_binding_snapshot
+    from mangome.trust_boundary import resolve_mongodb_connection
 
     tracked = (
-        "MANGOME_MONGODB_URI", "MANGOME_MONGODB_URI_FILE",
-        "MANGOME_DATABASE", "MANGOME_EXPECTED_DATABASE",
-        "MANGOME_ADOPT_EXISTING_DATABASE",
+        "MANGOME_BACKEND", "MANGOME_TRUST_BOUNDARY", "MANGOME_MONGODB_URI",
+        "MANGOME_MONGODB_URI_FILE", "MANGOME_DATABASE", "MANGOME_EXPECTED_DATABASE",
+        "MANGOME_ALLOW_EVAL_DATABASE",
     )
     saved = {key: os.environ.get(key) for key in tracked}
-    old_probe = zero_touch._probe_uri
-    old_live = zero_touch._live_process_candidates
     try:
-        for key in tracked:
-            os.environ.pop(key, None)
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            home = root / "home"
-            workspace = root / "workspace"
-            workspace.mkdir(parents=True)
-            backup = home / ".codex" / "config.toml.mangome.bak"
-            backup.parent.mkdir(parents=True)
-            backup.write_text(
-                '[mcp_servers.mangome_eval]\n'
-                'command = "/old/mangome"\n\n'
-                '[mcp_servers.mangome_eval.env]\n'
-                'MANGOME_DATABASE = "mangome_uai_eval"\n'
-                'MANGOME_MONGODB_URI = "mongodb://legacy:secret@127.0.0.1:27017/?authSource=admin"\n',
-                encoding="utf-8",
-            )
-            zero_touch._live_process_candidates = lambda *args, **kwargs: []
-            zero_touch._probe_uri = lambda uri, database, **kwargs: {
-                "database_ready": database == "mangome_uai_eval",
-                "canonical_indexes_ready": database == "mangome_uai_eval",
-            } if database == "mangome_uai_eval" else (_ for _ in ()).throw(
-                zero_touch.ZeroTouchBootstrapError(
-                    "BOOTSTRAP_AUTHORITY_REQUIRED", "wrong database for legacy credential"
-                )
-            )
+        os.environ["MANGOME_BACKEND"] = "mongo"
+        os.environ["MANGOME_TRUST_BOUNDARY"] = "LOCAL_HOST"
+        os.environ["MANGOME_MONGODB_URI"] = "mongodb://127.0.0.1:27017"
+        os.environ.pop("MANGOME_MONGODB_URI_FILE", None)
+        os.environ["MANGOME_DATABASE"] = "mangome"
+        os.environ["MANGOME_EXPECTED_DATABASE"] = "mangome"
+        os.environ["MANGOME_ALLOW_EVAL_DATABASE"] = "0"
 
-            first = zero_touch.prepare_mongodb_runtime(
-                workspace, database="mangome", home=str(home)
-            )
-            if first.get("database") != "mangome_uai_eval":
-                raise RuntimeError(f"existing database identity was not adopted: {first}")
-            if first.get("database_migration_performed") is not False:
-                raise RuntimeError("zero-touch must never perform implicit database migration")
-            if os.environ.get("MANGOME_DATABASE") != "mangome_uai_eval":
-                raise RuntimeError("runtime environment did not adopt existing database identity")
-
-            binding_path = home / ".config" / "mangome" / "database-binding.json"
-            binding = json.loads(binding_path.read_text(encoding="utf-8"))
-            if binding.get("database") != "mangome_uai_eval":
-                raise RuntimeError("managed database identity was not persisted")
-
-            backup.unlink()
-            for key in ("MANGOME_DATABASE", "MANGOME_EXPECTED_DATABASE", "MANGOME_ADOPT_EXISTING_DATABASE"):
-                os.environ.pop(key, None)
-            second = zero_touch.prepare_mongodb_runtime(
-                workspace, database="mangome", home=str(home)
-            )
-            if second.get("database") != "mangome_uai_eval":
-                raise RuntimeError("persisted database identity did not survive restart simulation")
+        trust = resolve_mongodb_connection().status
+        if trust.get("verification_boundary") != "COOPERATIVE_HOST":
+            raise RuntimeError(f"unexpected LOCAL_HOST verification boundary: {trust}")
+        if trust.get("tamper_resistant_verification") is not False:
+            raise RuntimeError("LOCAL_HOST must not claim tamper-resistant verification")
+        binding = database_binding_snapshot()
+        if binding.get("state") != "BOUND" or binding.get("database") != "mangome":
+            raise RuntimeError(f"canonical database binding is not BOUND: {binding}")
     finally:
-        zero_touch._probe_uri = old_probe
-        zero_touch._live_process_candidates = old_live
         for key, value in saved.items():
             if value is None:
                 os.environ.pop(key, None)

@@ -1,3 +1,13 @@
+## 0.3.20 — 2026-10-03 — Correctness Recovery
+
+- Makes Project/Family/Slice admission identity atomic with production/test-store uniqueness parity.
+- Changes prompt hashes from durable WorkIdentity to normalized admission/dedup hints; continuation of an existing candidate requires explicit `work_ref`.
+- Makes status/query projection side-effect-free and replaces recursive workspace discovery projection with bounded direct identity reads.
+- Defines LOCAL_HOST honestly as `COOPERATIVE_HOST`; direct host/database writers are inside the trust boundary and v0.3.20 does not claim tamper-resistant verification.
+- Removes the aggregate `MANGOME_RUNTIME_ROLE=FULL` privilege shortcut; privileged runtime roles are exact.
+- Aligns stale trust/structural/release tests with the current runtime and adds adversarial concurrency/read-purity regressions.
+- Adds a real MongoDB CI job for persistence and concurrent admission tests.
+
 ## 0.3.12 — 2026-09-29 — v0.3.11 Repair & External Enforcement Boundary
 
 - Repairs the v0.3.11 semantic-facade regression while keeping exactly seven visible worker MCP tools. All 100 pre-existing advanced capabilities remain reachable through deterministic semantic routing.

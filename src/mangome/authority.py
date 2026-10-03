@@ -17,7 +17,10 @@ def _allowed(actor_id: str, env_name: str) -> bool:
 
 def _role_authorized(required_role: str, actor_id: str) -> bool:
     role = os.environ.get("MANGOME_RUNTIME_ROLE", "WORKER").strip().upper()
-    if role not in {required_role, "FULL"}:
+    # v0.3.20 removes the aggregate FULL role. A runtime may assert exactly one
+    # privileged role; LOCAL_HOST still treats that assertion as cooperative host
+    # configuration rather than a tamper-resistant security boundary.
+    if role != required_role:
         return False
     runtime_actor = os.environ.get("MANGOME_RUNTIME_ACTOR", "").strip()
     if not runtime_actor:

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("mcp")
+
 from mangome import mcp_server
 from mangome.runtime import reset_service_for_tests, set_session_restore_snapshot
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from mangome.operability import OperabilityError
@@ -16,55 +14,49 @@ def _clear(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-def test_warn_mode_keeps_compatibility_but_reports_environment_credentials(monkeypatch):
+def test_local_host_accepts_credential_free_loopback_and_is_cooperative(monkeypatch):
     _clear(monkeypatch)
-    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "WARN")
-    monkeypatch.setenv("MANGOME_MONGODB_URI", "mongodb://user:secret@127.0.0.1:27017")
+    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "LOCAL_HOST")
+    monkeypatch.setenv("MANGOME_MONGODB_URI", "mongodb://127.0.0.1:27017")
     cfg = resolve_mongodb_connection()
-    assert cfg.status["credential_source"] == "ENVIRONMENT"
-    assert cfg.status["credentials_in_environment"] is True
-    assert "MONGODB_CREDENTIALS_IN_PROCESS_ENVIRONMENT" in cfg.status["warnings"]
-    assert "secret" not in repr(cfg.status)
-
-
-def test_strict_mode_rejects_environment_uri(monkeypatch):
-    _clear(monkeypatch)
-    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "STRICT")
-    monkeypatch.setenv("MANGOME_MONGODB_URI", "mongodb://user:secret@127.0.0.1:27017")
-    if hasattr(os, "geteuid"):
-        monkeypatch.setenv("MANGOME_EXPECTED_SERVICE_UID", str(os.geteuid()))
-    with pytest.raises(OperabilityError) as exc:
-        resolve_mongodb_connection()
-    assert exc.value.code == "TRUST_BOUNDARY_VIOLATION"
-
-
-def test_strict_mode_accepts_owner_only_credential_file_and_loopback(monkeypatch, tmp_path):
-    if not hasattr(os, "geteuid"):
-        pytest.skip("strict service identity test requires POSIX uid")
-    _clear(monkeypatch)
-    secret = tmp_path / "mongodb-uri"
-    secret.write_text("mongodb://mangome-runtime:secret@127.0.0.1:27017", encoding="utf-8")
-    secret.chmod(0o600)
-    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "STRICT")
-    monkeypatch.setenv("MANGOME_MONGODB_URI_FILE", str(secret))
-    monkeypatch.setenv("MANGOME_EXPECTED_SERVICE_UID", str(os.geteuid()))
-    cfg = resolve_mongodb_connection()
-    assert cfg.status["strict_ok"] is True
-    assert cfg.status["credential_source"] == "CREDENTIAL_FILE"
+    assert cfg.status["credential_source"] == "NONE"
     assert cfg.status["endpoint_scope"] == "LOOPBACK"
-    assert cfg.status["credentials_in_environment"] is False
+    assert cfg.status["verification_boundary"] == "COOPERATIVE_HOST"
+    assert cfg.status["tamper_resistant_verification"] is False
 
 
-def test_strict_mode_rejects_remote_db_without_explicit_allow(monkeypatch, tmp_path):
-    if not hasattr(os, "geteuid"):
-        pytest.skip("strict service identity test requires POSIX uid")
+def test_local_host_rejects_credentials(monkeypatch):
     _clear(monkeypatch)
-    secret = tmp_path / "mongodb-uri"
-    secret.write_text("mongodb://mangome-runtime:secret@mongo.internal:27017", encoding="utf-8")
-    secret.chmod(0o600)
-    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "STRICT")
-    monkeypatch.setenv("MANGOME_MONGODB_URI_FILE", str(secret))
-    monkeypatch.setenv("MANGOME_EXPECTED_SERVICE_UID", str(os.geteuid()))
+    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "LOCAL_HOST")
+    monkeypatch.setenv("MANGOME_MONGODB_URI", "mongodb://user:secret@127.0.0.1:27017")
     with pytest.raises(OperabilityError) as exc:
         resolve_mongodb_connection()
-    assert "REMOTE_MONGODB_NOT_EXPLICITLY_ALLOWED" in str(exc.value)
+    assert exc.value.code == "LOCAL_HOST_CREDENTIALS_FORBIDDEN"
+
+
+def test_legacy_strict_mode_is_rejected_until_a_real_service_boundary_exists(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "STRICT")
+    with pytest.raises(OperabilityError) as exc:
+        resolve_mongodb_connection()
+    assert exc.value.code == "LEGACY_TRUST_MODE_REJECTED"
+
+
+def test_local_host_rejects_remote_endpoint(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "LOCAL_HOST")
+    monkeypatch.setenv("MANGOME_MONGODB_URI", "mongodb://mongo.internal:27017")
+    with pytest.raises(OperabilityError) as exc:
+        resolve_mongodb_connection()
+    assert exc.value.code == "LOCAL_HOST_ENDPOINT_REQUIRED"
+
+
+def test_local_host_rejects_legacy_credential_file(monkeypatch, tmp_path):
+    _clear(monkeypatch)
+    secret = tmp_path / "mongodb-uri"
+    secret.write_text("mongodb://user:secret@127.0.0.1:27017", encoding="utf-8")
+    monkeypatch.setenv("MANGOME_TRUST_BOUNDARY", "LOCAL_HOST")
+    monkeypatch.setenv("MANGOME_MONGODB_URI_FILE", str(secret))
+    with pytest.raises(OperabilityError) as exc:
+        resolve_mongodb_connection()
+    assert exc.value.code == "LEGACY_CREDENTIAL_CONFIGURATION_REJECTED"

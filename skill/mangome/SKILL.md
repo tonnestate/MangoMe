@@ -7,7 +7,7 @@ description: Use MangoMe for durable multi-agent work, recovery, evidence, verif
 
 MangoMe is the canonical operational-memory and verification substrate for durable multi-agent work. Workers and sessions are replaceable; admitted WorkIdentity, normative state, Evidence and assurance history are not.
 
-## v0.3.19 semantic worker surface
+## v0.3.20 semantic worker surface
 
 Normal workers use exactly seven top-level MangoMe tools:
 
@@ -52,7 +52,7 @@ RECONCILE BEFORE EFFECT
 GOVERNED PRODUCTIVE WORK
 ```
 
-A worker may read, search, inspect, reason, classify, and form a tentative decomposition before MangoMe reconciliation. Those are worker judgments, not canonical truth. Before the first productive mutation, external side effect, canonical MangoMe mutation, normative change, or assurance claim, use `mangome_work(operation="RECONCILE_ASSIGNMENT", ...)` and the appropriate bound authority.
+A worker may read, search, inspect, reason, classify, and form a tentative decomposition before MangoMe reconciliation. Those are worker judgments, not canonical truth. Before the first productive mutation, external side effect, canonical MangoMe mutation, normative change, or assurance claim, use `mangome_work(operation="RECONCILE_ASSIGNMENT", ...)` (`reconcile_assignment`) and the appropriate bound authority.
 
 Do **not** perform a ritual restore merely because a chat/session started. Managed clients bind cheaply; recovery is lazy and explicit when needed.
 
@@ -73,7 +73,7 @@ Use `mangome_status`, `mangome_observe`, or `mangome_query` for observation-only
 
 Observation-only requests are **not work assignments by themselves**. They MUST NOT automatically admit work, create WorkIdentity, run productive reconciliation, authorize delegation, or mutate canonical state.
 
-For an explicit discovery/structural request, perform exactly the bounded requested observation and return the result. Do not first run IntakeGov, restore the workspace merely to inspect structure, or promote discovered candidates automatically.
+For an explicit discovery request, use exactly one bounded candidate discovery call for exactly that path and return the result. Do not first run IntakeGov, restore the workspace merely to inspect structure. Do not scan the same path twice or promote discovered candidates automatically.
 
 A `STATE_NOT_FOUND` value is irrelevant to a pure observation request; observation does not require admitted WorkIdentity.
 
@@ -110,6 +110,7 @@ Reconciliation is read-only. It never turns the worker's tentative plan into can
 - `STATE_FOUND`: map the current request to existing WorkIdentity/baseline/unfinished state. It does not mean “continue automatically”.
 - `STATE_PARTIAL`: bounded recovery/backfill only; fail closed on productive mutation until resolved.
 - `STATE_NOT_FOUND`: genuine new work may use `mangome_work(operation="ENTER_WORK", ...)`; historical/resume work needs explicit import/backfill. Never create replacement state and call it restored.
+- `EXISTING_WORK_CANDIDATE`: a normalized prompt matched open durable work. Do not silently merge by text; continue only by calling `ENTER_WORK` again with the returned explicit `work_ref` when current user intent actually refers to that work.
 
 ### C. Dedicated recovery/status
 
@@ -117,19 +118,15 @@ Use `mangome_status(scope="RESTORE")`, `mangome_status(scope="RECOVERY")`, or th
 
 Recovery follows identity. Never recover current WorkIdentity from broad filesystem search, Git/worktree archaeology, old contract folders, cached summaries, or prior agent prose.
 
-### D. MangoMe self-maintenance
+### D. Explicit MangoMe self-maintenance
 
 When the current user explicitly asks to install, update, repair, hotfix, roll back, or reconfigure MangoMe itself, use the existing out-of-band control-plane maintenance semantics (`CPM/1`) through the semantic facade where available.
 
-Self-maintenance does not self-admit. Do not create a WorkIdentity, Contract, Specification, Plan, Slice, or self-approval merely to repair the governance substrate. Scope effects to the explicitly requested MangoMe source/package/runtime/client/service surface.
+Self-maintenance does not self-admit. Do not create a WorkIdentity, Contract, Specification, Plan, Slice, or self-approval merely to repair the governance substrate. Scope effects to the explicitly requested MangoMe source/package/runtime/client/service surface. Database mutation remains separately gated (`DATABASE_CHANGE_REQUIRED`).
 
-Zero-touch deployment bootstrap is part of the explicit install/update/repair request and of normal managed-runtime readiness. Under v0.3.19 `LOCAL_HOST`, MangoMe carries no MongoDB credential lifecycle and canonical runtime database identity is `mangome`. The bootstrap removes obsolete MangoMe credential/binding residue only after a replacement credential-free loopback path has been proven. If the local `mongod.service` still enforces authorization, a managed root runtime may perform the one-time fail-closed host transition after proving the live listener is loopback-only. Plain authorization is changed to `disabled`. If `security.keyFile` is configured, MangoMe MUST preserve the keyFile and any member-authentication settings and enable `security.transitionToAuth: true` instead; MongoDB then accepts local unauthenticated client operations while retaining keyfile-based internal authentication. The service is restarted once, loopback scope is re-proven, and canonical indexes are ensured before cleanup completes.
+Zero-touch deployment bootstrap remains bounded to MangoMe readiness. Under v0.3.20 `LOCAL_HOST`, MongoDB is credential-free and loopback-only and canonical runtime database identity is `mangome`. This is a **cooperative host trust boundary**, not tamper-resistant independent verification: a worker with direct host/MongoDB write access is inside that boundary and can bypass MangoMe service transitions. Runtime roles are exact (`WORKER`, `VERIFIER`, `OWNER`, `ROUTER`, `CONTROL`); there is no aggregate `FULL` role. Strong service-isolated verification is not implemented by LOCAL_HOST and must not be claimed.
 
-That transition MUST stop before weakening client access control when the listener is non-loopback, the runtime is not root, `mongod` is started with command-line `--auth`/cluster-security switches that cannot be safely persisted, X.509/cluster-only security is present without a keyFile, or the active configuration is ambiguous. It never removes or rewrites a keyFile, edits firewall/network configuration, touches `dbPath`, mutates unrelated MongoDB settings, or changes non-MangoMe databases.
-
-Legacy databases are never adopted, repaired, or migrated into the canonical runtime. `mangome_uai_eval` is schema-drift fail-closed and may only be deleted by the explicitly confirmed exact-allowlist MangoMe reset.
-
-If an older managed activation block still contains v0.3.12/v0.3.13 wording about credential adoption or `BOOTSTRAP_AUTHORITY_REQUIRED`, treat that wording as legacy bootstrap prose. The installed v0.3.19 Skill and runtime behavior are authoritative.
+Legacy databases remain fail-closed. `mangome_uai_eval` is never silently adopted or migrated. Managed bootstrap may only change the documented local MangoMe readiness surface after proving loopback scope; it must not weaken unrelated host/network/security configuration.
 
 ## Source precedence and memory
 
@@ -170,7 +167,7 @@ For admitted work, broad discovery must not be used to reconstruct current state
 
 Runtime capability governance applies to **external dispatch/delegation** and genuinely capability-sensitive host actions. It is not a prerequisite for a worker's ordinary local reading, reasoning, discovery, or already-authorized execution path.
 
-Use `mangome_control(operation="EXECUTION_ELIGIBILITY", ...)` only when an external orchestrator is about to dispatch a worker, or immediately before a host action whose required capability is explicitly governed.
+Use `mangome_control(operation="EXECUTION_ELIGIBILITY", ...)` only when an external orchestrator is about to dispatch a worker, or immediately before a host action whose required capability is explicitly governed. Do not call `execution_eligibility` merely because MangoMe is active.
 
 `RUNTIME_PROFILE_REQUIRED` means the host/router has not published the current worker runtime needed for a dispatch decision. It does **not** mean the project, WorkIdentity, local discovery, or ordinary current-worker reasoning is invalid. Do not ask the worker to self-declare a profile and do not use privileged runtime publication as a workaround; that remains host/router authority.
 
@@ -206,7 +203,7 @@ DONE_CLAIMED -> VALIDATED -> VERIFIED -> CLOSED -> optional ACCEPTED
 
 Validation establishes whether the claimed implementation delta is complete; it is not independent verification. Required external effects use PER/1. Persist intent before dispatch, preserve `UNKNOWN` when the outcome cannot be established, and never blindly retry an unknown/partial/confirmed effect. A required effect blocks `CLOSED` until it is `RECONCILED` with `satisfied=true`.
 
-Evidence is not automatically proof. Independent verification remains separate from worker execution; owner acceptance remains explicit. Do not self-verify or fabricate verifier/owner authority.
+Evidence is not automatically proof. Verification remains separate from worker execution; owner acceptance remains explicit. In LOCAL_HOST this separation is cooperative, not tamper-resistant against direct host/database writers. Do not self-verify or fabricate verifier/owner authority.
 
 Preserve ambiguity as unresolved rather than inventing truth. Normative truth must not be rewritten merely to fit observed implementation.
 
@@ -235,7 +232,7 @@ BTTM/1 separates when an assertion is valid in the represented world from when M
 
 PCH/1 temperature (`HOT/WARM/COLD`) is task-relative cognitive residency, not truth, assurance, or deletion. Truth maintenance decides what may be supported; Cognitive Hygiene decides what should be active; the ContextCompiler decides what can fit.
 
-Under v0.3.16, structural relevance is a separate derived projection beside PCH/1; it may guide bounded inspection but does not silently rewrite canonical PCH temperature or residency. If structural context is unavailable or too large, continue with canonical/PCH context; do not block ordinary cognition solely because the map is unavailable.
+Structural relevance is a separate derived projection beside PCH/1; it may guide bounded inspection but does not silently rewrite canonical PCH temperature or residency. If structural context is unavailable or too large, continue with canonical/PCH context; do not block ordinary cognition solely because the map is unavailable.
 
 ## Agent context compilation / MAC/1
 
@@ -267,7 +264,7 @@ MangoMe orchestration is normally internal. For ordinary user-facing status, use
 
 ## Non-negotiable summary
 
-1. Normal workers use seven semantic facade tools; v0.3.19 keeps the existing capability set behind them.
+1. Normal workers use seven semantic facade tools; v0.3.20 keeps the existing capability set behind them.
 2. Observation-only requests stay observation-only.
 3. Structural Map is derived observation, never truth/evidence/assurance/authority.
 4. Bootstrap performs no full structural scan.

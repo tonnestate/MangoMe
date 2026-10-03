@@ -56,6 +56,13 @@ With MongoDB authorization disabled, any local process that can reach the loopba
 MongoDB listener can access MongoDB. LOCAL_HOST is therefore unsuitable for an
 untrusted multi-user machine. The security boundary is the host, not MongoDB RBAC.
 
+
+## v0.3.20 verification boundary
+
+`LOCAL_HOST` is now named explicitly as a **cooperative host trust boundary**. Workflow roles and assurance transitions are enforced for calls that pass through MangoMe, but a same-host process with direct MongoDB write access can bypass them. Therefore LOCAL_HOST `VERIFIED` is not a tamper-resistant claim against hostile local processes.
+
+The runtime reports `verification_boundary=COOPERATIVE_HOST` and `tamper_resistant_verification=false`. Stronger service-isolated verification would require a separate OS/service identity and authenticated database boundary; v0.3.20 does not implement or claim that mode.
+
 ## v0.3.16 zero-touch transition
 
 On the supported managed Linux host, `LOCAL_HOST` readiness no longer requires an operator checklist when an older standalone `mongod.service` still has authorization enabled.

@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.19-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.20-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -68,6 +68,8 @@ A worker is not a truth source. A worker can execute, observe, propose and claim
 
 > **Workers are ephemeral executors. MangoMe is the canonical operational record within its governed scope.**
 
+In the default `LOCAL_HOST` deployment, that governed scope is a cooperative host boundary. MangoMe does not claim tamper resistance against a process with direct MongoDB/host write access.
+
 The central distinction is:
 
 ```text
@@ -102,6 +104,28 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 ---
 
+
+# v0.3.20 — Correctness Recovery
+
+v0.3.20 is a narrow correctness release driven by adversarial evaluation of v0.3.19. It does not add a new subsystem.
+
+Core changes:
+
+- Project, Family and per-Family Slice identities are enforced atomically with production/test-store uniqueness parity. Concurrent `enter_work` calls can no longer materialize parallel logical identities for the same admitted task.
+- Prompt text is no longer treated as durable WorkIdentity. A normalized prompt fingerprint is only an admission/deduplication hint. Existing matches return `EXISTING_WORK_CANDIDATE`; continuation requires an explicit `work_ref`.
+- Read paths are projections only. `status()` no longer writes `families.current` or `project_views`; materialized views are refreshed on mutation paths. Workspace admission lookup uses direct Project bindings plus a bounded legacy fallback instead of recursive `project_overview/status` projection.
+- `LOCAL_HOST` is documented honestly as `COOPERATIVE_HOST`, not a tamper-resistant verifier boundary. Direct same-host/MongoDB writers are inside that trust boundary. The aggregate `MANGOME_RUNTIME_ROLE=FULL` privilege shortcut is removed.
+- Release tests are aligned with the current LOCAL_HOST/semantic-worker architecture, and CI includes a real MongoDB integration job for concurrency and persistence checks.
+
+The central invariant remains unchanged:
+
+```text
+DONE_CLAIMED != VERIFIED
+```
+
+But in LOCAL_HOST the separation is a governed workflow property, not proof against hostile direct database mutation. Strong service-isolated verification requires a future deployment boundary and is not claimed by v0.3.20.
+
+---
 
 # v0.3.19 — Compact Human Folder Status
 

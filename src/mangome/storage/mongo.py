@@ -8,10 +8,12 @@ from .base import RevisionConflictError, Store
 
 try:
     from pymongo import ASCENDING, MongoClient, ReturnDocument
+    from pymongo.errors import DuplicateKeyError
 except ImportError:  # pragma: no cover - unit tests use InMemoryStore
     ASCENDING = 1
     MongoClient = None  # type: ignore[assignment]
     ReturnDocument = None  # type: ignore[assignment]
+    DuplicateKeyError = RuntimeError  # type: ignore[assignment,misc]
 
 
 class MongoStore(Store):
@@ -47,6 +49,38 @@ class MongoStore(Store):
         storage_doc = dict(canonical_doc)
         self.db[collection].insert_one(storage_doc)
         return upgrade_document(collection, canonical_doc)[0]
+
+    def get_or_create(
+        self,
+        collection: str,
+        query: dict[str, Any],
+        doc: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        canonical_doc = dict(doc)
+        canonical_doc.pop("_id", None)
+        canonical_doc.setdefault("revision", 0)
+        try:
+            result = self.db[collection].find_one_and_update(
+                dict(query),
+                {"$setOnInsert": dict(canonical_doc)},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+                projection={"_id": 0},
+            )
+        except DuplicateKeyError:
+            # A competing upsert may win between the match and insert phases.
+            # Uniqueness is authoritative; re-read the winner instead of creating
+            # another logical identity.
+            result = self.db[collection].find_one(dict(query), {"_id": 0})
+            if result is None:
+                raise
+            return upgrade_document(collection, result)[0], False
+        if result is None:  # defensive; AFTER+upsert should always return a row
+            result = self.db[collection].find_one(dict(query), {"_id": 0})
+            if result is None:
+                raise RuntimeError(f"get_or_create failed for {collection}: {query}")
+        created = str(result.get("entity_id")) == str(canonical_doc.get("entity_id"))
+        return upgrade_document(collection, result)[0], created
 
     def get(self, collection: str, entity_id: str) -> dict[str, Any] | None:
         doc = self.db[collection].find_one({"entity_id": entity_id}, {"_id": 0})
@@ -110,12 +144,20 @@ class MongoStore(Store):
             "truth_assertions", "truth_events"
         ):
             self.db[name].create_index([("entity_id", ASCENDING)], unique=True)
-        self.db["projects"].create_index([("project_key", ASCENDING)])
+        self.db["projects"].create_index(
+            [("project_key", ASCENDING)], unique=True, name="project_key_unique_v0320"
+        )
+        self.db["projects"].create_index([("workspace_root", ASCENDING)], sparse=True)
         self.db["requests"].create_index([("classification", ASCENDING)])
-        self.db["families"].create_index([("family_key", ASCENDING)])
+        self.db["requests"].create_index([("admission_key", ASCENDING)], unique=True, sparse=True)
+        self.db["families"].create_index(
+            [("family_key", ASCENDING)], unique=True, name="family_key_unique_v0320"
+        )
+        self.db["families"].create_index([("admission_key", ASCENDING)], unique=True, sparse=True)
         self.db["contracts"].create_index([("declared_id", ASCENDING)])
         self.db["contracts"].create_index([("family_id", ASCENDING)])
         self.db["specs"].create_index([("family_id", ASCENDING), ("version", ASCENDING)])
+        self.db["slices"].create_index([("family_id", ASCENDING), ("declared_id", ASCENDING)], unique=True)
         self.db["slices"].create_index([("family_id", ASCENDING), ("sequence", ASCENDING)])
         self.db["plans"].create_index([("family_id", ASCENDING), ("status", ASCENDING)])
         self.db["artifacts"].create_index([("physical_location", ASCENDING)])

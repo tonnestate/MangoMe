@@ -1,40 +1,53 @@
 # Security
 
-MangoMe is an experimental self-hosted MCP and operational-truth service. Do not expose Streamable HTTP publicly without transport authentication, network controls, and deployment-specific authorization.
+MangoMe is an experimental self-hosted MCP and operational-record service. Do not expose Streamable HTTP publicly without transport authentication, network controls, and deployment-specific authorization.
+
+## v0.3.20 trust model
+
+The supported managed mode is `MANGOME_TRUST_BOUNDARY=LOCAL_HOST`.
+
+`LOCAL_HOST` is a **cooperative host trust boundary**. MangoDB is expected to be credential-free and reachable only on loopback. MangoMe enforces workflow, role and state-transition rules for writes that pass through MangoMe, but it does not provide tamper resistance against a process that can write directly to the same MongoDB or otherwise controls the host.
+
+Therefore:
+
+- `VERIFIED` means MangoMe's verifier transition was satisfied inside the governed service workflow;
+- it does **not** prove that a hostile same-host process could not forge database state;
+- a worker with direct MongoDB write access is inside the LOCAL_HOST trust boundary;
+- direct database writers must be treated as trusted infrastructure in this deployment mode.
+
+Do not describe LOCAL_HOST verification as service-isolated, credential-isolated, or tamper-resistant.
 
 ## Privileged state transitions
 
-Verification and owner approval are protected by either:
+Runtime roles are exact:
 
-- dedicated `MANGOME_RUNTIME_ROLE=VERIFIER|OWNER` processes with `MANGOME_RUNTIME_ACTOR`; or
-- runtime capability tokens (`MANGOME_VERIFIER_TOKEN`, `MANGOME_APPROVAL_TOKEN`) with optional actor allowlists.
+```text
+WORKER
+VERIFIER
+OWNER
+ROUTER
+CONTROL
+```
 
-Capability values are never persisted by MangoMe. Prefer host/runtime injection and dedicated privileged processes so secrets do not appear in model prompts or tool-call arguments.
+`MANGOME_RUNTIME_ROLE=FULL` is not an aggregate privileged role in v0.3.20. A dedicated runtime may use the exact role required for its operation, with `MANGOME_RUNTIME_ACTOR` bound to the actor performing that transition. Capability tokens remain available where the existing API requires them.
 
-A WORKER client must not receive verifier or owner credentials. If the worker can access those credentials through its process environment, shell, filesystem, or another host channel, the verifier boundary has already been defeated outside MangoMe.
+Environment roles are host configuration, not a security boundary against a worker that can arbitrarily control the same process environment. Stronger isolation requires a separate service/process identity outside the worker's control.
 
-The same applies to the router capability. `MANGOME_ROUTER_TOKEN` authorizes publication of host-observed runtime mode, capability and cost facts; a normal worker must not possess it, otherwise the worker could attempt to self-promote its execution profile.
+A future service-isolated deployment may use a dedicated OS user, authenticated MongoDB credentials unavailable to workers, and stronger privileged-actor provenance. That mode is **not** implemented by v0.3.20 LOCAL_HOST and must not be inferred from legacy documentation.
 
 ## Database boundary
 
-MangoMe can enforce its invariants only for writes that pass through MangoMe. A worker with direct write/admin access to the canonical MongoDB can bypass the service-level state machine.
+MangoMe can enforce domain invariants only for writes that pass through MangoMe. In v0.3.20 the service adds atomic uniqueness for core work identities so concurrent normal clients cannot create duplicate Project/Family/Slice identities through the supported API.
 
-For production deployment:
+A direct MongoDB writer can still bypass the service-level state machine in LOCAL_HOST. If that threat matters, place MangoMe and MongoDB behind a stronger service boundary before making stronger verification claims.
 
-- do not launch an untrusted worker from a shell/session that exports a MongoDB administrator URI;
-- use least-privilege database credentials and deployment controls appropriate to the host environment;
-- keep verifier/owner runtimes isolated from worker runtimes;
-- treat direct database writers as trusted infrastructure, not ordinary agents.
-
-The managed client setup deliberately does not copy MongoDB credentials into generated client configuration. v0.3.6 adds `MTB/1`: `MANGOME_TRUST_BOUNDARY=STRICT` requires a protected `MANGOME_MONGODB_URI_FILE` and expected dedicated service uid, rejects worker-visible environment URIs, and rejects remote MongoDB endpoints unless explicitly allowed. `MANGOME_ENFORCE_LEAST_PRIVILEGE=1` also rejects known dangerous built-in/global MongoDB roles when role introspection is available.
-
-A strict deployment therefore runs MangoMe under a separate OS/service identity whose credential file is inaccessible to workers. Deployments that expose direct MongoDB write credentials to an unrestricted worker must treat that worker as inside the trusted database boundary and must not claim that MangoMe's service-level transition checks protect against bypassing the API.
+Managed setup does not persist MongoDB credentials into clients. Legacy `STRICT` / `MANGOME_MONGODB_URI_FILE` trust-boundary configuration is rejected by the current runtime; it is not a supported hardening mode in v0.3.20.
 
 ## Discovery and admission
 
-Filesystem/Big-Bang discovery is candidate-only. Discovery output is not canonical contract/specification truth and never receives verification or acceptance merely because it exists on disk.
+Filesystem/Big-Bang discovery is candidate-only. Discovery output is not canonical Contract/Specification truth and never receives verification or acceptance merely because it exists on disk.
 
-The zero-touch `enter_work` path can create canonical operational state only from the current explicit user request relayed by the client. It does not promote discovered historical contracts, reports, or audit prose.
+Prompt fingerprints are admission/deduplication hints only. They are not WorkIdentity. When MangoMe reports `EXISTING_WORK_CANDIDATE`, the caller must bind explicitly using the returned `work_ref` before continuing that durable work.
 
 ## Reporting vulnerabilities
 
