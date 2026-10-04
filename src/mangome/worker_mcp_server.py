@@ -184,6 +184,14 @@ def _normalize_operation(operation: str) -> str:
     return str(operation or "").strip().upper().replace("-", "_").replace(" ", "_")
 
 
+def _managed_worker_actor_id() -> str:
+    explicit = os.environ.get("MANGOME_RUNTIME_ACTOR", "").strip()
+    if explicit:
+        return explicit
+    deployment = os.environ.get("MANGOME_DEPLOYMENT_ID", "managed-local").strip() or "managed-local"
+    return f"worker:{deployment}"
+
+
 def _reason_codes(result: Any) -> list[str]:
     if not isinstance(result, dict):
         return []
@@ -531,9 +539,21 @@ def mangome_query(operation: QueryOperation, payload: dict[str, Any] | None = No
 
 @mcp.tool()
 def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Enter/progress governed work through deterministic allow-listed transitions."""
+    """Enter/progress governed work through deterministic allow-listed transitions.
+
+    The semantic worker facade is intentionally more automatic than the precise
+    advanced capability surface. RECONCILE_ASSIGNMENT remains read-only underneath,
+    but when it deterministically proves that the current request is new operational
+    work, the facade immediately performs ENTER_WORK. Ordinary agents must not stop
+    to ask the user for internal WorkIdentity vocabulary.
+    """
     op = _normalize_operation(operation)
-    result = _call_allowlisted(_WORK, op, dict(payload or {}))
+    data = dict(payload or {})
+
+    if op == "ENTER_WORK" and not str(data.get("actor_id") or "").strip():
+        data["actor_id"] = _managed_worker_actor_id()
+
+    result = _call_allowlisted(_WORK, op, data)
     next_map = {
         "RECONCILE_ASSIGNMENT": "FOLLOW_RECONCILIATION_DISPOSITION",
         "ENTER_WORK": "PREPARE_ASSIGNMENT",
@@ -544,18 +564,83 @@ def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None
         "CLAIM_DONE": "VERIFY",
         "CHECKPOINT_WORK": "CONTINUE_GOVERNED_WORK",
     }
-    if (
-        op == "RECONCILE_ASSIGNMENT"
-        and isinstance(result, dict)
-        and result.get("disposition") == "MANGOME_BYPASSED_BY_USER"
-    ):
-        return _guidance(
-            "WORK", op, result,
-            success_disposition="MANGOME_BYPASSED_BY_USER",
-            recommended="CONTINUE_TASK_WITHOUT_MANGOME",
-            allowed=["RETURN_TO_USER"],
-            forbidden=["REPAIR_MANGOME_FOR_THIS_TASK", "INVENT_CONTROL_AUTHORITY", "RETRY_MANGOME_FOR_THIS_TASK"],
-        )
+
+    if op == "RECONCILE_ASSIGNMENT" and isinstance(result, dict):
+        if result.get("disposition") == "MANGOME_BYPASSED_BY_USER":
+            return _guidance(
+                "WORK", op, result,
+                success_disposition="MANGOME_BYPASSED_BY_USER",
+                recommended="CONTINUE_TASK_WITHOUT_MANGOME",
+                allowed=["RETURN_TO_USER"],
+                forbidden=["REPAIR_MANGOME_FOR_THIS_TASK", "INVENT_CONTROL_AUTHORITY", "RETRY_MANGOME_FOR_THIS_TASK"],
+            )
+
+        if result.get("disposition") == "NEW_WORK_READY_FOR_AUTO_ADMISSION":
+            request_text = str(data.get("request_text") or "").strip()
+            if not request_text:
+                return _guidance(
+                    "WORK", op, {
+                        "ok": False,
+                        "error": {
+                            "code": "REQUEST_TEXT_REQUIRED",
+                            "message": "zero-touch new-work admission requires request_text",
+                            "recoverable": True,
+                        },
+                    },
+                    success_disposition="ACTION_BLOCKED",
+                    recommended="REPAIR_INPUT_OR_ESCALATE",
+                    allowed=["RETURN_TO_USER"],
+                )
+            admission = _call_allowlisted(
+                _WORK,
+                "ENTER_WORK",
+                {
+                    "actor_id": str(data.get("actor_id") or _managed_worker_actor_id()),
+                    "request_text": request_text,
+                },
+            )
+            if isinstance(admission, dict) and admission.get("ok") is False:
+                return _guidance(
+                    "WORK", op, {
+                        "ok": False,
+                        "error": {
+                            "code": "ZERO_TOUCH_ADMISSION_FAILED",
+                            "message": str(admission),
+                            "recoverable": True,
+                        },
+                        "reconciliation": result,
+                        "admission": admission,
+                    },
+                    success_disposition="ACTION_BLOCKED",
+                    recommended="REPAIR_INPUT_OR_ESCALATE",
+                    allowed=["OBSERVE", "QUERY", "RETURN_TO_USER"],
+                )
+            combined = {
+                "reconciliation": result,
+                "admission": admission,
+                "zero_touch": {
+                    "auto_admitted": True,
+                    "user_confirmation_required": False,
+                    "actor_id_source": "MANGOME_RUNTIME_ACTOR_OR_MANAGED_WORKER_DEFAULT",
+                },
+            }
+            return _guidance(
+                "WORK", op, combined,
+                success_disposition="NEW_WORK_AUTO_ADMITTED",
+                recommended="EXECUTE_CURRENT_SLICE",
+                allowed=["OBSERVE", "QUERY", "WORK", "EFFECT", "VERIFY"],
+                forbidden=["ASK_USER_FOR_WORK_REF", "ASK_USER_TO_CONFIRM_NEW_WORK", "MARK_TASK_BLOCKED_FOR_MISSING_WORK_IDENTITY"],
+            )
+
+        if result.get("disposition") == "CURRENT_REQUEST_MATCHES_EXISTING_WORK":
+            return _guidance(
+                "WORK", op, result,
+                success_disposition="EXISTING_WORK_MATCHED",
+                recommended="BIND_AND_CONTINUE_EXISTING_WORK",
+                allowed=["WORK", "OBSERVE", "QUERY"],
+                forbidden=["ASK_USER_FOR_KNOWN_WORK_REF", "CREATE_UNRELATED_REPLACEMENT_WORK", "MARK_TASK_BLOCKED_FOR_MISSING_WORK_IDENTITY"],
+            )
+
     return _guidance(
         "WORK", op, result,
         success_disposition="WORK_TRANSITION_COMPLETE", recommended=next_map.get(op, "CONTINUE_GOVERNED_WORK"),

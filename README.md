@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.21-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.22-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -104,6 +104,28 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 ---
 
+
+# v0.3.22 — Zero-Touch Work Admission
+
+v0.3.22 removes another agent-facing governance decision. Workspace state is not current-request identity: unrelated admitted work in the same workspace no longer causes a new request to stop and ask the user for a WorkIdentity.
+
+On the normal seven-tool worker surface:
+
+```text
+current user productive request
+        ↓
+RECONCILE_ASSIGNMENT
+        ↓
+exact admitted request match?
+  ├─ yes → internal existing-work continuation path
+  └─ no  → NEW_WORK_READY_FOR_AUTO_ADMISSION
+                ↓
+          automatic ENTER_WORK
+                ↓
+          EXECUTE_CURRENT_SLICE
+```
+
+The user is not asked whether MangoMe should create an internal work entry and is not asked to provide an internal `work_ref` for genuinely new work.
 
 # v0.3.21 — Agent-Proof Zero-Touch Runtime
 

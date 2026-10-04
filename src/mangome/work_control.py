@@ -103,6 +103,57 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         sl = self._must_get("slices", slice_id)
         return self._work_for_family(sl["family_id"])
 
+    def work_candidate_for_request(self, *, workspace_id: str, request_text: str) -> dict[str, Any]:
+        """Resolve only an exact normalized admission candidate for the current request.
+
+        Workspace restore state alone is not request identity. Existing unrelated work
+        in the same workspace must never force a new user request to bind to it or ask
+        the user for a WorkIdentity reference.
+        """
+        workspace_id = str(workspace_id).strip()
+        request_text = str(request_text).strip()
+        if not workspace_id or not request_text:
+            return {"state": "NONE", "candidates": []}
+
+        project_key = workspace_project_key(workspace_id)
+        normalized = _normalize_admission_text(request_text)
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
+        admission_key = f"{project_key}:INTENT:{digest}"
+        families = self.store.find("families", {"admission_key": admission_key})
+
+        candidates: list[dict[str, Any]] = []
+        for family in families:
+            work = self._work_for_family(family["entity_id"])
+            if work is not None:
+                candidates.append({
+                    "family_id": family["entity_id"],
+                    "work_ref": work["entity_id"],
+                    "work_key": work.get("work_key"),
+                    "admission_key": admission_key,
+                })
+
+        if not candidates:
+            return {
+                "state": "NONE",
+                "admission_key": admission_key,
+                "fingerprint": digest,
+                "candidates": [],
+            }
+        if len(candidates) > 1:
+            return {
+                "state": "AMBIGUOUS",
+                "admission_key": admission_key,
+                "fingerprint": digest,
+                "candidates": candidates,
+            }
+        return {
+            "state": "EXACT_NORMALIZED_MATCH",
+            "admission_key": admission_key,
+            "fingerprint": digest,
+            "candidate": candidates[0],
+            "candidates": candidates,
+        }
+
     def admit_work(
         self,
         *,
@@ -1370,6 +1421,9 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         overview["work_identity_count"] = len(work_rows)
         overview["legacy_family_ids"] = [fid for fid in family_ids if fid not in bound_families]
         overview["work_identity_required_for_productive_mutation"] = True
+        overview["zero_touch_new_work_admission"] = "AUTOMATIC_FROM_CURRENT_USER_INTENT"
+        overview["user_supplied_work_ref_required_for_new_work"] = False
+        overview["user_confirmation_required_for_new_work"] = False
         overview["project_work_identity_coverage"] = (
             len(bound_families) / len(family_ids) if family_ids else 1.0
         )
