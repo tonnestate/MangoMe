@@ -9,6 +9,7 @@ from .storage.memory import InMemoryStore
 from .storage.mongo import MongoStore
 from .trust_boundary import resolve_mongodb_connection, enforce_mongo_role_boundary
 from .operability import OperabilityError, attach_workspace, enforce_expected_identity, resolve_workspace_root
+from .runtime_generation import managed_runtime_generation_snapshot
 
 _service: MangoMeService | None = None
 _workspace_attachment: dict[str, object] | None = None
@@ -484,6 +485,7 @@ def health_snapshot() -> dict[str, object]:
             "schema_version": CURRENT_SCHEMA_VERSION,
             "database_binding": binding,
             "database_bootstrap": database_bootstrap_snapshot(),
+            "runtime_generation": managed_runtime_generation_snapshot(),
             "store": store,
             "trust_boundary": _trust_boundary_snapshot(),
             "workspace_attachment": _workspace_attachment,
@@ -497,6 +499,7 @@ def health_snapshot() -> dict[str, object]:
         "schema_version": CURRENT_SCHEMA_VERSION,
         "database_binding": binding,
         "database_bootstrap": database_bootstrap_snapshot(),
+        "runtime_generation": managed_runtime_generation_snapshot(),
         "store": store_health,
         "trust_boundary": _trust_boundary_snapshot(),
         "workspace_attachment": _workspace_attachment,
