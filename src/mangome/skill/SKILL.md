@@ -7,7 +7,7 @@ description: Use MangoMe for durable multi-agent work, recovery, evidence, verif
 
 MangoMe is the canonical operational-memory and verification substrate for durable multi-agent work. Workers and sessions are replaceable; admitted WorkIdentity, normative state, Evidence and assurance history are not.
 
-## v0.3.21 semantic worker surface
+## v0.3.22 semantic worker surface
 
 Normal workers use exactly seven top-level MangoMe tools:
 
@@ -113,8 +113,10 @@ Reconciliation is read-only. It never turns the worker's tentative plan into can
 
 - `STATE_FOUND`: map the current request to existing WorkIdentity/baseline/unfinished state. It does not mean “continue automatically”.
 - `STATE_PARTIAL`: bounded recovery/backfill only; fail closed on productive mutation until resolved.
-- `STATE_NOT_FOUND`: genuine new work may use `mangome_work(operation="ENTER_WORK", ...)`; historical/resume work needs explicit import/backfill. Never create replacement state and call it restored.
-- `EXISTING_WORK_CANDIDATE`: a normalized prompt matched open durable work. Do not silently merge by text; continue only by calling `ENTER_WORK` again with the returned explicit `work_ref` when current user intent actually refers to that work.
+- `NEW_WORK_READY_FOR_AUTO_ADMISSION`: the current request has no exact admitted-work match. On the normal seven-tool worker surface MangoMe admits it automatically from the current user request. Do not ask the user whether to create a MangoMe work entry, do not ask for an internal `work_ref`, and do not mark the task blocked merely because unrelated workspace work exists.
+- `CURRENT_REQUEST_MATCHES_EXISTING_WORK`: MangoMe already knows the exact normalized admission candidate. Continue that work internally; do not ask the user to repeat a known WorkIdentity reference.
+- `STATE_NOT_FOUND` still never authorizes fake historical recovery. Historical/resume work needs explicit import/backfill.
+- `EXISTING_WORK_CANDIDATE`: a normalized prompt matched durable work during a lower-level admission race/retry. Treat it as internal deduplication state, not a question for the user.
 
 ### C. Dedicated recovery/status
 
@@ -268,7 +270,7 @@ MangoMe orchestration is normally internal. For ordinary user-facing status, use
 
 ## Non-negotiable summary
 
-1. Normal workers use seven semantic facade tools; v0.3.20 keeps the existing capability set behind them.
+1. Normal workers use seven semantic facade tools; v0.3.22 keeps the existing capability set behind them.
 2. Observation-only requests stay observation-only.
 3. Structural Map is derived observation, never truth/evidence/assurance/authority.
 4. Bootstrap performs no full structural scan.
