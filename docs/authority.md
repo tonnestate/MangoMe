@@ -57,9 +57,9 @@ MANGOME_RUNTIME_ACTOR=control-plane
 
 or configure `MANGOME_CONTROLLER_TOKEN` plus optional `MANGOME_CONTROLLER_ACTORS`.
 
-A first `enter_work` admission after `STATE_NOT_FOUND` may trust the current client-relayed user intent so zero-touch onboarding remains possible. Once canonical workspace state exists, additional work admission and `bind_work_turn` require the control-plane capability. A recovered worker therefore cannot infer `CONTINUE`/`EXECUTE` from ACTIVE state and cannot mint a new authoritative turn for itself.
+Ordinary task-scoped EXECUTE work may be bound from explicit current client-relayed user intent. Recovered ACTIVE state alone never grants continuation, but a worker must not invent or request controller identity merely to carry out an ordinary current user request.
 
-High-assurance deployments must keep controller credentials outside worker prompts and direct model-visible state.
+Controller authority remains required for privileged control-plane operations and must stay outside worker prompts and direct model-visible state in high-assurance deployments.
 ## v0.3.10 validation and closure authority
 
 Validation and verification are intentionally distinct. A validator uses a controller-bound `VERIFY` or `CONTROL` WorkTurn to classify a `DONE_CLAIMED` Slice as `VALIDATED`, `REWORK_REQUIRED`, or `INCONCLUSIVE`. That judgment can reopen execution but cannot create `VERIFIED` assurance.

@@ -27,7 +27,9 @@ MangoMe is governed infrastructure. When the user explicitly asks to use MangoMe
 
 OBSERVATION FAST PATH: health/status/show/list/resolve/discover/scan/inventory requests are read-only observations unless the user explicitly asks for productive work. Do not run IntakeGov, `intake_request`, `reconcile_assignment`, restore/admission, `execution_eligibility`, or delegation merely to answer an observation. For `discover PATH`, scan exactly PATH once and stop; do not call `reconcile_bigbang` unless the user explicitly requests reconciliation.
 
-PRODUCTIVE EFFECT RULE: THINK FREELY, RECONCILE BEFORE EFFECT. Reading/searching/reasoning/tentative planning may happen first. Before code/file/database mutation, deployment, external side effect, canonical MangoMe mutation, normative change, or assurance claim, use `reconcile_assignment` and the required bound authority. `STATE_NOT_FOUND` never means fake restore; genuine new work uses `enter_work`, historical work uses explicit import/backfill.
+EXPLICIT BYPASS RULE: MangoMe is not a universal task blocker. If the current user explicitly says this task must not use MangoMe, must run without MangoMe, is isolated from MangoMe, or MangoMe is out of scope, do not invoke MangoMe for that task. Do not repair MangoMe, invent actor/controller identity, or convert MangoMe unavailability into task BLOCKED. FRAMEWORK_BLOCKED != TASK_BLOCKED. This bypass affects only the optional internal MangoMe execution path; it never authorizes bypassing external access controls, safety policy, or unrelated host restrictions.
+
+PRODUCTIVE EFFECT RULE (ONLY WHEN MANGOME IS ACTIVE FOR THIS TASK): THINK FREELY, RECONCILE BEFORE EFFECT. Reading/searching/reasoning/tentative planning may happen first. Before code/file/database mutation, deployment, external side effect, canonical MangoMe mutation, normative change, or assurance claim, use `reconcile_assignment` and the required bound authority. `STATE_NOT_FOUND` never means fake restore; genuine new work uses `enter_work`, historical work uses explicit import/backfill.
 
 RECOVERY RULE: recovery follows canonical MangoMe identity. Never reconstruct admitted WorkIdentity from broad filesystem/Git searches, old contract folders, prior chats, cached summaries, or agent memory. Historical host memory is candidate-only and never current authority. Database identity is deployment state; ordinary managed local work uses database `mangome`, not `mangome_uai_eval`.
 
@@ -77,19 +79,42 @@ def installation_identity() -> dict[str, Any]:
 
 
 def enforce_expected_identity() -> dict[str, Any]:
-    """Fail closed when a managed client launches a different MangoMe than configured."""
+    """Fail closed on target drift, but self-heal version drift on the same managed source.
+
+    An editable managed installation can be updated in place while a client still
+    carries the previous expected version. If the expected source root still proves
+    that this process is the intended installation and zero-touch is enabled, the
+    running process may rebind its in-process expected version to the current package.
+    A source-root mismatch remains a hard failure.
+    """
     identity = installation_identity()
     expected_version = os.environ.get("MANGOME_EXPECTED_VERSION", "").strip()
-    if expected_version and identity["version"] != expected_version:
-        raise OperabilityError(
-            "WRONG_MANGOME_VERSION",
-            f"expected MangoMe {expected_version}, running {identity['version']}",
-        )
     expected_root = os.environ.get("MANGOME_EXPECTED_SOURCE_ROOT", "").strip()
-    if expected_root:
-        actual_root = identity.get("source_root")
-        if actual_root is None or Path(actual_root).resolve() != Path(expected_root).expanduser().resolve():
-            raise OperabilityError("WRONG_MCP_TARGET", "running MangoMe source root does not match managed client binding")
+    actual_root = identity.get("source_root")
+
+    root_matches = False
+    if expected_root and actual_root:
+        try:
+            root_matches = Path(actual_root).resolve() == Path(expected_root).expanduser().resolve()
+        except OSError:
+            root_matches = False
+
+    if expected_root and not root_matches:
+        raise OperabilityError(
+            "WRONG_MCP_TARGET",
+            "running MangoMe source root does not match managed client binding",
+        )
+
+    if expected_version and identity["version"] != expected_version:
+        zero_touch = _truthy(os.environ.get("MANGOME_ZERO_TOUCH_BOOTSTRAP"))
+        if zero_touch and root_matches:
+            identity["managed_version_rebound_from"] = expected_version
+            os.environ["MANGOME_EXPECTED_VERSION"] = str(identity["version"])
+        else:
+            raise OperabilityError(
+                "WRONG_MANGOME_VERSION",
+                f"expected MangoMe {expected_version}, running {identity['version']}",
+            )
     return identity
 
 
@@ -1144,6 +1169,8 @@ def setup_clients(
             claude_scope=claude_scope, surface=surface,
         )
         results.append({"client": normalized, "change": change, "attestation": attestation})
+    from .runtime_generation import reconcile_managed_runtime_generation
+    runtime_generation = reconcile_managed_runtime_generation(repair=not dry_run)
     return {
         "workspace_root": str(workspace),
         "installation": installation_identity(),
@@ -1153,10 +1180,11 @@ def setup_clients(
         "database": effective_database,
         "requested_database": database,
         "bootstrap": bootstrap,
-        "session_reload_required": any(
+        "runtime_generation": runtime_generation,
+        "session_reload_required": bool(runtime_generation.get("terminated_pids")) or any(
             bool((row.get("change") or {}).get("removed_shadow_entries")) for row in results
         ),
-        "rule": "Safe managed configuration drift is repaired without requiring the user to know MangoMe internals.",
+        "rule": "Safe managed configuration and stale-runtime drift are repaired without requiring agent-side runtime diagnosis.",
     }
 
 
@@ -1197,10 +1225,14 @@ def doctor(
         )
         for client in clients
     ] if repair else before
+    from .runtime_generation import reconcile_managed_runtime_generation
+    runtime_generation = reconcile_managed_runtime_generation(repair=repair)
     return {
         "installation": installation_identity(),
         "workspace_root": str(workspace),
         "before": before,
         "repair": repair_result,
         "after": after,
+        "runtime_generation": runtime_generation,
+        "session_reload_required": bool(runtime_generation.get("terminated_pids")),
     }

@@ -1,4 +1,4 @@
-# Zero-touch operability — MangoMe v0.3.10
+# Zero-touch operability — MangoMe v0.3.21
 
 MangoMe's governance vocabulary is an implementation detail for the **user**, not something the runtime may ignore. v0.3.3 moves governance to the effect boundary: workers may reason freely, while productive effects must be reconciled with canonical state and authority.
 
@@ -22,6 +22,23 @@ It is **not**:
 ordinary user request
     ↓
 skip planning / evidence / verification
+```
+
+## v0.3.21 agent-proof routing and runtime generation
+
+Zero-touch must not depend on an agent diagnosing MangoMe internals.
+
+If the current user explicitly says a task should run without MangoMe or MangoMe is out of scope, MangoMe is not an execution dependency for that task. A MangoMe-specific failure must not be promoted into failure of otherwise executable work.
+
+```text
+FRAMEWORK_BLOCKED != TASK_BLOCKED
+```
+
+Managed startup also reconciles stale MCP generations from the same managed installation. HEALTH exposes generation drift; current and unknown processes are not treated as stale by guesswork.
+
+```text
+ONE MANAGED INSTALLATION
+→ ONE ACTIVE MANGOME GENERATION
 ```
 
 ## v0.3.3 reconciliation-before-effect
@@ -189,8 +206,8 @@ Discovery remains separate until explicitly admitted. This keeps the user experi
 
 MangoMe is infrastructure. Agents may use it but must not modify MangoMe source/tests/configuration unless the assignment explicitly targets MangoMe. Managed hosts keep `MANGOME_REQUIRE_SESSION_RESTORE=1` as a compatibility gate, but managed runtime initialization now performs only a volatile read-only workspace binding. Canonical restore is lazy at reconciliation/recovery or the effect boundary. Workers are not required to invoke `session_restore` as a session-start ritual. Hard filesystem enforcement remains a host responsibility.
 
-## v0.3 WorkIdentity / controller boundary
+## v0.3 WorkIdentity / current-turn authority
 
-`enter_work` after `STATE_NOT_FOUND` performs the first explicit WorkIdentity admission from the current client-relayed user request. It no longer manufactures a Specification from that prompt.
+`enter_work` after `STATE_NOT_FOUND` performs explicit WorkIdentity admission from the current client-relayed user request. It does not manufacture a Specification from that prompt.
 
-After a workspace already has canonical state, resumed/new productive authority is not inferred from restore. The host/control plane must bind the current turn with `bind_work_turn`; workers consume that binding. If no controller integration is available, MangoMe fails closed rather than interpreting recovered ACTIVE work as current intent.
+Recovered ACTIVE state never grants continuation by itself. For ordinary current-user work, v0.3.20+ may bind the task-scoped EXECUTE turn from explicit current user intent. Privileged VERIFY, MODIFY, CONTROL, OWNER and ROUTER transitions keep their separate authority boundaries. A worker must not invent controller identity merely to perform ordinary user-requested work.
