@@ -4,7 +4,9 @@ import os
 import signal
 from pathlib import Path
 
+import mangome.operability as operability
 from mangome.operability import _MANGOME_ALWAYS_ON_INSTRUCTION
+from mangome.mcp_server import _reconcile_assignment_impl
 from mangome.runtime_generation import (
     managed_runtime_generation_snapshot,
     reconcile_managed_runtime_generation,
@@ -111,3 +113,37 @@ def test_always_on_instruction_honors_explicit_mangome_opt_out():
     assert "EXPLICIT BYPASS RULE" in text
     assert "FRAMEWORK_BLOCKED != TASK_BLOCKED" in text
     assert "do not invoke MangoMe" in text
+
+
+def test_expected_version_self_rebind_requires_same_managed_source(monkeypatch):
+    monkeypatch.setattr(
+        operability,
+        "installation_identity",
+        lambda: {
+            "version": "0.3.21",
+            "python": "/managed/mangome/bin/python3",
+            "package_path": "/srv/MangoMe/src/mangome",
+            "source_root": "/srv/MangoMe",
+            "git_commit": "abc",
+        },
+    )
+    monkeypatch.setenv("MANGOME_EXPECTED_VERSION", "0.3.20")
+    monkeypatch.setenv("MANGOME_EXPECTED_SOURCE_ROOT", "/srv/MangoMe")
+    monkeypatch.setenv("MANGOME_ZERO_TOUCH_BOOTSTRAP", "1")
+
+    identity = operability.enforce_expected_identity()
+
+    assert identity["version"] == "0.3.21"
+    assert identity["managed_version_rebound_from"] == "0.3.20"
+    assert os.environ["MANGOME_EXPECTED_VERSION"] == "0.3.21"
+
+
+def test_reconcile_assignment_honors_explicit_current_turn_opt_out():
+    result = _reconcile_assignment_impl(
+        "Collect the CSV directly. Do not use MangoMe for this task."
+    )
+
+    assert result["disposition"] == "MANGOME_BYPASSED_BY_USER"
+    assert result["mangome_active_for_task"] is False
+    assert result["recommended_next_action"] == "CONTINUE_TASK_WITHOUT_MANGOME"
+    assert "EXPLICIT_CURRENT_TURN_MANGOME_OPT_OUT" in result["reason_codes"]
