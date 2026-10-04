@@ -1,3 +1,12 @@
+## 0.3.22 — 2026-10-05 — Zero-Touch Work Admission
+
+- Distinguishes current-request identity from unrelated work already present in the same workspace.
+- Adds exact normalized admission matching so workspace STATE_FOUND no longer forces a new request onto unrelated WorkIdentity.
+- Normal seven-tool worker reconciliation auto-admits genuinely new current-user work instead of asking the user to create a MangoMe work entry.
+- Supplies a stable non-privileged managed worker actor when ENTER_WORK is called without actor_id.
+- Exposes in project overview that new work does not require a user-supplied work_ref or confirmation.
+- Adds regression coverage for unrelated-work coexistence, automatic admission and managed actor fallback.
+
 ## 0.3.21 — 2026-10-04 — Agent-Proof Zero-Touch Runtime
 
 - Reconciles stale managed MangoMe MCP generations on startup while preserving current/unknown processes.
