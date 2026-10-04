@@ -1,3 +1,11 @@
+## 0.3.21 — 2026-10-04 — Agent-Proof Zero-Touch Runtime
+
+- Reconciles stale managed MangoMe MCP generations on startup while preserving current/unknown processes.
+- Adds runtime-generation visibility to HEALTH and repair/setup results.
+- Allows safe in-process version rebound only when the managed source-root identity still matches.
+- Honors explicit current-turn task opt-out so MangoMe cannot turn its own unavailability into failure of unrelated executable work.
+- Aligns Skill, authority and zero-touch documentation with the v0.3.20+ ordinary WORKER execution path.
+
 ## 0.3.20 — 2026-10-03 — Correctness Recovery
 
 - Makes Project/Family/Slice admission identity atomic with production/test-store uniqueness parity.
