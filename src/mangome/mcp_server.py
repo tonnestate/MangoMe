@@ -46,7 +46,7 @@ mcp = MCPServer(
         "implicitly run IntakeGov, intake_request, reconcile_assignment, session_restore, enter_work, execution_eligibility, "
         "authorize_delegation, or candidate reconciliation. For `discover PATH`, call bigbang_scan exactly once for PATH, "
         "return the bounded candidate result, and stop; call reconcile_bigbang_scan only when reconciliation is explicitly requested. "
-        "For actual productive work: THINK FREELY, RECONCILE BEFORE EFFECT; do not call session_restore merely because a session started; recovered state is context, never current intent; "
+        "If the current user explicitly opts this task out of MangoMe, keep MangoMe out of that task and do not turn MangoMe unavailability into task failure. FRAMEWORK_BLOCKED != TASK_BLOCKED. For MangoMe-active productive work: THINK FREELY, RECONCILE BEFORE EFFECT; do not call session_restore merely because a session started; recovered state is context, never current intent; "
         "STATE_NOT_FOUND never authorizes synthesized recovery. Database identity is deployment state; ordinary managed DB is `mangome`. "
         "Runtime profiles govern external delegation/dispatch and capability-sensitive host actions only: RUNTIME_PROFILE_REQUIRED is "
         "a routing-metadata gap, not a blocker for ordinary local reasoning, reading, discovery, or non-dispatched work. Workers must not "
@@ -495,6 +495,29 @@ def _reconcile_assignment_impl(
     # used to frame reconciliation, not canonical truth.
     if not str(request_text or "").strip():
         raise ValueError("request_text is required for assignment reconciliation")
+
+    normalized_request = " ".join(str(request_text).casefold().split())
+    explicit_opt_out_markers = (
+        "do not use mangome",
+        "don't use mangome",
+        "without mangome",
+        "mangome must not be used",
+        "mangome is out of scope",
+        "kein mangome",
+        "ohne mangome",
+        "mangome nicht verwenden",
+    )
+    if any(marker in normalized_request for marker in explicit_opt_out_markers):
+        return {
+            "ok": True,
+            "restore_state": "BYPASSED",
+            "disposition": "MANGOME_BYPASSED_BY_USER",
+            "mangome_active_for_task": False,
+            "productive_execution_allowed_outside_mangome": True,
+            "recommended_next_action": "CONTINUE_TASK_WITHOUT_MANGOME",
+            "reason_codes": ["EXPLICIT_CURRENT_TURN_MANGOME_OPT_OUT"],
+            "rule": "FRAMEWORK_BLOCKED != TASK_BLOCKED; explicit current-turn opt-out keeps MangoMe out of the task execution path.",
+        }
     current = ensure_workspace_binding(workspace_root) if workspace_root is not None else (workspace_attachment_snapshot() or ensure_workspace_binding())
     root = str(
         (current or {}).get("workspace_root")
