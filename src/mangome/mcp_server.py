@@ -533,10 +533,45 @@ def _reconcile_assignment_impl(
     if is_mangome_self_maintenance_request(request_text, target=target):
         return control_plane_maintenance_result(request_text, workspace_root=resolved_root)
     restored = restore_workspace_state(root)
-    return assignment_reconciliation_result(
+    result = assignment_reconciliation_result(
         restored,
         workspace_root=resolved_root,
     )
+
+    # Request identity is narrower than workspace restore state. A workspace can
+    # contain unrelated admitted work and still receive a genuinely new current
+    # user request. Never ask the user to pick an unrelated WorkIdentity merely
+    # because STATE_FOUND exists somewhere in the same workspace.
+    candidate = get_service().work_candidate_for_request(
+        workspace_id=resolved_root,
+        request_text=request_text,
+    )
+    result["request_match"] = candidate
+    if candidate.get("state") == "EXACT_NORMALIZED_MATCH":
+        result["disposition"] = "CURRENT_REQUEST_MATCHES_EXISTING_WORK"
+        result["candidate_work_ref"] = (candidate.get("candidate") or {}).get("work_ref")
+        result["requires_user_confirmation"] = False
+        result["next_action"] = (
+            "Bind the current user turn to the exact matching WorkIdentity and continue; "
+            "do not ask the user to supply a WorkIdentity reference already known to MangoMe."
+        )
+    elif candidate.get("state") == "NONE":
+        result["disposition"] = "NEW_WORK_READY_FOR_AUTO_ADMISSION"
+        result["auto_admission_allowed"] = True
+        result["requires_user_confirmation"] = False
+        result["next_action"] = (
+            "Admit the current user request as new operational work immediately. "
+            "Do not ask the user for a work reference or confirmation merely because unrelated work exists."
+        )
+    elif candidate.get("state") == "AMBIGUOUS":
+        result["disposition"] = "AMBIGUOUS_EXACT_WORK_CANDIDATES"
+        result["auto_admission_allowed"] = False
+        result["requires_user_confirmation"] = False
+        result["next_action"] = (
+            "Fail closed and report the duplicate canonical admission identities as a MangoMe integrity problem; "
+            "do not ask the user to choose between duplicate internal identities."
+        )
+    return result
 
 
 @mcp.tool()
