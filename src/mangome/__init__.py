@@ -12,4 +12,4 @@ os.environ.setdefault("MANGOME_ZERO_TOUCH_BOOTSTRAP", "1")
 os.environ.setdefault("MANGOME_ZERO_TOUCH_HOST_MIGRATION", "1")
 os.environ.setdefault("MANGOME_ALLOW_EVAL_DATABASE", "0")
 
-__version__ = "0.3.21"
+__version__ = "0.3.22"
