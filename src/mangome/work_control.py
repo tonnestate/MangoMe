@@ -1421,6 +1421,9 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         overview["work_identity_count"] = len(work_rows)
         overview["legacy_family_ids"] = [fid for fid in family_ids if fid not in bound_families]
         overview["work_identity_required_for_productive_mutation"] = True
+        overview["zero_touch_new_work_admission"] = "AUTOMATIC_FROM_CURRENT_USER_INTENT"
+        overview["user_supplied_work_ref_required_for_new_work"] = False
+        overview["user_confirmation_required_for_new_work"] = False
         overview["project_work_identity_coverage"] = (
             len(bound_families) / len(family_ids) if family_ids else 1.0
         )
