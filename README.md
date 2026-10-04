@@ -12,7 +12,7 @@
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.20-yellow">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.21-yellow">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-v2-5b5bd6">
   <img alt="MongoDB" src="https://img.shields.io/badge/canonical%20store-MongoDB-47A248">
   <img alt="UAI" src="https://img.shields.io/badge/semantic%20transport-UAI%2F1-6f42c1">
@@ -104,6 +104,20 @@ A normal worker should not need to know or expose MangoMe internals to the user.
 
 ---
 
+
+# v0.3.21 — Agent-Proof Zero-Touch Runtime
+
+v0.3.21 is a narrow operability repair.
+
+- Managed MCP startup detects older MangoMe generations from the same managed installation and retires only those stale processes.
+- HEALTH exposes runtime-generation drift.
+- In-place version updates can rebind the expected version when the configured source root still matches.
+- If the current user explicitly says a task should run without MangoMe, MangoMe stays out of that task.
+- `FRAMEWORK_BLOCKED != TASK_BLOCKED`.
+
+This release does not change WorkIdentity, MongoDB schema, assurance states, or the LOCAL_HOST trust model.
+
+---
 
 # v0.3.20 — Correctness Recovery
 
