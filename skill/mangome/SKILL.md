@@ -7,7 +7,7 @@ description: Use MangoMe for durable multi-agent work, recovery, evidence, verif
 
 MangoMe is the canonical operational-memory and verification substrate for durable multi-agent work. Workers and sessions are replaceable; admitted WorkIdentity, normative state, Evidence and assurance history are not.
 
-## v0.3.20 semantic worker surface
+## v0.3.21 semantic worker surface
 
 Normal workers use exactly seven top-level MangoMe tools:
 
@@ -42,7 +42,11 @@ Use structural status/search/symbol/context/impact operations through `mangome_o
 
 Zero-touch applies to the user interface, not to governance. The user should describe the real goal; do not require MangoMe vocabulary such as Project, Family, WorkIdentity, Plan, Slice, Big Bang, restore, or reconciliation.
 
-The default productive-work rule is:
+Explicit task opt-out takes precedence. If the current user says the task must run without MangoMe or MangoMe is out of scope, do not call MangoMe for that task and do not treat MangoMe unavailability as task failure. Do not invent actor/controller identity or repair MangoMe merely to continue that task.
+
+FRAMEWORK_BLOCKED != TASK_BLOCKED.
+
+When MangoMe is active for the task, the default productive-work rule is:
 
 ```text
 THINK FREELY
@@ -124,7 +128,7 @@ When the current user explicitly asks to install, update, repair, hotfix, roll b
 
 Self-maintenance does not self-admit. Do not create a WorkIdentity, Contract, Specification, Plan, Slice, or self-approval merely to repair the governance substrate. Scope effects to the explicitly requested MangoMe source/package/runtime/client/service surface. Database mutation remains separately gated (`DATABASE_CHANGE_REQUIRED`).
 
-Zero-touch deployment bootstrap remains bounded to MangoMe readiness. Under v0.3.20 `LOCAL_HOST`, MongoDB is credential-free and loopback-only and canonical runtime database identity is `mangome`. This is a **cooperative host trust boundary**, not tamper-resistant independent verification: a worker with direct host/MongoDB write access is inside that boundary and can bypass MangoMe service transitions. Runtime roles are exact (`WORKER`, `VERIFIER`, `OWNER`, `ROUTER`, `CONTROL`); there is no aggregate `FULL` role. Strong service-isolated verification is not implemented by LOCAL_HOST and must not be claimed.
+Zero-touch deployment bootstrap remains bounded to MangoMe readiness. Under v0.3.21 `LOCAL_HOST`, MongoDB is credential-free and loopback-only and canonical runtime database identity is `mangome`. This is a **cooperative host trust boundary**, not tamper-resistant independent verification: a worker with direct host/MongoDB write access is inside that boundary and can bypass MangoMe service transitions. Runtime roles are exact (`WORKER`, `VERIFIER`, `OWNER`, `ROUTER`, `CONTROL`); there is no aggregate `FULL` role. Strong service-isolated verification is not implemented by LOCAL_HOST and must not be claimed.
 
 Legacy databases remain fail-closed. `mangome_uai_eval` is never silently adopted or migrated. Managed bootstrap may only change the documented local MangoMe readiness surface after proving loopback scope; it must not weaken unrelated host/network/security configuration.
 
