@@ -1,4 +1,4 @@
-# Zero-touch operability — MangoMe v0.3.21
+# Zero-touch operability — MangoMe v0.3.22
 
 MangoMe's governance vocabulary is an implementation detail for the **user**, not something the runtime may ignore. v0.3.3 moves governance to the effect boundary: workers may reason freely, while productive effects must be reconciled with canonical state and authority.
 
@@ -23,6 +23,20 @@ ordinary user request
     ↓
 skip planning / evidence / verification
 ```
+
+## v0.3.22 zero-touch current-user work admission
+
+Workspace restore state does not identify the current request. A workspace may contain unrelated durable work and still receive a new user task.
+
+The normal semantic worker facade therefore resolves an exact normalized admission candidate first. If none exists, the current user request is admitted automatically as new operational work. The worker must not ask the user whether to create a MangoMe entry, must not request an internal WorkIdentity reference for new work, and must not mark the task blocked merely because unrelated workspace work already exists.
+
+```text
+UNRELATED WORK EXISTS
++ CURRENT REQUEST HAS NO EXACT ADMISSION MATCH
+= AUTO-ADMIT CURRENT REQUEST
+```
+
+The precise advanced reconciliation capability remains read-only; automatic admission is orchestration performed by the normal worker facade after deterministic reconciliation.
 
 ## v0.3.21 agent-proof routing and runtime generation
 
