@@ -544,6 +544,18 @@ def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None
         "CLAIM_DONE": "VERIFY",
         "CHECKPOINT_WORK": "CONTINUE_GOVERNED_WORK",
     }
+    if (
+        op == "RECONCILE_ASSIGNMENT"
+        and isinstance(result, dict)
+        and result.get("disposition") == "MANGOME_BYPASSED_BY_USER"
+    ):
+        return _guidance(
+            "WORK", op, result,
+            success_disposition="MANGOME_BYPASSED_BY_USER",
+            recommended="CONTINUE_TASK_WITHOUT_MANGOME",
+            allowed=["RETURN_TO_USER"],
+            forbidden=["REPAIR_MANGOME_FOR_THIS_TASK", "INVENT_CONTROL_AUTHORITY", "RETRY_MANGOME_FOR_THIS_TASK"],
+        )
     return _guidance(
         "WORK", op, result,
         success_disposition="WORK_TRANSITION_COMPLETE", recommended=next_map.get(op, "CONTINUE_GOVERNED_WORK"),
