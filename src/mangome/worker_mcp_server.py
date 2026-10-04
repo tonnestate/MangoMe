@@ -10,6 +10,8 @@ from mcp.server import MCPServer
 from . import __version__
 from .context import ContextBudgetExceeded, ContextCompiler
 from .runtime import get_service
+from .operability import enforce_expected_identity
+from .runtime_generation import reconcile_managed_runtime_generation
 from .structural import StructuralIntelligence, unavailable_structural_context
 from . import mcp_server as advanced
 
@@ -610,6 +612,8 @@ def mangome_control(operation: ControlOperation, payload: dict[str, Any] | None 
 
 
 def main() -> None:
+    enforce_expected_identity()
+    reconcile_managed_runtime_generation(repair=True)
     transport = os.environ.get("MANGOME_MCP_TRANSPORT", "stdio")
     kwargs: dict[str, Any] = {}
     if transport in {"streamable-http", "sse"}:
