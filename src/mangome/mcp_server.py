@@ -35,6 +35,7 @@ from .truth import BitemporalTruthService
 from .trust_boundary import resolve_mongodb_connection, inspect_authenticated_roles
 from .human_status import human_status_snapshot
 from .operability import enforce_expected_identity
+from .managed_env import apply_managed_defaults, startup_checks
 from .failsoft import failsoft
 from .runtime_generation import reconcile_managed_runtime_generation
 
@@ -1946,8 +1947,8 @@ def migrate_schema(dry_run: bool = True) -> dict[str, Any]:
 
 
 def main() -> None:
-    enforce_expected_identity()
-    reconcile_managed_runtime_generation(repair=True)
+    apply_managed_defaults()
+    startup_checks()
     transport = os.environ.get("MANGOME_MCP_TRANSPORT", "stdio")
     kwargs: dict[str, Any] = {}
     if transport in {"streamable-http", "sse"}:

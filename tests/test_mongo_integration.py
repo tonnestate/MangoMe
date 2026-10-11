@@ -13,7 +13,9 @@ URI = os.environ.get("MANGOME_TEST_MONGO_URI")
 
 
 @pytest.mark.skipif(not URI, reason="MANGOME_TEST_MONGO_URI not configured")
-def test_mongo_persists_verified_state_end_to_end():
+def test_mongo_persists_verified_state_end_to_end(monkeypatch):
+    monkeypatch.setenv("MANGOME_VERIFIER_TOKEN", "verifier-test-token-0123456789abcdef")
+    monkeypatch.setenv("MANGOME_VERIFIER_ACTORS", "verifier-b")
     database = f"mangome_ci_{uuid.uuid4().hex}"
     store = MongoStore(URI, database)
     svc = IntegrityMangoMeService(store)
@@ -41,10 +43,13 @@ def test_mongo_persists_verified_state_end_to_end():
         sl = svc.store.find("slices", {"family_id": family["entity_id"]})[0]
         svc.start_slice(slice_id=sl["entity_id"], actor_id="worker-a", plan_id=plan["entity_id"])
         svc.claim_done(slice_id=sl["entity_id"], actor_id="worker-a", plan_id=plan["entity_id"])
-        ev = svc.submit_evidence(
-            subject_id=sl["entity_id"], evidence_type="INTEGRATION_TEST", evidence_class="TEST_RESULT", source="pytest", result="PASS", actor_id="verifier-b"
+        # The gate rule is unchanged: a PASS gate needs INDEPENDENT AV/1 verifier-observed PASS evidence, submitted
+        # through the verifier capability path by an actor other than the executor.
+        ev = svc.submit_verification_observation(
+            slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=os.environ["MANGOME_VERIFIER_TOKEN"],
+            claim="mongo persistence check passes", observation_type="SPEC_CHECK", status="PASS",
+            evidence_type="INTEGRATION_TEST", evidence_class="TEST_RESULT", source="verifier",
         )
-        ev = svc.attest_evidence(evidence_id=ev["entity_id"], attested_by="verifier-b", capability_token=os.environ["MANGOME_VERIFIER_TOKEN"])
         gate_id = svc.store.get("slices", sl["entity_id"])["gates"][0]["gate_id"]
         svc.set_gate(
             slice_id=sl["entity_id"], gate_id=gate_id, status="PASS", actor_id="verifier-b", evidence_ids=[ev["entity_id"]]
@@ -70,6 +75,7 @@ def test_mongo_mcp_create_project_returns_serializable_result(monkeypatch):
     from mangome.runtime import reset_service_for_tests
 
     database = f"mangome_mcp_wire_{uuid.uuid4().hex}"
+    monkeypatch.setenv("MANGOME_ZERO_TOUCH_BOOTSTRAP", "0")  # throwaway database: no managed bootstrap
     monkeypatch.setenv("MANGOME_BACKEND", "mongo")
     monkeypatch.setenv("MANGOME_MONGODB_URI", URI)
     monkeypatch.setenv("MANGOME_DATABASE", database)

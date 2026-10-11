@@ -13,6 +13,7 @@ from mcp.server import MCPServer
 
 from . import __version__
 from .context import ContextBudgetExceeded, ContextCompiler
+from .managed_env import apply_managed_defaults, startup_checks
 from .failsoft import classify_error as _classify_error, failsoft as _failsoft
 from .runtime import get_service
 from .operability import enforce_expected_identity
@@ -679,19 +680,8 @@ def mangome_control(operation: ControlOperation, payload: dict[str, Any] | None 
 
 
 def main() -> None:
-    # stdout is reserved for the MCP protocol; everything else goes to stderr.
-    logging.basicConfig(stream=sys.stderr)
-    sys.excepthook = lambda t, v, tb: traceback.print_exception(t, v, tb, file=sys.stderr)
-    # Startup checks must never prevent `initialize`: report on stderr and stay up.
-    # Stale-sibling repair (SIGTERM/SIGKILL of other sessions' servers) is opt-in only.
-    try:
-        enforce_expected_identity()
-    except Exception as exc:  # noqa: BLE001
-        print(f"mangome startup identity check failed (continuing degraded): {exc!r}", file=sys.stderr)
-    try:
-        reconcile_managed_runtime_generation(repair=os.environ.get("MANGOME_RECONCILE_REPAIR") == "1")
-    except Exception as exc:  # noqa: BLE001
-        print(f"mangome runtime generation check failed (continuing): {exc!r}", file=sys.stderr)
+    apply_managed_defaults()
+    startup_checks()
     transport = os.environ.get("MANGOME_MCP_TRANSPORT", "stdio")
     kwargs: dict[str, Any] = {}
     if transport in {"streamable-http", "sse"}:

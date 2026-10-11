@@ -22,6 +22,8 @@ def _print(value) -> None:
 
 
 def main(*, surface: str = "advanced") -> None:
+    from .managed_env import apply_managed_defaults
+    apply_managed_defaults()
     parser = argparse.ArgumentParser(prog="mangome")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
