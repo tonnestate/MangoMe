@@ -479,6 +479,8 @@ def health_snapshot() -> dict[str, object]:
             store["database"] = database
         return {
             "ok": False,
+            "status": "DEGRADED",
+            "status_reason": diagnostic,
             "process_ready": True,
             "database_ready": False,
             "version": __version__,
@@ -493,6 +495,7 @@ def health_snapshot() -> dict[str, object]:
 
     return {
         "ok": bool(store_health.get("ok")),
+        "status": "OK" if store_health.get("ok") else "DEGRADED",
         "process_ready": True,
         "database_ready": bool(store_health.get("ok")),
         "version": __version__,

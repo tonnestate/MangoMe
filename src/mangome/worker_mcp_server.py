@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import functools
 import inspect
 import json
+import logging
 import os
+import sys
+import traceback
 from typing import Any, Callable, Literal
 
 from mcp.server import MCPServer
@@ -178,6 +182,48 @@ ControlOperation = Literal[
     "DELEGATION_STATUS", "REGISTER_MODEL", "RECORD_EXECUTION_RECEIPT", "BACKFILL_WORK_IDENTITY",
     "BIND_WORK_TURN", "REFRESH_VIEWS", "MIGRATE_SCHEMA", "MAINTENANCE_DIAGNOSE"
 ]
+
+
+def _classify_error(exc: BaseException) -> tuple[str, bool]:
+    """Map an exception to (error_class, retriable). No class ever stops the server."""
+    name = type(exc).__name__
+    code = str(getattr(exc, "code", "") or "")
+    if name in {"ServerSelectionTimeoutError", "ConnectionFailure", "AutoReconnect", "NetworkTimeout", "NotPrimaryError"}:
+        return "DB_UNAVAILABLE", True
+    if name == "DuplicateKeyError" or "CONFLICT" in code.upper():
+        return "CONFLICT", False
+    if code.startswith("WRONG_") or "DENIED" in code.upper() or "GOVERNANCE" in code.upper():
+        return "GOVERNANCE_DENIED", False
+    if isinstance(exc, (KeyError, ValueError, TypeError, AttributeError)) or "INVALID" in code.upper():
+        return "INPUT_INVALID", False
+    return "INTERNAL", False
+
+
+def _failsoft(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Central error envelope: a tool call never raises, so it never closes the transport."""
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - deliberate catch-all at the protocol boundary
+            error_class, retriable = _classify_error(exc)
+            print(f"mangome tool {fn.__name__} failed [{error_class}]: {exc!r}", file=sys.stderr)
+            if error_class == "INTERNAL":
+                traceback.print_exc(file=sys.stderr)
+            return {
+                "ok": False,
+                "disposition": "ACTION_BLOCKED",
+                "reason_codes": [error_class],
+                "error": {
+                    "error_class": error_class,
+                    "message": str(exc)[:500],
+                    "retriable": retriable,
+                    "affects": fn.__name__,
+                },
+            }
+
+    return wrapper
 
 
 def _normalize_operation(operation: str) -> str:
@@ -469,6 +515,7 @@ def _structural(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp.tool()
+@_failsoft
 def mangome_status(scope: StatusScope = "HEALTH", payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return bounded MangoMe status without admitting or mutating work."""
     data = dict(payload or {})
@@ -494,6 +541,7 @@ def mangome_status(scope: StatusScope = "HEALTH", payload: dict[str, Any] | None
 
 
 @mcp.tool()
+@_failsoft
 def mangome_observe(operation: ObserveOperation, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Read/inspect derived or canonical context. OBSERVE never creates work identity or truth."""
     data = dict(payload or {})
@@ -525,6 +573,7 @@ def mangome_observe(operation: ObserveOperation, payload: dict[str, Any] | None 
 
 
 @mcp.tool()
+@_failsoft
 def mangome_query(operation: QueryOperation, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve/read MangoMe identity, graph, truth and work state through an allow-listed query surface."""
     op = _normalize_operation(operation)
@@ -538,6 +587,7 @@ def mangome_query(operation: QueryOperation, payload: dict[str, Any] | None = No
 
 
 @mcp.tool()
+@_failsoft
 def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Enter/progress governed work through deterministic allow-listed transitions.
 
@@ -650,6 +700,7 @@ def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None
 
 
 @mcp.tool()
+@_failsoft
 def mangome_effect(operation: EffectOperation, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Record/reconcile external effects. Unknown outcomes must not be blindly retried."""
     op = _normalize_operation(operation)
@@ -671,6 +722,7 @@ def mangome_effect(operation: EffectOperation, payload: dict[str, Any] | None = 
 
 
 @mcp.tool()
+@_failsoft
 def mangome_verify(operation: VerifyOperation, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Validate, audit and verify without allowing a worker DONE claim to become trusted completion."""
     op = _normalize_operation(operation)
@@ -695,6 +747,7 @@ def mangome_verify(operation: VerifyOperation, payload: dict[str, Any] | None = 
 
 
 @mcp.tool()
+@_failsoft
 def mangome_control(operation: ControlOperation, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Perform explicit controller/router/owner operations through the advanced capability layer."""
     op = _normalize_operation(operation)
@@ -709,8 +762,19 @@ def mangome_control(operation: ControlOperation, payload: dict[str, Any] | None 
 
 
 def main() -> None:
-    enforce_expected_identity()
-    reconcile_managed_runtime_generation(repair=True)
+    # stdout is reserved for the MCP protocol; everything else goes to stderr.
+    logging.basicConfig(stream=sys.stderr)
+    sys.excepthook = lambda t, v, tb: traceback.print_exception(t, v, tb, file=sys.stderr)
+    # Startup checks must never prevent `initialize`: report on stderr and stay up.
+    # Stale-sibling repair (SIGTERM/SIGKILL of other sessions' servers) is opt-in only.
+    try:
+        enforce_expected_identity()
+    except Exception as exc:  # noqa: BLE001
+        print(f"mangome startup identity check failed (continuing degraded): {exc!r}", file=sys.stderr)
+    try:
+        reconcile_managed_runtime_generation(repair=os.environ.get("MANGOME_RECONCILE_REPAIR") == "1")
+    except Exception as exc:  # noqa: BLE001
+        print(f"mangome runtime generation check failed (continuing): {exc!r}", file=sys.stderr)
     transport = os.environ.get("MANGOME_MCP_TRANSPORT", "stdio")
     kwargs: dict[str, Any] = {}
     if transport in {"streamable-http", "sse"}:
