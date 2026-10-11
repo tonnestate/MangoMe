@@ -1440,7 +1440,8 @@ class MangoMeService:
         if not eligibility.get("eligible"):
             return {"authorized": False, "eligibility": eligibility}
         profile = self._current_worker_runtime(worker_key)
-        assert profile is not None
+        if profile is None:
+            raise ValueError(f"no runtime profile for worker {worker_key!r}")
         active = [d for d in self.store.find("delegations", {"worker_key": worker_key}) if d.get("status") in {"AUTHORIZED", "RUNNING"}]
         limit = int(profile.get("max_parallel_tasks") or 1)
         if len(active) >= limit:

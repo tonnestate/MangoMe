@@ -35,6 +35,7 @@ from .truth import BitemporalTruthService
 from .trust_boundary import resolve_mongodb_connection, inspect_authenticated_roles
 from .human_status import human_status_snapshot
 from .operability import enforce_expected_identity
+from .failsoft import failsoft
 from .runtime_generation import reconcile_managed_runtime_generation
 
 mcp = MCPServer(
@@ -283,12 +284,14 @@ def _discovery_block(roots: list[str] | None, operation: str) -> dict[str, Any] 
 
 
 @mcp.tool()
+@failsoft
 def health() -> dict[str, Any]:
     """Return readiness even when backing-store initialization fails."""
     return health_snapshot()
 
 
 @mcp.tool()
+@failsoft
 def workspace_status(workspace_root: str | None = None, refresh: bool = False, human: bool = False, max_folders: int = 8) -> dict[str, Any]:
     """Return workspace state, or a bounded display-only folder summary when ``human`` is true."""
     if human:
@@ -338,6 +341,7 @@ def workspace_status(workspace_root: str | None = None, refresh: bool = False, h
 
 
 @mcp.tool()
+@failsoft
 def intake_request(request_text: str, classification: str | None = None, classification_source: str | None = None, source_ref: str | None = None, family_id: str | None = None) -> dict[str, Any]:
     """Persist and categorize a new assignment before execution."""
     blocked = _restore_gate("intake_request")
@@ -347,6 +351,7 @@ def intake_request(request_text: str, classification: str | None = None, classif
 
 
 @mcp.tool()
+@failsoft
 def create_spec(family_id: str, objective: str, actor_id: str | None = None, work_id: str | None = None, turn_id: str | None = None, controller_actor_id: str | None = None, controller_token: str | None = None, contract_ids: list[str] | None = None, deliverables: list[str] | None = None, constraints: list[str] | None = None, acceptance_criteria: list[str] | None = None, out_of_scope: list[str] | None = None, required_evidence: list[str] | None = None, supersedes_spec_id: str | None = None) -> dict[str, Any]:
     """Append normative Specification truth. Work-bound families require a MODIFY WorkTurn."""
     blocked = _restore_gate("create_spec")
@@ -362,12 +367,14 @@ def create_spec(family_id: str, objective: str, actor_id: str | None = None, wor
 
 
 @mcp.tool()
+@failsoft
 def resolve(query: str) -> dict[str, Any]:
     """Resolve a family, declared contract id, or slice id without semantic guessing."""
     return get_service().resolve(query)
 
 
 @mcp.tool()
+@failsoft
 def create_project(project_key: str, title: str, description: str | None = None, controller_actor_id: str | None = None, controller_token: str | None = None) -> dict[str, Any]:
     """Administrative identity creation; requires control-plane authority."""
     blocked = _restore_gate("create_project")
@@ -380,6 +387,7 @@ def create_project(project_key: str, title: str, description: str | None = None,
 
 
 @mcp.tool()
+@failsoft
 def create_family(family_key: str, title: str, project_ids: list[str] | None = None, scope_ids: list[str] | None = None, controller_actor_id: str | None = None, controller_token: str | None = None) -> dict[str, Any]:
     """Administrative durable-family creation; requires control-plane authority."""
     blocked = _restore_gate("create_family")
@@ -392,6 +400,7 @@ def create_family(family_key: str, title: str, project_ids: list[str] | None = N
 
 
 @mcp.tool()
+@failsoft
 def register_contract(declared_id: str, family_id: str, title: str, kind: str = "BASE", actor_id: str | None = None, work_id: str | None = None, turn_id: str | None = None, controller_actor_id: str | None = None, controller_token: str | None = None, storage_system: str | None = None, physical_location: str | None = None, checksum: str | None = None) -> dict[str, Any]:
     """Append normative Contract truth; work-bound families require a MODIFY WorkTurn."""
     blocked = _restore_gate("register_contract")
@@ -407,6 +416,7 @@ def register_contract(declared_id: str, family_id: str, title: str, kind: str = 
 
 
 @mcp.tool()
+@failsoft
 def import_contract_bundle(family_key: str, family_title: str, declared_id: str, contract_title: str, actor_id: str, slices: list[dict[str, Any]], kind: str = "BASE", project_ids: list[str] | None = None, scope_ids: list[str] | None = None, storage_system: str | None = None, physical_location: str | None = None, controller_actor_id: str | None = None, controller_token: str | None = None) -> dict[str, Any]:
     """Controller-authorized onboarding of historical contract/slice state.
 
@@ -441,6 +451,7 @@ def import_contract_bundle(family_key: str, family_title: str, declared_id: str,
 
 
 @mcp.tool()
+@failsoft
 def attach_artifact(logical_name: str, artifact_type: str, storage_system: str, physical_location: str, belongs_to: list[str] | None = None, checksum: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Register a physical artifact/reference without changing its external storage."""
     blocked = _restore_gate("attach_artifact")
@@ -450,6 +461,7 @@ def attach_artifact(logical_name: str, artifact_type: str, storage_system: str, 
 
 
 @mcp.tool()
+@failsoft
 def link_entities(from_type: str, from_id: str, relation: str, to_type: str, to_id: str, status: str = "CONFIRMED", source_actor_id: str | None = None, work_id: str | None = None, turn_id: str | None = None, confidence: float | None = None, controller_actor_id: str | None = None, controller_token: str | None = None) -> dict[str, Any]:
     """Create a typed relation; normative contract evolution requires a MODIFY WorkTurn."""
     blocked = _restore_gate("link_entities")
@@ -469,6 +481,7 @@ def link_entities(from_type: str, from_id: str, relation: str, to_type: str, to_
 
 
 @mcp.tool()
+@failsoft
 def submit_plan(family_id: str, request_id: str, actor_id: str, intent: str, proposed_slices: list[dict[str, Any]], spec_id: str | None = None, work_id: str | None = None, turn_id: str | None = None, normative_baseline_id: str | None = None, contract_ids: list[str] | None = None, expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None, estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None) -> dict[str, Any]:
     """Record a plan. v0.3 work requires WorkIdentity + controller-minted EXECUTE/CONTINUE turn + current baseline."""
     blocked = _restore_gate("submit_plan")
@@ -575,6 +588,7 @@ def _reconcile_assignment_impl(
 
 
 @mcp.tool()
+@failsoft
 def reconcile_assignment(
     request_text: str,
     workspace_root: str | None = None,
@@ -594,6 +608,7 @@ def reconcile_assignment(
 
 
 @mcp.tool()
+@failsoft
 def enter_work(
     actor_id: str,
     request_text: str,
@@ -649,6 +664,7 @@ def enter_work(
 
 
 @mcp.tool()
+@failsoft
 def prepare_assignment(
     family_id: str,
     actor_id: str,
@@ -692,6 +708,7 @@ def prepare_assignment(
 
 
 @mcp.tool()
+@failsoft
 def begin_work(
     family_id: str, actor_id: str, request_text: str, intent: str,
     proposed_slice: dict[str, Any] | None = None,
@@ -735,6 +752,7 @@ def begin_work(
 
 
 @mcp.tool()
+@failsoft
 def start_slice(slice_id: str, actor_id: str, plan_id: str) -> dict[str, Any]:
     """Start a slice and bind it to the actor's persisted active plan."""
     blocked = _restore_gate("start_slice")
@@ -747,6 +765,7 @@ def start_slice(slice_id: str, actor_id: str, plan_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+@failsoft
 def update_slice_progress(slice_id: str, actor_id: str, plan_id: str, current_step: int | None = None, total_steps: int | None = None, blocker: str | None = None, execution_state: str | None = None) -> dict[str, Any]:
     """Persist slice progress; the same active plan that started the slice is mandatory."""
     blocked = _restore_gate("update_slice_progress")
@@ -762,6 +781,7 @@ def update_slice_progress(slice_id: str, actor_id: str, plan_id: str, current_st
 
 
 @mcp.tool()
+@failsoft
 def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None = None) -> dict[str, Any]:
     """Record DONE_CLAIMED under the slice's active plan; this never implies verification."""
     blocked = _restore_gate("claim_done")
@@ -776,6 +796,7 @@ def claim_done(slice_id: str, actor_id: str, plan_id: str, summary: str | None =
 
 
 @mcp.tool()
+@failsoft
 def validate_slice(
     slice_id: str,
     validator_actor_id: str,
@@ -798,6 +819,7 @@ def validate_slice(
 
 
 @mcp.tool()
+@failsoft
 def record_effect_intent(
     slice_id: str, actor_id: str, turn_id: str, effect_key: str, action: str, target: str,
     payload_hash: str | None = None, expected_state: Any = None, idempotency_key: str | None = None,
@@ -821,6 +843,7 @@ def record_effect_intent(
 
 
 @mcp.tool()
+@failsoft
 def mark_effect_dispatched(
     effect_id: str, actor_id: str, turn_id: str, receipt: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -835,6 +858,7 @@ def mark_effect_dispatched(
 
 
 @mcp.tool()
+@failsoft
 def record_effect_observation(
     effect_id: str, actor_id: str, turn_id: str, outcome: str,
     observed_state: Any = None, receipt: dict[str, Any] | None = None,
@@ -848,6 +872,7 @@ def record_effect_observation(
 
 
 @mcp.tool()
+@failsoft
 def reconcile_effect(
     effect_id: str, actor_id: str, turn_id: str, satisfied: bool,
     observed_state: Any = None, resolution: str | None = None, verifier_token: str | None = None,
@@ -861,6 +886,7 @@ def reconcile_effect(
 
 
 @mcp.tool()
+@failsoft
 def effect_status(
     slice_id: str | None = None, work_id: str | None = None, open_only: bool = False
 ) -> dict[str, Any]:
@@ -872,12 +898,14 @@ def effect_status(
 
 
 @mcp.tool()
+@failsoft
 def slice_closure_status(slice_id: str) -> dict[str, Any]:
     """Return execution, validation, assurance, closure and required-effect blockers for one Slice."""
     return _domain_call(EffectJournalService(get_service()).slice_closure_status, slice_id)
 
 
 @mcp.tool()
+@failsoft
 def close_plan(plan_id: str, actor_id: str) -> dict[str, Any]:
     """Close an unbound plan so it stops generating collision traffic."""
     blocked = _restore_gate("close_plan")
@@ -890,24 +918,28 @@ def close_plan(plan_id: str, actor_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+@failsoft
 def submit_evidence(subject_id: str, evidence_type: str, source: str, result: str | None = None, evidence_class: str = "CLAIM", artifact_id: str | None = None, actor_id: str | None = None, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Persist evidence. New evidence is UNATTESTED until a trusted verifier/owner attests it."""
     return get_service().submit_evidence(subject_id=subject_id, evidence_type=evidence_type, source=source, result=result, evidence_class=evidence_class, artifact_id=artifact_id, actor_id=actor_id, payload=payload)
 
 
 @mcp.tool()
+@failsoft
 def attest_evidence(evidence_id: str, attested_by: str, capability_token: str | None = None, authority: str = "VERIFIER") -> dict[str, Any]:
     """Attest evidence using a runtime verifier/owner capability. The capability is never persisted."""
     return get_service().attest_evidence(evidence_id=evidence_id, attested_by=attested_by, capability_token=capability_token, authority=authority)
 
 
 @mcp.tool()
+@failsoft
 def completion_review(slice_id: str, changed_paths: list[str] | None = None) -> dict[str, Any]:
     """Build an AV/1 adversarial verification brief from persisted DONE claims, plan/spec obligations, Evidence and an optional observed change set."""
     return get_service().completion_review(slice_id=slice_id, changed_paths=changed_paths)
 
 
 @mcp.tool()
+@failsoft
 def start_scoped_audit(
     family_id: str,
     actor_id: str,
@@ -943,24 +975,28 @@ def start_scoped_audit(
 
 
 @mcp.tool()
+@failsoft
 def audit_context(audit_id: str) -> dict[str, Any]:
     """Return the bounded current audit frontier, findings, assumptions, mutation boundary and PCH working-set support."""
     return _domain_call(ScopedAuditService(get_service()).context, audit_id)
 
 
 @mcp.tool()
+@failsoft
 def audit_status(audit_id: str, frontier_limit: int = 16) -> dict[str, Any]:
     """Return SRA/1 progress and whether impact closure reached a fixpoint or configured boundary."""
     return _domain_call(ScopedAuditService(get_service()).status, audit_id, frontier_limit=frontier_limit)
 
 
 @mcp.tool()
+@failsoft
 def audit_mutation_allowed(audit_id: str, entity_id: str | None = None, ref: str | None = None) -> dict[str, Any]:
     """Check the audit's frozen mutation boundary. This does not replace normal Plan/WorkTurn or host permissions."""
     return _domain_call(ScopedAuditService(get_service()).mutation_allowed, audit_id, entity_id=entity_id, ref=ref)
 
 
 @mcp.tool()
+@failsoft
 def record_audit_finding(
     audit_id: str,
     actor_id: str,
@@ -985,12 +1021,14 @@ def record_audit_finding(
 
 
 @mcp.tool()
+@failsoft
 def close_scoped_audit(audit_id: str, actor_id: str, summary: str | None = None) -> dict[str, Any]:
     """Close only after no pending frontier remains; closure never promotes underlying work to VERIFIED."""
     return _domain_call(ScopedAuditService(get_service()).close, audit_id, actor_id=actor_id, summary=summary)
 
 
 @mcp.tool()
+@failsoft
 def submit_verification_observation(
     slice_id: str,
     verifier_actor_id: str,
@@ -1030,6 +1068,7 @@ def submit_verification_observation(
 
 
 @mcp.tool()
+@failsoft
 def set_gate(slice_id: str, gate_id: str, status: str, actor_id: str | None = None, turn_id: str | None = None, evidence_ids: list[str] | None = None, approval_id: str | None = None) -> dict[str, Any]:
     """Set a gate. PASS requires attested PASS evidence; WAIVED requires approved owner decision."""
     blocked = _work_identity_gate_slice(slice_id, "set_gate")
@@ -1039,12 +1078,14 @@ def set_gate(slice_id: str, gate_id: str, status: str, actor_id: str | None = No
 
 
 @mcp.tool()
+@failsoft
 def set_gate_controlled(slice_id: str, gate_id: str, status: str, actor_id: str, evidence_ids: list[str] | None = None, approval_id: str | None = None) -> dict[str, Any]:
     """Compatibility alias for v0.1.1 controlled gate updates."""
     return get_service().set_gate(slice_id=slice_id, gate_id=gate_id, status=status, actor_id=actor_id, evidence_ids=evidence_ids, approval_id=approval_id)
 
 
 @mcp.tool()
+@failsoft
 def verify_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, evidence_ids: list[str] | None = None, turn_id: str | None = None, close_slice: bool = True) -> dict[str, Any]:
     """Verify a VALIDATED DONE_CLAIMED Slice; close only when requested and required effects are reconciled."""
     blocked = _work_identity_gate_slice(slice_id, "verify_slice")
@@ -1054,6 +1095,7 @@ def verify_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | No
 
 
 @mcp.tool()
+@failsoft
 def close_verified_slice(slice_id: str, verifier_actor_id: str, verifier_token: str | None = None, turn_id: str | None = None) -> dict[str, Any]:
     """Close an already VERIFIED Slice after all required effects are reconciled and satisfied."""
     blocked = _work_identity_gate_slice(slice_id, "close_verified_slice")
@@ -1066,30 +1108,35 @@ def close_verified_slice(slice_id: str, verifier_actor_id: str, verifier_token: 
 
 
 @mcp.tool()
+@failsoft
 def request_override(action_type: str, subject_id: str, requested_by: str, reason: str) -> dict[str, Any]:
     """Create an explicit approval request; requesting approval does not grant it."""
     return get_service().request_override(action_type=action_type, subject_id=subject_id, requested_by=requested_by, reason=reason)
 
 
 @mcp.tool()
+@failsoft
 def approve_override(approval_id: str, decided_by: str, approval_token: str | None = None, decision_ref: str | None = None) -> dict[str, Any]:
     """Approve using the owner runtime capability; actor strings alone are insufficient."""
     return get_service().approve_override(approval_id=approval_id, decided_by=decided_by, approval_token=approval_token, decision_ref=decision_ref)
 
 
 @mcp.tool()
+@failsoft
 def reject_override(approval_id: str, decided_by: str, approval_token: str | None = None, decision_ref: str | None = None) -> dict[str, Any]:
     """Reject using the owner runtime capability."""
     return get_service().reject_override(approval_id=approval_id, decided_by=decided_by, approval_token=approval_token, decision_ref=decision_ref)
 
 
 @mcp.tool()
+@failsoft
 def list_approvals(status: str | None = None, subject_id: str | None = None) -> list[dict[str, Any]]:
     """List approval requests, optionally filtered by status and subject."""
     return get_service().list_approvals(status=status, subject_id=subject_id)
 
 
 @mcp.tool()
+@failsoft
 def accept_slice(slice_id: str, approval_id: str, accepted_by: str | None = None, turn_id: str | None = None) -> dict[str, Any]:
     """Move VERIFIED to ACCEPTED using a trusted approved ACCEPT_SLICE decision."""
     blocked = _work_identity_gate_slice(slice_id, "accept_slice")
@@ -1099,6 +1146,7 @@ def accept_slice(slice_id: str, approval_id: str, accepted_by: str | None = None
 
 
 @mcp.tool()
+@failsoft
 def record_truth_assertion(
     work_ref: str,
     subject_id: str,
@@ -1136,6 +1184,7 @@ def record_truth_assertion(
 
 
 @mcp.tool()
+@failsoft
 def truth_at(
     work_ref: str,
     valid_at: str | None = None,
@@ -1150,6 +1199,7 @@ def truth_at(
 
 
 @mcp.tool()
+@failsoft
 def truth_assertion_status(
     assertion_id: str,
     valid_at: str | None = None,
@@ -1162,6 +1212,7 @@ def truth_assertion_status(
 
 
 @mcp.tool()
+@failsoft
 def invalidate_truth_assertion(
     assertion_id: str,
     actor_id: str,
@@ -1180,12 +1231,14 @@ def invalidate_truth_assertion(
 
 
 @mcp.tool()
+@failsoft
 def bitemporal_truth_status(work_ref: str) -> dict[str, Any]:
     """Summarize current BTTM/1 support states for one WorkIdentity."""
     return _domain_call(BitemporalTruthService(get_service()).status, work_ref=work_ref)
 
 
 @mcp.tool()
+@failsoft
 def trust_boundary_status() -> dict[str, Any]:
     """Report MangoMe's MongoDB trust-boundary posture without exposing credentials."""
     backend = os.environ.get("MANGOME_BACKEND", "mongo").lower()
@@ -1208,24 +1261,28 @@ def trust_boundary_status() -> dict[str, Any]:
 
 
 @mcp.tool()
+@failsoft
 def status(family_id: str) -> dict[str, Any]:
     """Return deterministic materialized state for one family."""
     return get_service().status(family_id)
 
 
 @mcp.tool()
+@failsoft
 def project_overview(project_ref: str) -> dict[str, Any]:
     """Explain a complete project's current state across all known families."""
     return get_service().project_overview(project_ref)
 
 
 @mcp.tool()
+@failsoft
 def session_restore(workspace_root: str | None = None) -> dict[str, Any]:
     """Restore canonical session/work state without discovery or state creation."""
     return dict(restore_workspace_state(workspace_root))
 
 
 @mcp.tool()
+@failsoft
 def session_bootstrap(workspace_root: str | None = None) -> dict[str, Any]:
     """Bounded read-only bootstrap: bind cheaply, then read canonical restore state.
 
@@ -1246,6 +1303,7 @@ def session_bootstrap(workspace_root: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
+@failsoft
 def recovery_context(workspace_root: str | None = None) -> dict[str, Any]:
     """Return compact authoritative recovery state; never derive admitted work state from path discovery."""
     current = workspace_attachment_snapshot()
@@ -1263,18 +1321,21 @@ def recovery_context(workspace_root: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
+@failsoft
 def effective_family_view(family_id: str) -> dict[str, Any]:
     """Return the effective append-only contract-family view, supersession, relations, and conflicts."""
     return get_service().effective_family_view(family_id)
 
 
 @mcp.tool()
+@failsoft
 def read_context(family_id: str) -> dict[str, Any]:
     """Read all relevant family context. Reading is unrestricted."""
     return get_service().get_context(family_id)
 
 
 @mcp.tool()
+@failsoft
 def cognitive_hygiene(
     family_id: str,
     slice_id: str | None = None,
@@ -1288,6 +1349,7 @@ def cognitive_hygiene(
 
 
 @mcp.tool()
+@failsoft
 def assess_fast_judgment(
     purpose: str,
     decisions: list[dict[str, Any]],
@@ -1312,6 +1374,7 @@ def assess_fast_judgment(
 
 
 @mcp.tool()
+@failsoft
 def record_fast_judgment(
     work_id: str,
     actor_id: str,
@@ -1335,48 +1398,56 @@ def record_fast_judgment(
 
 
 @mcp.tool()
+@failsoft
 def fast_judgment_status(judgment_id: str) -> dict[str, Any]:
     """Read one persisted FJD/1 progressive judgment and its confidence/fallback disposition."""
     return _domain_call(FastJudgmentService(get_service()).status, judgment_id)
 
 
 @mcp.tool()
+@failsoft
 def compile_execution_context(family_id: str, slice_id: str | None = None) -> dict[str, Any]:
     """Produce a compact deterministic execution package after PCH/1 working-set selection."""
     return ContextCompiler(get_service()).compile(family_id, slice_id)
 
 
 @mcp.tool()
+@failsoft
 def compile_uai_context(family_id: str, slice_id: str | None = None) -> dict[str, Any]:
     """Compile canonical MangoMe truth into a versioned compact UAI/1 execution packet with semantic hash and savings metrics."""
     return UAICompiler(get_service()).compile(family_id, slice_id)
 
 
 @mcp.tool()
+@failsoft
 def expand_uai_context(wire: str) -> dict[str, Any]:
     """Round-trip a UAI/1 context packet back into its canonical semantic execution projection and verify its hash."""
     return UAICompiler.decode_context(wire)
 
 
 @mcp.tool()
+@failsoft
 def decode_uai_result(result_json: str, expected_context_hash: str) -> dict[str, Any]:
     """Validate and expand a compact UAI/1R worker result. This never mutates canonical state."""
     return decode_result_packet(result_json, expected_context_hash=expected_context_hash)
 
 
 @mcp.tool()
+@failsoft
 def render_uai_result(result_json: str, expected_context_hash: str, language: str = "en") -> str:
     """Render a structured UAI/1R worker result into deterministic human-readable English or German."""
     return render_result_packet(result_json, language=language, expected_context_hash=expected_context_hash)
 
 
 @mcp.tool()
+@failsoft
 def graph(entity_id: str) -> dict[str, Any]:
     """Return validated confirmed/suggested incoming and outgoing graph edges for an entity."""
     return get_service().graph(entity_id)
 
 
 @mcp.tool()
+@failsoft
 def publish_worker_runtime(
     worker_key: str,
     router_actor_id: str,
@@ -1412,6 +1483,7 @@ def publish_worker_runtime(
 
 
 @mcp.tool()
+@failsoft
 def execution_eligibility(
     worker_key: str,
     required_capabilities: list[str] | None = None,
@@ -1435,6 +1507,7 @@ def execution_eligibility(
 
 
 @mcp.tool()
+@failsoft
 def authorize_delegation(
     family_id: str,
     coordinator_actor_id: str,
@@ -1462,6 +1535,7 @@ def authorize_delegation(
 
 
 @mcp.tool()
+@failsoft
 def complete_delegation(
     delegation_id: str,
     coordinator_actor_id: str,
@@ -1480,30 +1554,35 @@ def complete_delegation(
 
 
 @mcp.tool()
+@failsoft
 def delegation_status(family_id: str) -> dict[str, Any]:
     """Return persisted delegation/checkpoint state for one family."""
     return _domain_call(get_service().delegation_status, family_id=family_id)
 
 
 @mcp.tool()
+@failsoft
 def register_model(model_key: str, provider: str | None = None, access_path: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Register a model/access-path identity for empirical execution comparisons."""
     return get_service().register_model(model_key=model_key, provider=provider, access_path=access_path, metadata=metadata)
 
 
 @mcp.tool()
+@failsoft
 def record_execution_receipt(family_id: str, slice_id: str, actor_id: str, model_id: str | None = None, work_class: str = "UNCLASSIFIED", input_tokens: int | None = None, output_tokens: int | None = None, execution_cost: float = 0.0, verification_cost: float = 0.0, repair_cost: float = 0.0, human_cost: float = 0.0, currency: str = "EUR", outcome: str = "UNKNOWN", context_tokens_raw: int | None = None, context_tokens_compiled: int | None = None, context_tokens_interlingua: int | None = None, output_tokens_interlingua: int | None = None, interlingua_version: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Record model/agent cost and durable outcome economics, including optional UAI/1 transport telemetry."""
     return get_service().record_execution_receipt(family_id=family_id, slice_id=slice_id, actor_id=actor_id, model_id=model_id, work_class=work_class, input_tokens=input_tokens, output_tokens=output_tokens, execution_cost=execution_cost, verification_cost=verification_cost, repair_cost=repair_cost, human_cost=human_cost, currency=currency, outcome=outcome, context_tokens_raw=context_tokens_raw, context_tokens_compiled=context_tokens_compiled, context_tokens_interlingua=context_tokens_interlingua, output_tokens_interlingua=output_tokens_interlingua, interlingua_version=interlingua_version, metadata=metadata)
 
 
 @mcp.tool()
+@failsoft
 def model_stats(model_id: str | None = None, work_class: str | None = None) -> dict[str, Any]:
     """Return empirical cost/verified-outcome statistics."""
     return get_service().model_stats(model_id=model_id, work_class=work_class)
 
 
 @mcp.tool()
+@failsoft
 def discovery_scopes(workspace_root: str | None = None) -> dict[str, Any]:
     """Return portable typed discovery scopes; this does not scan or admit content."""
     current = ensure_workspace_binding(workspace_root) if workspace_root is not None else (workspace_attachment_snapshot() or ensure_workspace_binding())
@@ -1512,6 +1591,7 @@ def discovery_scopes(workspace_root: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
+@failsoft
 def repository_locations(workspace_root: str | None = None) -> dict[str, Any]:
     """Return observed physical Git checkout/worktree locations without inferring project truth."""
     current = ensure_workspace_binding(workspace_root) if workspace_root is not None else (workspace_attachment_snapshot() or ensure_workspace_binding())
@@ -1520,6 +1600,7 @@ def repository_locations(workspace_root: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
+@failsoft
 def bigbang_scan(
     roots: list[str],
     id_patterns: list[str] | None = None,
@@ -1559,6 +1640,7 @@ def bigbang_scan(
 
 
 @mcp.tool()
+@failsoft
 def reconcile_bigbang_scan(
     roots: list[str],
     id_patterns: list[str] | None = None,
@@ -1602,6 +1684,7 @@ def reconcile_bigbang_scan(
 
 
 @mcp.tool()
+@failsoft
 def reconcile_bigbang(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Explicitly reconcile a small caller-supplied candidate set without mutation."""
     if len(records) > 200:
@@ -1617,6 +1700,7 @@ def reconcile_bigbang(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 @mcp.tool()
+@failsoft
 def filesystem_inventory(
     roots: list[str], max_files: int = 50000, max_depth: int = 16, max_hash_bytes: int = 67108864
 ) -> dict[str, Any]:
@@ -1631,6 +1715,7 @@ def filesystem_inventory(
 
 
 @mcp.tool()
+@failsoft
 def filesystem_scan(roots: list[str], max_files: int = 50000, max_depth: int = 16, max_hash_bytes: int = 67108864) -> dict[str, Any]:
     """Persistent inventory for explicit onboarding/maintenance; not a normal observation fast path."""
     blocked = _discovery_block(roots, "filesystem_scan")
@@ -1642,6 +1727,7 @@ def filesystem_scan(roots: list[str], max_files: int = 50000, max_depth: int = 1
 
 
 @mcp.tool()
+@failsoft
 def filesystem_references(declared_id: str, present_only: bool = True, limit: int = 200) -> dict[str, Any]:
     """Targeted validation of an already-canonical identity; never use lexical references to invent recovery state."""
     if _known_admitted_workspace_roots():
@@ -1662,6 +1748,7 @@ def filesystem_references(declared_id: str, present_only: bool = True, limit: in
 
 
 @mcp.tool()
+@failsoft
 def build_reproduction_binding(
     command: str,
     cwd: str,
@@ -1690,12 +1777,14 @@ def build_reproduction_binding(
 
 
 @mcp.tool()
+@failsoft
 def evidence_freshness(evidence_id: str, live_check: bool = True) -> dict[str, Any]:
     """Check whether attested PASS evidence remains current under legacy hash bindings or RB/1 reproduction bindings. Never reruns commands or changes assurance state."""
     return FilesystemScanner(get_service()).evidence_freshness(evidence_id, live_check=live_check)
 
 
 @mcp.tool()
+@failsoft
 def backfill_work_identity(family_id: str, project_id: str, controller_actor_id: str, controller_token: str | None = None, title: str | None = None, source_ref: str | None = None) -> dict[str, Any]:
     """Explicitly bind historical canonical family state to WorkIdentity without inventing user intent."""
     blocked = _controller_gate("backfill_work_identity", controller_actor_id, controller_token)
@@ -1708,6 +1797,7 @@ def backfill_work_identity(family_id: str, project_id: str, controller_actor_id:
 
 
 @mcp.tool()
+@failsoft
 def bind_work_turn(work_ref: str, request_text: str, mode: str, actor_id: str, controller_actor_id: str, controller_token: str | None = None) -> dict[str, Any]:
     """Control-plane bind the current user turn to durable WorkIdentity. Workers cannot self-mint authority."""
     blocked = _restore_gate("bind_work_turn")
@@ -1720,36 +1810,42 @@ def bind_work_turn(work_ref: str, request_text: str, mode: str, actor_id: str, c
 
 
 @mcp.tool()
+@failsoft
 def work_context(work_ref: str) -> dict[str, Any]:
     """Read identity-bound canonical/progressive/volatile context without filesystem reconstruction."""
     return _domain_call(get_service().work_context, work_ref)
 
 
 @mcp.tool()
+@failsoft
 def checkpoint_work(work_ref: str, actor_id: str, payload: dict[str, Any], kind: str = "EXECUTION_CHECKPOINT", plan_id: str | None = None, turn_id: str | None = None) -> dict[str, Any]:
     """Persist PROGRESSIVE crash-recovery state. It can only reference an existing canonical WorkIdentity."""
     return _domain_call(get_service().checkpoint_work, work_ref=work_ref, actor_id=actor_id, payload=payload, kind=kind, plan_id=plan_id, turn_id=turn_id)
 
 
 @mcp.tool()
+@failsoft
 def register_playbook(playbook_key: str, version: str, description: str, source: str, content_hash: str | None = None, applicability: list[str] | None = None, required_capabilities: list[str] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Register procedural Playbook metadata. Playbooks never become normative project truth."""
     return _domain_call(get_service().register_playbook, playbook_key=playbook_key, version=version, description=description, source=source, content_hash=content_hash, applicability=applicability, required_capabilities=required_capabilities, metadata=metadata)
 
 
 @mcp.tool()
+@failsoft
 def select_playbook(work_ref: str, playbook_id: str, actor_id: str, turn_id: str | None = None, reason: str | None = None) -> dict[str, Any]:
     """Select a replaceable procedural Playbook for a WorkIdentity; selection is PROGRESSIVE/non-normative."""
     return _domain_call(get_service().select_playbook, work_ref=work_ref, playbook_id=playbook_id, actor_id=actor_id, turn_id=turn_id, reason=reason)
 
 
 @mcp.tool()
+@failsoft
 def contract_state(contract_ref: str, include_content: bool = False) -> dict[str, Any]:
     """Read one logical Contract and its immutable canonical generations. Physical paths are bindings, not identity."""
     return _domain_call(get_service().contract_state, contract_ref, include_content=include_content)
 
 
 @mcp.tool()
+@failsoft
 def bind_contract_turn(
     request_text: str,
     mode: str,
@@ -1772,6 +1868,7 @@ def bind_contract_turn(
 
 
 @mcp.tool()
+@failsoft
 def promote_contract_generation(
     contract_ref: str,
     turn_id: str,
@@ -1811,6 +1908,7 @@ def promote_contract_generation(
 
 
 @mcp.tool()
+@failsoft
 def release_contract_generation_grant(
     grant_id: str, actor_id: str, reason: str | None = None
 ) -> dict[str, Any]:
@@ -1824,18 +1922,21 @@ def release_contract_generation_grant(
 
 
 @mcp.tool()
+@failsoft
 def refresh_views() -> dict[str, int]:
     """Refresh all deterministic family views without LLM use."""
     return MangoMaintainer(get_service()).refresh_all_family_views()
 
 
 @mcp.tool()
+@failsoft
 def maintenance_diagnose(stale_after_hours: float = 24.0) -> dict[str, Any]:
     """Report stale plan candidates, collisions, approvals and unresolved graph work without auto-fixing it."""
     return MangoMaintainer(get_service()).diagnose(stale_after_hours=stale_after_hours)
 
 
 @mcp.tool()
+@failsoft
 def migrate_schema(dry_run: bool = True) -> dict[str, Any]:
     """Dry-run or explicitly persist registered lazy schema migrations."""
     return MangoMaintainer(get_service()).migrate_schema(dry_run=dry_run)

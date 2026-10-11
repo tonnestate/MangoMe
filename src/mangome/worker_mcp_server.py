@@ -13,6 +13,7 @@ from mcp.server import MCPServer
 
 from . import __version__
 from .context import ContextBudgetExceeded, ContextCompiler
+from .failsoft import failsoft as _failsoft
 from .runtime import get_service
 from .operability import enforce_expected_identity
 from .runtime_generation import reconcile_managed_runtime_generation
@@ -182,48 +183,6 @@ ControlOperation = Literal[
     "DELEGATION_STATUS", "REGISTER_MODEL", "RECORD_EXECUTION_RECEIPT", "BACKFILL_WORK_IDENTITY",
     "BIND_WORK_TURN", "REFRESH_VIEWS", "MIGRATE_SCHEMA", "MAINTENANCE_DIAGNOSE"
 ]
-
-
-def _classify_error(exc: BaseException) -> tuple[str, bool]:
-    """Map an exception to (error_class, retriable). No class ever stops the server."""
-    name = type(exc).__name__
-    code = str(getattr(exc, "code", "") or "")
-    if name in {"ServerSelectionTimeoutError", "ConnectionFailure", "AutoReconnect", "NetworkTimeout", "NotPrimaryError"}:
-        return "DB_UNAVAILABLE", True
-    if name == "DuplicateKeyError" or "CONFLICT" in code.upper():
-        return "CONFLICT", False
-    if code.startswith("WRONG_") or "DENIED" in code.upper() or "GOVERNANCE" in code.upper():
-        return "GOVERNANCE_DENIED", False
-    if isinstance(exc, (KeyError, ValueError, TypeError, AttributeError)) or "INVALID" in code.upper():
-        return "INPUT_INVALID", False
-    return "INTERNAL", False
-
-
-def _failsoft(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Central error envelope: a tool call never raises, so it never closes the transport."""
-
-    @functools.wraps(fn)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return fn(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 - deliberate catch-all at the protocol boundary
-            error_class, retriable = _classify_error(exc)
-            print(f"mangome tool {fn.__name__} failed [{error_class}]: {exc!r}", file=sys.stderr)
-            if error_class == "INTERNAL":
-                traceback.print_exc(file=sys.stderr)
-            return {
-                "ok": False,
-                "disposition": "ACTION_BLOCKED",
-                "reason_codes": [error_class],
-                "error": {
-                    "error_class": error_class,
-                    "message": str(exc)[:500],
-                    "retriable": retriable,
-                    "affects": fn.__name__,
-                },
-            }
-
-    return wrapper
 
 
 def _normalize_operation(operation: str) -> str:

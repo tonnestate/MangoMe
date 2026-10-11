@@ -181,7 +181,8 @@ class ContractGovernedMangoMeService(IntegrityMangoMeService):
         if ttl_minutes < 1 or ttl_minutes > 1440:
             raise ValueError("ttl_minutes must be between 1 and 1440")
         head = self._head(contract["entity_id"], create=True)
-        assert head is not None
+        if head is None:
+            raise ValueError("contract head could not be resolved")
         head = self._expire_grant_if_needed(head)
         existing_id = head.get("active_grant_id")
         if existing_id:
@@ -366,7 +367,8 @@ class ContractGovernedMangoMeService(IntegrityMangoMeService):
             raise ContractGenerationConflict("contract generation grant has expired")
 
         head = self._head(contract["entity_id"], create=True)
-        assert head is not None
+        if head is None:
+            raise ValueError("contract head could not be resolved")
         if head.get("active_grant_id") != grant_id:
             raise ContractGenerationConflict("contract head is owned by another generation grant")
         if int(head.get("current_generation", 0)) != int(grant.get("base_generation", 0)):
