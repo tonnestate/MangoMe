@@ -5,7 +5,9 @@
 - Startup identity/generation checks can no longer prevent `initialize`; sibling-process repair (SIGTERM/SIGKILL) is opt-in via MANGOME_RECONCILE_REPAIR=1.
 - Health reports status OK/DEGRADED with reason. Bare asserts in tool paths became validation errors.
 - Admission-key fix: no explicit null admission_key; partial unique index on string keys; migration script scripts/migrate_admission_key_index.py (dry run by default).
-- Tests: tests/test_stdio_contract.py, tests/test_reconcile_never_creates.py.
+- Tests: tests/test_stdio_contract.py, tests/test_reconcile_never_creates.py, tests/test_supersede_work.py, tests/test_import_has_no_side_effects.py.
+- `SUPERSEDE_WORK` (control operation, controller capability required): archives a duplicate WorkIdentity by reference (`status=SUPERSEDED`, `superseded_by`, reason, assurance events); never deletes or moves evidence, plans, slices or claims. Idempotent; rejects self/unknown/cross-project/chained targets. Reconcile follows a superseded identity to its canonical one.
+- Importing `mangome` no longer changes `os.environ`; managed defaults are applied by the entry points (`mangome.managed_env`). The advanced `mcp_server.main()` got the same fail-soft startup as the worker server.
 
 ## 0.3.22 — 2026-10-05 — Zero-Touch Work Admission
 

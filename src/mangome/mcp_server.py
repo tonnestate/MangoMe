@@ -1802,6 +1802,17 @@ def backfill_work_identity(family_id: str, project_id: str, controller_actor_id:
 
 @mcp.tool()
 @failsoft
+def supersede_work(superseded_ref: str, canonical_ref: str, reason: str, controller_actor_id: str, controller_token: str | None = None) -> dict[str, Any]:
+    """Control-plane: archive a duplicate WorkIdentity by reference (superseded_by). Never deletes or moves evidence."""
+    blocked = _controller_gate("supersede_work", controller_actor_id, controller_token)
+    if blocked:
+        return blocked
+    return _domain_call(get_service().supersede_work, superseded_ref=superseded_ref, canonical_ref=canonical_ref,
+                        actor_id=controller_actor_id, reason=reason)
+
+
+@mcp.tool()
+@failsoft
 def bind_work_turn(work_ref: str, request_text: str, mode: str, actor_id: str, controller_actor_id: str, controller_token: str | None = None) -> dict[str, Any]:
     """Control-plane bind the current user turn to durable WorkIdentity. Workers cannot self-mint authority."""
     blocked = _restore_gate("bind_work_turn")

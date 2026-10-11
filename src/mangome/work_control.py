@@ -124,7 +124,11 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         candidates: list[dict[str, Any]] = []
         for family in families:
             work = self._work_for_family(family["entity_id"])
-            if work is not None:
+            hops = 0
+            while work is not None and work.get("status") == "SUPERSEDED" and work.get("superseded_by") and hops < 8:
+                work = self.store.get("work_identities", work["superseded_by"])
+                hops += 1
+            if work is not None and not any(c["work_ref"] == work["entity_id"] for c in candidates):
                 candidates.append({
                     "family_id": family["entity_id"],
                     "work_ref": work["entity_id"],
@@ -197,6 +201,38 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             self._refresh_normative_baseline(saved["entity_id"])
             self._refresh_work_view(saved["entity_id"])
         return saved
+
+    def supersede_work(self, *, superseded_ref: str, canonical_ref: str, actor_id: str, reason: str) -> dict[str, Any]:
+        """Archive a duplicate WorkIdentity by reference. Nothing is deleted or moved: evidence, plans, slices and claims
+        stay where they are; the duplicate is marked SUPERSEDED and points at the canonical identity."""
+        reason = str(reason or "").strip()
+        if not reason or not str(actor_id or "").strip():
+            raise WorkIdentityError("supersede_work requires actor_id and a non-empty reason")
+        old = self._resolve_work(superseded_ref)
+        new = self._resolve_work(canonical_ref)
+        if old["entity_id"] == new["entity_id"]:
+            raise WorkIdentityError("a WorkIdentity cannot supersede itself")
+        if old.get("project_id") != new.get("project_id"):
+            raise WorkIdentityError("superseded and canonical WorkIdentity must belong to the same project")
+        if old.get("status") == "SUPERSEDED":
+            if old.get("superseded_by") == new["entity_id"]:
+                return {"disposition": "ALREADY_SUPERSEDED", "work": old, "canonical_work_id": new["entity_id"]}
+            raise WorkIdentityError(f"{old['entity_id']} is already superseded by {old.get('superseded_by')}")
+        if new.get("status") == "SUPERSEDED":
+            raise WorkIdentityError("the canonical WorkIdentity is itself superseded; point at its successor")
+        now = utcnow()
+        saved = self._update(
+            "work_identities", old["entity_id"],
+            {"status": "SUPERSEDED", "superseded_by": new["entity_id"], "superseded_at": now,
+             "superseded_by_actor": actor_id, "supersede_reason": reason, "updated_at": now},
+            expected_revision=int(old.get("revision", 0)),
+        )
+        payload = {"superseded_work_id": old["entity_id"], "superseded_by": new["entity_id"], "reason": reason}
+        self._append_assurance_event(work_id=old["entity_id"], subject_id=old["entity_id"], event_type="WORK_SUPERSEDED",
+                                     actor_id=actor_id, baseline_id=None, payload=payload)
+        self._append_assurance_event(work_id=new["entity_id"], subject_id=new["entity_id"], event_type="WORK_SUPERSEDES",
+                                     actor_id=actor_id, baseline_id=None, payload=payload)
+        return {"disposition": "WORK_SUPERSEDED", "work": saved, "canonical_work_id": new["entity_id"]}
 
     def backfill_work_identity(
         self,
