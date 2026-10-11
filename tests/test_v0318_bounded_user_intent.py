@@ -8,16 +8,18 @@ from mangome import mcp_server
 from mangome.runtime import reset_service_for_tests, set_session_restore_snapshot
 
 
-def _prepare(monkeypatch) -> None:
+def _prepare(monkeypatch, workspace) -> None:
+    # The workspace must exist (bind_workspace_read_only fails closed otherwise);
+    # a fixed /workspace/demo path only existed on one development machine.
     monkeypatch.setenv("MANGOME_BACKEND", "memory")
     monkeypatch.setenv("MANGOME_REQUIRE_SESSION_RESTORE", "1")
-    monkeypatch.setenv("MANGOME_WORKSPACE_ROOT", "/workspace/demo")
+    monkeypatch.setenv("MANGOME_WORKSPACE_ROOT", str(workspace))
     reset_service_for_tests()
     set_session_restore_snapshot({"restore_state": "STATE_FOUND"})
 
 
-def test_existing_workspace_current_user_intent_can_enter_execute_without_controller(monkeypatch):
-    _prepare(monkeypatch)
+def test_existing_workspace_current_user_intent_can_enter_execute_without_controller(monkeypatch, tmp_path):
+    _prepare(monkeypatch, tmp_path)
 
     result = mcp_server.enter_work(
         actor_id="worker-current-user",
@@ -32,8 +34,8 @@ def test_existing_workspace_current_user_intent_can_enter_execute_without_contro
     assert result["turn"]["authorized_by"] == "USER_INTENT_RELAYED_BY_CLIENT"
 
 
-def test_bounded_user_intent_does_not_mint_privileged_turn(monkeypatch):
-    _prepare(monkeypatch)
+def test_bounded_user_intent_does_not_mint_privileged_turn(monkeypatch, tmp_path):
+    _prepare(monkeypatch, tmp_path)
 
     admitted = mcp_server.enter_work(
         actor_id="worker-current-user",

@@ -31,9 +31,11 @@ def test_mcp_v2_surface_lists_core_tools(monkeypatch):
             required = {
                 "health", "reconcile_assignment", "enter_work", "validate_slice",
                 "record_effect_intent", "verify_slice", "bigbang_scan",
-                "structural_status", "structural_refresh", "structural_search",
-                "symbol_lookup", "symbol_relations", "structural_context", "impact_frontier",
             }
             assert required.issubset(names)
+            # Structural sight is served only through the worker facade
+            # (mangome_query STRUCTURAL_* operations); it was never registered
+            # on the advanced endpoint, and the README's advanced list omits it.
+            assert not {"structural_status", "impact_frontier"} & names
 
     asyncio.run(run())
