@@ -1,3 +1,12 @@
+## 0.3.23 — 2026-10-11 — Fail-soft stdio server, reconcile never writes (HANDOVER-001/002)
+
+- RECONCILE_ASSIGNMENT is read-only: MATCHED (existing WorkIdentity) or CONFLICT (reason NO_MATCH with search criteria, or AMBIGUOUS with all candidate ids). The v0.3.22 auto-admission path is removed; new work is created only by an explicit ENTER_WORK.
+- Central fail-soft envelope for all tool handlers (worker and advanced server): structured error {error_class, message, retriable, affects}; classes INPUT_INVALID, DB_UNAVAILABLE, CONFLICT, GOVERNANCE_DENIED, INTERNAL. No tool error closes the transport.
+- Startup identity/generation checks can no longer prevent `initialize`; sibling-process repair (SIGTERM/SIGKILL) is opt-in via MANGOME_RECONCILE_REPAIR=1.
+- Health reports status OK/DEGRADED with reason. Bare asserts in tool paths became validation errors.
+- Admission-key fix: no explicit null admission_key; partial unique index on string keys; migration script scripts/migrate_admission_key_index.py (dry run by default).
+- Tests: tests/test_stdio_contract.py, tests/test_reconcile_never_creates.py.
+
 ## 0.3.22 — 2026-10-05 — Zero-Touch Work Admission
 
 - Distinguishes current-request identity from unrelated work already present in the same workspace.
