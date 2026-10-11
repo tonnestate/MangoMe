@@ -194,10 +194,12 @@ class MangoMeService:
             family_id=family_id,
             admission_key=admission_key,
         )
+        doc = _dump(req)
         if admission_key:
-            saved, _ = self.store.get_or_create("requests", {"admission_key": admission_key}, _dump(req))
+            saved, _ = self.store.get_or_create("requests", {"admission_key": admission_key}, doc)
             return saved
-        return self.store.insert("requests", _dump(req))
+        doc.pop("admission_key", None)
+        return self.store.insert("requests", doc)
 
     @staticmethod
     def _fallback_classification(text: str) -> str:

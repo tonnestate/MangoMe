@@ -149,7 +149,12 @@ class MongoStore(Store):
         )
         self.db["projects"].create_index([("workspace_root", ASCENDING)], sparse=True)
         self.db["requests"].create_index([("classification", ASCENDING)])
-        self.db["requests"].create_index([("admission_key", ASCENDING)], unique=True, sparse=True)
+        self.db["requests"].create_index(
+            [("admission_key", ASCENDING)],
+            unique=True,
+            name="requests_admission_key_string_unique_v1",
+            partialFilterExpression={"admission_key": {"$type": "string"}},
+        )
         self.db["families"].create_index(
             [("family_key", ASCENDING)], unique=True, name="family_key_unique_v0320"
         )

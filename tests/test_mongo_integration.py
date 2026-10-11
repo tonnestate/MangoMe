@@ -99,6 +99,29 @@ def test_mongo_mcp_create_project_returns_serializable_result(monkeypatch):
 
 
 @pytest.mark.skipif(not URI, reason="MANGOME_TEST_MONGO_URI not configured")
+def test_mongo_optional_admission_keys_and_idempotency():
+    database = f"mangome_admission_key_{uuid.uuid4().hex}"
+    store = MongoStore(URI, database)
+    svc = IntegrityMangoMeService(store)
+    try:
+        first = svc.intake_request(request_text="first")
+        second = svc.intake_request(request_text="second")
+        keyed = svc.intake_request(request_text="keyed", admission_key="stable-key")
+        replay = svc.intake_request(request_text="replay", admission_key="stable-key")
+
+        assert first["entity_id"] != second["entity_id"]
+        assert replay["entity_id"] == keyed["entity_id"]
+        assert store.db["requests"].count_documents({}) == 3
+        assert store.db["requests"].count_documents({"admission_key": {"$exists": False}}) == 2
+        index = store.db["requests"].index_information()["requests_admission_key_string_unique_v1"]
+        assert index["unique"] is True
+        assert index["partialFilterExpression"] == {"admission_key": {"$type": "string"}}
+    finally:
+        store.client.drop_database(database)
+        store.client.close()
+
+
+@pytest.mark.skipif(not URI, reason="MANGOME_TEST_MONGO_URI not configured")
 def test_mongo_concurrent_enter_work_keeps_single_identity_and_active_slice():
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier

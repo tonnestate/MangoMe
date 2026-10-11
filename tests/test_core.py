@@ -30,6 +30,24 @@ def make_request_and_spec(svc, family, contract, actor="tester"):
     return req, spec
 
 
+def test_intake_requests_without_admission_key_are_independent():
+    svc = make_service()
+    first = svc.intake_request(request_text="first")
+    second = svc.intake_request(request_text="second")
+
+    assert first["entity_id"] != second["entity_id"]
+    assert len(svc.store.find("requests")) == 2
+
+
+def test_intake_request_with_admission_key_is_idempotent():
+    svc = make_service()
+    first = svc.intake_request(request_text="first", admission_key="stable-key")
+    replay = svc.intake_request(request_text="changed", admission_key="stable-key")
+
+    assert replay["entity_id"] == first["entity_id"]
+    assert len(svc.store.find("requests")) == 1
+
+
 def test_done_claim_is_not_verification_and_gates_are_hard():
     svc = make_service()
     _, family, contract = setup_family(svc)
