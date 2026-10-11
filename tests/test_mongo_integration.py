@@ -196,3 +196,21 @@ def test_v0320_unique_indexes_upgrade_over_legacy_nonunique_identity_indexes():
     finally:
         raw.client.drop_database(database)
         raw.client.close()
+
+
+@pytest.mark.skipif(not URI, reason="MANGOME_TEST_MONGO_URI not configured")
+def test_mongo_work_supersession_edge_roundtrip():
+    from mangome.work_control import WorkGovernedMangoMeService
+
+    database = f"mangome_supersede_{uuid.uuid4().hex}"
+    store = MongoStore(URI, database)
+    svc = WorkGovernedMangoMeService(store)
+    try:
+        ids = [svc.enter_work(workspace_id="/w", workspace_title="w", actor_id="a", request_text=t)["work_identity"]["entity_id"] for t in ("canonical", "duplicate")]
+        out = svc.supersede_work(superseded_ref=ids[1], canonical_ref=ids[0], actor_id="owner", reason="dup")
+        again = svc.supersede_work(superseded_ref=ids[1], canonical_ref=ids[0], actor_id="owner", reason="dup")
+        fresh = WorkGovernedMangoMeService(MongoStore(URI, database))
+        assert out["disposition"] == "WORK_SUPERSEDED" and again["disposition"] == "ALREADY_SUPERSEDED"
+        assert fresh.superseding_work_id(ids[1]) == ids[0] and store.db["edges"].count_documents({"relation": "SUPERSEDES"}) == 1
+    finally:
+        store.client.drop_database(database)

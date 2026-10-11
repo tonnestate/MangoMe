@@ -80,6 +80,7 @@ class EntityType(StrEnum):
     APPROVAL = "APPROVAL"
     MODEL = "MODEL"
     EFFECT = "EFFECT"
+    WORK = "WORK"
 
 
 class ClaimType(StrEnum):

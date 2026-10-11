@@ -130,6 +130,7 @@ _ENTITY_COLLECTIONS = {
     EntityType.APPROVAL.value: "approvals",
     EntityType.MODEL.value: "models",
     EntityType.EFFECT.value: "effects",
+    EntityType.WORK.value: "work_identities",
 }
 
 _CONTRACT_EVOLUTION_RELATIONS = {
@@ -464,7 +465,8 @@ class MangoMeService:
         status = EdgeStatus(status.upper()).value
         from_doc = self._must_get(_ENTITY_COLLECTIONS[from_type], from_id)
         to_doc = self._must_get(_ENTITY_COLLECTIONS[to_type], to_id)
-        if relation in _CONTRACT_EVOLUTION_RELATIONS:
+        work_supersession = (relation == RelationType.SUPERSEDES.value and from_type == to_type == EntityType.WORK.value)
+        if relation in _CONTRACT_EVOLUTION_RELATIONS and not work_supersession:  # WORK->WORK is validated by the work-governed subclass
             if from_id == to_id:
                 raise ValueError("contract evolution edge cannot point to itself")
             if from_type != EntityType.CONTRACT.value or to_type != EntityType.CONTRACT.value:

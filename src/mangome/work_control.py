@@ -125,8 +125,8 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         for family in families:
             work = self._work_for_family(family["entity_id"])
             hops = 0
-            while work is not None and work.get("status") == "SUPERSEDED" and work.get("superseded_by") and hops < 8:
-                work = self.store.get("work_identities", work["superseded_by"])
+            while work is not None and self.superseding_work_id(work["entity_id"]) and hops < 8:
+                work = self.store.get("work_identities", self.superseding_work_id(work["entity_id"]))
                 hops += 1
             if work is not None and not any(c["work_ref"] == work["entity_id"] for c in candidates):
                 candidates.append({
@@ -202,37 +202,36 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             self._refresh_work_view(saved["entity_id"])
         return saved
 
-    def supersede_work(self, *, superseded_ref: str, canonical_ref: str, actor_id: str, reason: str) -> dict[str, Any]:
-        """Archive a duplicate WorkIdentity by reference. Nothing is deleted or moved: evidence, plans, slices and claims
-        stay where they are; the duplicate is marked SUPERSEDED and points at the canonical identity."""
+    def superseding_work_id(self, work_id: str) -> str | None:
+        """The canonical WorkIdentity that supersedes `work_id` (confirmed WORK->WORK SUPERSEDES edge), if any."""
+        for edge in self.store.find("edges", {"from_id": work_id}):
+            if (edge.get("relation") == RelationType.SUPERSEDES.value and edge.get("from_type") == EntityType.WORK.value
+                    and edge.get("status") == EdgeStatus.CONFIRMED.value):
+                return edge["to_id"]
+        return None
+
+    def supersede_work(self, *, superseded_ref: str, canonical_ref: str, actor_id: str, reason: str,
+                       authorized_by: str | None = None) -> dict[str, Any]:
+        """Archive a duplicate WorkIdentity by reference. Uses the existing SUPERSEDES relation (WORK -> WORK) through
+        link(), under the same turn/actor rule as normative mutation: the actor needs a MODIFY work turn on the
+        superseded work. Nothing is deleted or moved; no fields are added to the WorkIdentity."""
         reason = str(reason or "").strip()
-        if not reason or not str(actor_id or "").strip():
-            raise WorkIdentityError("supersede_work requires actor_id and a non-empty reason")
+        if not reason:
+            raise WorkIdentityError("supersede_work requires a non-empty reason")
         old = self._resolve_work(superseded_ref)
         new = self._resolve_work(canonical_ref)
-        if old["entity_id"] == new["entity_id"]:
-            raise WorkIdentityError("a WorkIdentity cannot supersede itself")
-        if old.get("project_id") != new.get("project_id"):
-            raise WorkIdentityError("superseded and canonical WorkIdentity must belong to the same project")
-        if old.get("status") == "SUPERSEDED":
-            if old.get("superseded_by") == new["entity_id"]:
-                return {"disposition": "ALREADY_SUPERSEDED", "work": old, "canonical_work_id": new["entity_id"]}
-            raise WorkIdentityError(f"{old['entity_id']} is already superseded by {old.get('superseded_by')}")
-        if new.get("status") == "SUPERSEDED":
-            raise WorkIdentityError("the canonical WorkIdentity is itself superseded; point at its successor")
-        now = utcnow()
-        saved = self._update(
-            "work_identities", old["entity_id"],
-            {"status": "SUPERSEDED", "superseded_by": new["entity_id"], "superseded_at": now,
-             "superseded_by_actor": actor_id, "supersede_reason": reason, "updated_at": now},
-            expected_revision=int(old.get("revision", 0)),
-        )
-        payload = {"superseded_work_id": old["entity_id"], "superseded_by": new["entity_id"], "reason": reason}
+        if self.superseding_work_id(old["entity_id"]) == new["entity_id"]:
+            return {"disposition": "ALREADY_SUPERSEDED", "superseded_work_id": old["entity_id"], "canonical_work_id": new["entity_id"]}
+        turn = self.bind_work_turn(work_ref=old["entity_id"], request_text=reason, mode="MODIFY", actor_id=actor_id,
+                                   authorized_by=authorized_by or actor_id)["turn"]
+        edge = self.link(from_type="WORK", from_id=old["entity_id"], relation="SUPERSEDES", to_type="WORK", to_id=new["entity_id"],
+                         source_actor_id=actor_id, turn_id=turn["entity_id"], work_id=old["entity_id"])
+        payload = {"superseded_work_id": old["entity_id"], "superseded_by": new["entity_id"], "reason": reason, "edge_id": edge["entity_id"]}
         self._append_assurance_event(work_id=old["entity_id"], subject_id=old["entity_id"], event_type="WORK_SUPERSEDED",
                                      actor_id=actor_id, baseline_id=None, payload=payload)
         self._append_assurance_event(work_id=new["entity_id"], subject_id=new["entity_id"], event_type="WORK_SUPERSEDES",
                                      actor_id=actor_id, baseline_id=None, payload=payload)
-        return {"disposition": "WORK_SUPERSEDED", "work": saved, "canonical_work_id": new["entity_id"]}
+        return {"disposition": "WORK_SUPERSEDED", "superseded_work_id": old["entity_id"], "canonical_work_id": new["entity_id"], "edge": edge}
 
     def backfill_work_identity(
         self,
@@ -1049,10 +1048,37 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
                 if not source_actor_id:
                     raise WorkTurnError("source_actor_id is required for normative mutation")
                 self._require_work_turn(work_id=work["entity_id"], turn_id=turn_id, actor_id=source_actor_id, allowed_modes={"MODIFY"})
+        if relation == RelationType.SUPERSEDES.value and from_type == EntityType.WORK.value and str(kwargs.get("to_type") or "").upper() == EntityType.WORK.value:
+            return self._link_work_supersession(work_id=work_id, turn_id=turn_id, **kwargs)
         saved = super().link(**kwargs)
         if work and kwargs.get("status", "CONFIRMED").upper() == EdgeStatus.CONFIRMED.value:
             self._refresh_normative_baseline(work["entity_id"])
             self._refresh_work_view(work["entity_id"])
+        return saved
+
+    def _link_work_supersession(self, *, work_id: str | None, turn_id: str | None, **kwargs: Any):
+        old = self._resolve_work(kwargs["from_id"])
+        new = self._resolve_work(kwargs["to_id"])
+        existing = self.superseding_work_id(old["entity_id"])
+        if existing == new["entity_id"]:
+            return super().link(**kwargs)  # idempotent replay returns the stored edge
+        if old["entity_id"] == new["entity_id"]:
+            raise WorkIdentityError("a WorkIdentity cannot supersede itself")
+        if old.get("project_id") != new.get("project_id"):
+            raise WorkIdentityError("superseded and canonical WorkIdentity must belong to the same project")
+        if existing:
+            raise WorkIdentityError(f"{old['entity_id']} is already superseded by {existing}")
+        if self.superseding_work_id(new["entity_id"]):
+            raise WorkIdentityError("the canonical WorkIdentity is itself superseded; point at its successor")
+        if work_id and work_id != old["entity_id"]:
+            raise WorkIdentityError("relation work_id mismatch")
+        actor = kwargs.get("source_actor_id")
+        if not actor:
+            raise WorkTurnError("source_actor_id is required for work supersession")
+        self._require_work_turn(work_id=old["entity_id"], turn_id=turn_id, actor_id=actor, allowed_modes={"MODIFY"})
+        saved = super().link(**kwargs)
+        self._refresh_work_view(old["entity_id"])
+        self._refresh_work_view(new["entity_id"])
         return saved
 
     # ---------- assurance history bound to WorkIdentity ----------

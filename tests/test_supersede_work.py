@@ -23,25 +23,51 @@ def snapshot(svc):
     return {c: [(d["entity_id"], d.get("revision")) for d in rows.values()] for c, rows in svc.store._data.items() if c not in {"assurance_events", "work_identities", "work_views"}}
 
 
-def test_supersede_marks_old_work_and_keeps_everything_else():
+def edges(svc):
+    return [e for e in svc.store.find("edges") if e["relation"] == "SUPERSEDES" and e["from_type"] == "WORK"]
+
+
+def test_supersede_uses_the_existing_relation_and_adds_no_new_state():
     svc, (canonical, dup) = svc_with("canonical research", "duplicate research")
+    work_docs_before = {k: dict(v) for k, v in svc.store._data["work_identities"].items()}
     before = snapshot(svc)
     out = svc.supersede_work(superseded_ref=dup, canonical_ref=canonical, actor_id="owner", reason="auto-admitted duplicate")
-    old = svc.store.get("work_identities", dup)
-    assert old["status"] == "SUPERSEDED" and old["superseded_by"] == canonical and old["supersede_reason"] == "auto-admitted duplicate"
-    assert svc.store.get("work_identities", canonical)["status"] != "SUPERSEDED"
-    assert out["disposition"] == "WORK_SUPERSEDED"
-    assert snapshot(svc) == before  # evidence, slices, plans, claims untouched; nothing deleted or moved
+    (edge,) = edges(svc)
+    assert (edge["from_id"], edge["to_id"], edge["status"], edge["source_actor_id"], edge["to_type"]) == (dup, canonical, "CONFIRMED", "owner", "WORK")
+    assert out["disposition"] == "WORK_SUPERSEDED" and svc.superseding_work_id(dup) == canonical and svc.superseding_work_id(canonical) is None
+    # no invented fields: WorkIdentity documents are byte-identical; evidence/slices/plans/claims untouched
+    assert {k: dict(v) for k, v in svc.store._data["work_identities"].items()} == work_docs_before
+    assert {k: v for k, v in snapshot(svc).items() if k not in {"edges", "work_turn_bindings"}} == {k: v for k, v in before.items() if k not in {"edges", "work_turn_bindings"}}
     events = [e for e in svc.store.find("assurance_events") if e["event_type"] == "WORK_SUPERSEDED"]
     assert len(events) == 1 and events[0]["payload"]["superseded_by"] == canonical
+
+
+def test_direct_link_requires_a_modify_turn_on_the_superseded_work_for_the_same_actor():
+    from mangome.work_control import WorkTurnError
+    svc, (canonical, dup) = svc_with("canonical", "duplicate")
+    args = dict(from_type="WORK", from_id=dup, relation="SUPERSEDES", to_type="WORK", to_id=canonical, work_id=dup)
+    with pytest.raises(WorkTurnError):
+        svc.link(**args, source_actor_id="owner", turn_id=None)                      # no turn
+    read_turn = svc.bind_work_turn(work_ref=dup, request_text="x", mode="QUERY", actor_id="owner")["turn"]["entity_id"]
+    with pytest.raises(WorkTurnError):
+        svc.link(**args, source_actor_id="owner", turn_id=read_turn)                  # wrong mode
+    modify = svc.bind_work_turn(work_ref=dup, request_text="x", mode="MODIFY", actor_id="owner")["turn"]["entity_id"]
+    with pytest.raises(WorkTurnError):
+        svc.link(**args, source_actor_id="somebody-else", turn_id=modify)             # turn belongs to another actor
+    other_work_turn = svc.bind_work_turn(work_ref=canonical, request_text="x", mode="MODIFY", actor_id="owner")["turn"]["entity_id"]
+    with pytest.raises(WorkTurnError):
+        svc.link(**args, source_actor_id="owner", turn_id=other_work_turn)            # turn belongs to another work
+    assert edges(svc) == []
+    svc.link(**args, source_actor_id="owner", turn_id=modify)
+    assert len(edges(svc)) == 1
 
 
 def test_supersede_is_idempotent():
     svc, (canonical, dup) = svc_with("a", "b")
     first = svc.supersede_work(superseded_ref=dup, canonical_ref=canonical, actor_id="owner", reason="dup")
     second = svc.supersede_work(superseded_ref=dup, canonical_ref=canonical, actor_id="owner", reason="dup")
-    assert second["disposition"] == "ALREADY_SUPERSEDED" and first["work"]["entity_id"] == second["work"]["entity_id"]
-    assert len([e for e in svc.store.find("assurance_events") if e["event_type"] == "WORK_SUPERSEDED"]) == 1
+    assert first["disposition"] == "WORK_SUPERSEDED" and second["disposition"] == "ALREADY_SUPERSEDED"
+    assert len(edges(svc)) == 1 and len([e for e in svc.store.find("assurance_events") if e["event_type"] == "WORK_SUPERSEDED"]) == 1
 
 
 @pytest.mark.parametrize("case", ["self", "empty_reason", "unknown", "canonical_superseded", "other_target", "other_project"])
@@ -52,10 +78,10 @@ def test_supersede_rejects_invalid_requests_without_writing(case):
     args = {"self": dict(superseded_ref=b, canonical_ref=b, reason="r"), "empty_reason": dict(superseded_ref=b, canonical_ref=a, reason="  "),
             "unknown": dict(superseded_ref=b, canonical_ref="nope", reason="r"), "canonical_superseded": dict(superseded_ref=b, canonical_ref=c, reason="r"),
             "other_target": dict(superseded_ref=c, canonical_ref=b, reason="r"), "other_project": dict(superseded_ref=b, canonical_ref=other_project, reason="r")}[case]
-    before = {k: dict(v) for k, v in svc.store._data["work_identities"].items()}
+    before = len(edges(svc))
     with pytest.raises((MangoMeError, KeyError)):
         svc.supersede_work(actor_id="owner", **args)
-    assert {k: dict(v) for k, v in svc.store._data["work_identities"].items()} == before
+    assert len(edges(svc)) == before
 
 
 def test_reconcile_follows_a_superseded_identity_to_the_canonical_one():
@@ -82,6 +108,6 @@ def test_worker_control_operation_requires_the_controller_capability(runtime_svc
     ids = [worker.mangome_work("ENTER_WORK", {"request_text": t})["result"]["work_identity"]["entity_id"] for t in ("canonical", "duplicate")]
     payload = {"superseded_ref": ids[1], "canonical_ref": ids[0], "reason": "dup"}
     denied = worker.mangome_control("SUPERSEDE_WORK", {**payload, "controller_actor_id": "worker:managed-local"})
-    assert denied["ok"] is False and runtime_svc.store.get("work_identities", ids[1])["status"] != "SUPERSEDED"
+    assert denied["ok"] is False and runtime_svc.superseding_work_id(ids[1]) is None
     ok = worker.mangome_control("SUPERSEDE_WORK", {**payload, "controller_actor_id": "host-controller", "controller_token": TOKEN})
-    assert ok["ok"] is True and runtime_svc.store.get("work_identities", ids[1])["superseded_by"] == ids[0]
+    assert ok["ok"] is True and runtime_svc.superseding_work_id(ids[1]) == ids[0]
