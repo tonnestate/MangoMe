@@ -489,6 +489,12 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         turn_id: str | None = None,
     ) -> dict[str, Any]:
         work = self._resolve_work(work_ref)  # critical: checkpoints can never create identity
+        # Idempotent replays (e.g. a CherryMe outbox keyed by the PlumMe receipt hash) return the stored checkpoint.
+        key = payload.get("idempotency_key") if isinstance(payload, dict) else None
+        if key:
+            for existing in self.store.find("work_checkpoints", {"work_id": work["entity_id"], "kind": kind}):
+                if (existing.get("payload") or {}).get("idempotency_key") == key:
+                    return existing
         if plan_id:
             plan = self._must_get("plans", plan_id)
             if plan.get("work_id") != work["entity_id"] or plan.get("actor_id") != actor_id:

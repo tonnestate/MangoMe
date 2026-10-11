@@ -7,6 +7,7 @@
 - Admission-key fix: no explicit null admission_key; partial unique index on string keys; migration script scripts/migrate_admission_key_index.py (dry run by default).
 - Tests: tests/test_stdio_contract.py, tests/test_reconcile_never_creates.py, tests/test_supersede_work.py, tests/test_import_has_no_side_effects.py.
 - `SUPERSEDE_WORK` (control operation, controller capability required) builds on the existing `SUPERSEDES` relation: a confirmed `WORK -> WORK` edge created through `link()` under the same turn/actor rule as normative mutation (MODIFY work turn on the superseded work, same actor). No fields are added to WorkIdentity; nothing is deleted or moved. Idempotent; rejects self/unknown/cross-project/chained targets. Reconcile follows a superseded identity to its canonical one.
+- `checkpoint_work` is idempotent for payloads carrying `idempotency_key` (scoped to work and kind); used by CherryMe's recovery-evidence outbox (key = PlumMe receipt hash).
 - Importing `mangome` no longer changes `os.environ`; managed defaults are applied by the entry points (`mangome.managed_env`). The advanced `mcp_server.main()` got the same fail-soft startup as the worker server.
 
 ## 0.3.22 — 2026-10-05 — Zero-Touch Work Admission
