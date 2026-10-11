@@ -13,7 +13,7 @@ from mcp.server import MCPServer
 
 from . import __version__
 from .context import ContextBudgetExceeded, ContextCompiler
-from .failsoft import failsoft as _failsoft
+from .failsoft import classify_error as _classify_error, failsoft as _failsoft
 from .runtime import get_service
 from .operability import enforce_expected_identity
 from .runtime_generation import reconcile_managed_runtime_generation
@@ -279,10 +279,13 @@ def _call_allowlisted(table: dict[str, str], operation: str, payload: dict[str, 
     try:
         return fn(**payload)
     except Exception as exc:
+        error_class, retriable = _classify_error(exc)
         return {
             "ok": False,
             "error": {
                 "code": str(getattr(exc, "code", type(exc).__name__)),
+                "error_class": error_class,
+                "retriable": retriable,
                 "message": str(exc),
                 "recoverable": True,
             },
@@ -551,10 +554,9 @@ def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None
     """Enter/progress governed work through deterministic allow-listed transitions.
 
     The semantic worker facade is intentionally more automatic than the precise
-    advanced capability surface. RECONCILE_ASSIGNMENT remains read-only underneath,
-    but when it deterministically proves that the current request is new operational
-    work, the facade immediately performs ENTER_WORK. Ordinary agents must not stop
-    to ask the user for internal WorkIdentity vocabulary.
+    advanced capability surface, but RECONCILE_ASSIGNMENT is strictly read-only: it
+    returns MATCHED (existing WorkIdentity) or CONFLICT (NO_MATCH / AMBIGUOUS) and never
+    creates work. New work is created only by an explicit ENTER_WORK call.
     """
     op = _normalize_operation(operation)
     data = dict(payload or {})
@@ -584,67 +586,23 @@ def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None
                 forbidden=["REPAIR_MANGOME_FOR_THIS_TASK", "INVENT_CONTROL_AUTHORITY", "RETRY_MANGOME_FOR_THIS_TASK"],
             )
 
-        if result.get("disposition") == "NEW_WORK_READY_FOR_AUTO_ADMISSION":
-            request_text = str(data.get("request_text") or "").strip()
-            if not request_text:
-                return _guidance(
-                    "WORK", op, {
-                        "ok": False,
-                        "error": {
-                            "code": "REQUEST_TEXT_REQUIRED",
-                            "message": "zero-touch new-work admission requires request_text",
-                            "recoverable": True,
-                        },
-                    },
-                    success_disposition="ACTION_BLOCKED",
-                    recommended="REPAIR_INPUT_OR_ESCALATE",
-                    allowed=["RETURN_TO_USER"],
-                )
-            admission = _call_allowlisted(
-                _WORK,
-                "ENTER_WORK",
-                {
-                    "actor_id": str(data.get("actor_id") or _managed_worker_actor_id()),
-                    "request_text": request_text,
-                },
-            )
-            if isinstance(admission, dict) and admission.get("ok") is False:
-                return _guidance(
-                    "WORK", op, {
-                        "ok": False,
-                        "error": {
-                            "code": "ZERO_TOUCH_ADMISSION_FAILED",
-                            "message": str(admission),
-                            "recoverable": True,
-                        },
-                        "reconciliation": result,
-                        "admission": admission,
-                    },
-                    success_disposition="ACTION_BLOCKED",
-                    recommended="REPAIR_INPUT_OR_ESCALATE",
-                    allowed=["OBSERVE", "QUERY", "RETURN_TO_USER"],
-                )
-            combined = {
-                "reconciliation": result,
-                "admission": admission,
-                "zero_touch": {
-                    "auto_admitted": True,
-                    "user_confirmation_required": False,
-                    "actor_id_source": "MANGOME_RUNTIME_ACTOR_OR_MANAGED_WORKER_DEFAULT",
-                },
+        if result.get("disposition") == "CONFLICT":
+            return {
+                "ok": False,
+                "semantic_operation": "WORK",
+                "operation": op,
+                "disposition": "CONFLICT",
+                "recommended_next_action": "REPORT_CONFLICT_OR_ENTER_WORK_EXPLICITLY",
+                "allowed_next_actions": ["OBSERVE", "QUERY", "WORK", "RETURN_TO_USER"],
+                "forbidden_next_actions": ["SYNTHESIZE_TRUTH", "BYPASS_GATE", "ASSUME_NEW_WORK_WAS_CREATED"],
+                "reason_codes": ["CONFLICT", str(result.get("reason") or "UNKNOWN")],
+                "result": result,
             }
-            return _guidance(
-                "WORK", op, combined,
-                success_disposition="NEW_WORK_AUTO_ADMITTED",
-                recommended="EXECUTE_CURRENT_SLICE",
-                allowed=["OBSERVE", "QUERY", "WORK", "EFFECT", "VERIFY"],
-                forbidden=["ASK_USER_FOR_WORK_REF", "ASK_USER_TO_CONFIRM_NEW_WORK", "MARK_TASK_BLOCKED_FOR_MISSING_WORK_IDENTITY"],
-            )
 
-        if result.get("disposition") == "CURRENT_REQUEST_MATCHES_EXISTING_WORK":
+        if result.get("disposition") == "MATCHED":
             return _guidance(
                 "WORK", op, result,
-                success_disposition="EXISTING_WORK_MATCHED",
+                success_disposition="MATCHED",
                 recommended="BIND_AND_CONTINUE_EXISTING_WORK",
                 allowed=["WORK", "OBSERVE", "QUERY"],
                 forbidden=["ASK_USER_FOR_KNOWN_WORK_REF", "CREATE_UNRELATED_REPLACEMENT_WORK", "MARK_TASK_BLOCKED_FOR_MISSING_WORK_IDENTITY"],

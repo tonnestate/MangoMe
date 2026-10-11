@@ -560,29 +560,32 @@ def _reconcile_assignment_impl(
         request_text=request_text,
     )
     result["request_match"] = candidate
+    criteria = {
+        "matching": "EXACT_NORMALIZED_ADMISSION_KEY",
+        "workspace_id": resolved_root,
+        "admission_key": candidate.get("admission_key"),
+        "fingerprint": candidate.get("fingerprint"),
+    }
+    result["auto_admission_allowed"] = False  # reconcile never creates work (HANDOVER-002 A1)
+    result["requires_user_confirmation"] = False
     if candidate.get("state") == "EXACT_NORMALIZED_MATCH":
-        result["disposition"] = "CURRENT_REQUEST_MATCHES_EXISTING_WORK"
-        result["candidate_work_ref"] = (candidate.get("candidate") or {}).get("work_ref")
-        result["requires_user_confirmation"] = False
-        result["next_action"] = (
-            "Bind the current user turn to the exact matching WorkIdentity and continue; "
-            "do not ask the user to supply a WorkIdentity reference already known to MangoMe."
-        )
-    elif candidate.get("state") == "NONE":
-        result["disposition"] = "NEW_WORK_READY_FOR_AUTO_ADMISSION"
-        result["auto_admission_allowed"] = True
-        result["requires_user_confirmation"] = False
-        result["next_action"] = (
-            "Admit the current user request as new operational work immediately. "
-            "Do not ask the user for a work reference or confirmation merely because unrelated work exists."
-        )
+        result["disposition"] = "MATCHED"
+        result["work_ref"] = (candidate.get("candidate") or {}).get("work_ref")
+        result["candidate_work_ref"] = result["work_ref"]
+        result["next_action"] = "Bind the current user turn to this WorkIdentity and continue; nothing was written."
     elif candidate.get("state") == "AMBIGUOUS":
-        result["disposition"] = "AMBIGUOUS_EXACT_WORK_CANDIDATES"
-        result["auto_admission_allowed"] = False
-        result["requires_user_confirmation"] = False
+        result["disposition"] = "CONFLICT"
+        result["reason"] = "AMBIGUOUS"
+        result["candidate_ids"] = [c.get("work_ref") for c in candidate.get("candidates", [])]
+        result["search_criteria"] = criteria
+        result["next_action"] = "Nothing written. Report the duplicate canonical identities as a MangoMe integrity problem."
+    else:
+        result["disposition"] = "CONFLICT"
+        result["reason"] = "NO_MATCH"
+        result["search_criteria"] = criteria
         result["next_action"] = (
-            "Fail closed and report the duplicate canonical admission identities as a MangoMe integrity problem; "
-            "do not ask the user to choose between duplicate internal identities."
+            "No existing WorkIdentity matches; nothing was written. New work is created only by an explicit, "
+            "governed enter_work call carrying the user's actual request."
         )
     return result
 

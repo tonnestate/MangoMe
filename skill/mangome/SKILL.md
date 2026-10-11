@@ -114,7 +114,7 @@ Reconciliation is read-only. It never turns the worker's tentative plan into can
 - `STATE_FOUND`: map the current request to existing WorkIdentity/baseline/unfinished state. It does not mean “continue automatically”.
 - `STATE_PARTIAL`: bounded recovery/backfill only; fail closed on productive mutation until resolved.
 - `NEW_WORK_READY_FOR_AUTO_ADMISSION`: the current request has no exact admitted-work match. On the normal seven-tool worker surface MangoMe admits it automatically from the current user request. Do not ask the user whether to create a MangoMe work entry, do not ask for an internal `work_ref`, and do not mark the task blocked merely because unrelated workspace work exists.
-- `CURRENT_REQUEST_MATCHES_EXISTING_WORK`: MangoMe already knows the exact normalized admission candidate. Continue that work internally; do not ask the user to repeat a known WorkIdentity reference.
+- `MATCHED`: MangoMe already knows the exact normalized admission candidate. Continue that work internally; do not ask the user to repeat a known WorkIdentity reference.
 - `STATE_NOT_FOUND` still never authorizes fake historical recovery. Historical/resume work needs explicit import/backfill.
 - `EXISTING_WORK_CANDIDATE`: a normalized prompt matched durable work during a lower-level admission race/retry. Treat it as internal deduplication state, not a question for the user.
 

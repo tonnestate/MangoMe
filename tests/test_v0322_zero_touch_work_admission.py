@@ -27,38 +27,19 @@ def test_unrelated_workspace_work_does_not_match_current_request():
     assert same["state"] == "EXACT_NORMALIZED_MATCH"
 
 
-def test_semantic_reconcile_auto_admits_new_current_user_work(monkeypatch):
-    calls: list[tuple[str, dict]] = []
+def test_semantic_reconcile_never_admits_new_work(monkeypatch):
+    """HANDOVER-002 A1 supersedes v0.3.22 auto-admission: no match => CONFLICT, ENTER_WORK is not called."""
+    calls: list[str] = []
 
     def fake_call(_table, operation: str, payload: dict):
-        calls.append((operation, dict(payload)))
-        if operation == "RECONCILE_ASSIGNMENT":
-            return {
-                "disposition": "NEW_WORK_READY_FOR_AUTO_ADMISSION",
-                "requires_user_confirmation": False,
-            }
-        if operation == "ENTER_WORK":
-            return {
-                "disposition": "NEW_WORK_ADMITTED",
-                "work": {"slice": {"execution_state": "ACTIVE"}},
-            }
-        raise AssertionError(operation)
+        calls.append(operation)
+        return {"disposition": "CONFLICT", "reason": "NO_MATCH", "search_criteria": {}}
 
     monkeypatch.setattr(worker, "_call_allowlisted", fake_call)
-    monkeypatch.delenv("MANGOME_RUNTIME_ACTOR", raising=False)
-    monkeypatch.setenv("MANGOME_DEPLOYMENT_ID", "managed-local")
+    result = worker.mangome_work("RECONCILE_ASSIGNMENT", {"request_text": "Repair the Fruit stack"})
 
-    result = worker.mangome_work(
-        "RECONCILE_ASSIGNMENT",
-        {"request_text": "Repair the Fruit stack"},
-    )
-
-    assert result["disposition"] == "NEW_WORK_AUTO_ADMITTED"
-    assert result["recommended_next_action"] == "EXECUTE_CURRENT_SLICE"
-    assert "ASK_USER_FOR_WORK_REF" in result["forbidden_next_actions"]
-    assert calls[1][0] == "ENTER_WORK"
-    assert calls[1][1]["actor_id"] == "worker:managed-local"
-    assert calls[1][1]["request_text"] == "Repair the Fruit stack"
+    assert result["disposition"] == "CONFLICT" and result["ok"] is False
+    assert calls == ["RECONCILE_ASSIGNMENT"]
 
 
 def test_direct_enter_work_gets_managed_worker_actor(monkeypatch):

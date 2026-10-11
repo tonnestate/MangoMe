@@ -118,7 +118,7 @@ RECONCILE_ASSIGNMENT
         ↓
 exact admitted request match?
   ├─ yes → internal existing-work continuation path
-  └─ no  → NEW_WORK_READY_FOR_AUTO_ADMISSION
+  └─ no  → CONFLICT (reason NO_MATCH; reconcile never creates work — use an explicit enter_work)
                 ↓
           automatic ENTER_WORK
                 ↓
