@@ -40,7 +40,7 @@ def main(*, surface: str = "advanced") -> None:
 
     doctor_cmd = sub.add_parser("doctor", help="inspect client binding drift and optionally repair managed configuration")
     doctor_cmd.add_argument("--workspace", default=None)
-    doctor_cmd.add_argument("--client", action="append", choices=["claude-code", "codex"], default=None)
+    doctor_cmd.add_argument("--client", action="append", choices=["claude-code", "codex", "openclaw"], default=None)
     doctor_cmd.add_argument("--backend", choices=["mongo", "memory"], default="mongo")
     doctor_cmd.add_argument("--database", default="mangome")
     doctor_cmd.add_argument("--repair", action="store_true")
@@ -137,10 +137,16 @@ def main(*, surface: str = "advanced") -> None:
         return
     if args.cmd == "doctor":
         clients = args.client or ["claude-code", "codex"]
-        _print(doctor(
+        extra = {}
+        if "openclaw" in clients:          # read-only capability report (FS-OPENCLAW-BOUNDARY-016): never repairs, starts or connects a runtime
+            from .openclaw_host import capability_report
+            extra["openclaw"] = capability_report()
+            clients = [c for c in clients if c != "openclaw"]
+        result = doctor(
             args.workspace, clients=clients, backend=args.backend,
             database=args.database, repair=args.repair, claude_scope=args.claude_scope, surface=surface,
-        ))
+        ) if clients else {}
+        _print({**result, **extra} if isinstance(result, dict) else {"doctor": result, **extra})
         return
     if args.cmd == "attest-client":
         _print(attest_client(
