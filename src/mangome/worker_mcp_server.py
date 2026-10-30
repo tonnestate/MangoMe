@@ -528,10 +528,16 @@ def mangome_observe(operation: ObserveOperation, payload: dict[str, Any] | None 
         result = _call_allowlisted(_OBSERVE_ADVANCED, op, data)
     else:
         result = {"ok": False, "error": {"code": "UNSUPPORTED_OBSERVE_OPERATION", "message": op, "recoverable": True}}
+    recommended, allowed = "RETURN_TO_USER", ["RETURN_TO_USER", "QUERY", "WORK"]
+    if op == "RECOVERY_CONTEXT" and isinstance(result, dict) and result.get("source") == "MANGOME_CANONICAL_STATE":
+        # Recovery returns context, never authorization: the CURRENT turn is not bound yet. Say so explicitly (H3) instead of leaving `false` to be read as "forbidden".
+        result = {**result, "current_turn_execution_authorized": False, "current_turn_next_step": (
+            "Not forbidden, not yet bound: reconcile with mangome_work RECONCILE_ASSIGNMENT (read-only, never creates), then mangome_work ENTER_WORK with the matched work_ref to bind the current EXECUTE turn.")}
+        recommended, allowed = "BIND_OR_RECONCILE_CURRENT_TURN", ["WORK", "QUERY", "RETURN_TO_USER"]
     return _guidance(
         "OBSERVE", op, result,
-        success_disposition="OBSERVATION_COMPLETE", recommended="RETURN_TO_USER",
-        allowed=["RETURN_TO_USER", "QUERY", "WORK"],
+        success_disposition="OBSERVATION_COMPLETE", recommended=recommended,
+        allowed=allowed,
         forbidden=["MUTATE_FROM_OBSERVATION", "PROMOTE_MAP_TO_TRUTH", "EXPAND_MUTATION_SCOPE_FROM_IMPACT"],
     )
 
