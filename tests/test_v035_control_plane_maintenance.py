@@ -58,6 +58,37 @@ def test_explicit_mangome_self_maintenance_is_narrowly_detected():
     assert not is_mangome_self_maintenance_request("Update the TonnEstate dashboard")
 
 
+def test_explicitly_excluded_mangome_maintenance_does_not_trigger_cpm1(monkeypatch, tmp_path):
+    request = (
+        "Continue AI Unity OS integration; implement minimal fixes and update the report. "
+        "No deployment, merge, production writes, new orchestration layer, or MangoMe self-maintenance."
+    )
+    assert not is_mangome_self_maintenance_request(request)
+    assert not is_mangome_self_maintenance_request(request, target="MangoMe")
+    assert is_mangome_self_maintenance_request("Repair MangoMe; no deployment to production.")
+
+    mcp_server = _load_mcp_server_without_sdk()
+    monkeypatch.setattr(
+        mcp_server,
+        "workspace_attachment_snapshot",
+        lambda: {"workspace_root": str(tmp_path)},
+    )
+    monkeypatch.setattr(mcp_server, "restore_workspace_state", lambda _root: {"restore_state": "STATE_NOT_FOUND"})
+    monkeypatch.setattr(
+        mcp_server,
+        "get_service",
+        lambda: types.SimpleNamespace(
+            work_candidate_for_request=lambda **_kwargs: {
+                "state": "NO_MATCH",
+                "admission_key": "test",
+                "fingerprint": "test",
+            }
+        ),
+    )
+    result = mcp_server._reconcile_assignment_impl(request)
+    assert result["reconciliation_protocol"] == "RAE/1"
+
+
 def test_explicit_no_database_change_constraint_is_detected():
     assert database_changes_explicitly_disallowed(
         "Aktualisiere MangoMe, aber die Datenbank nicht ändern"
@@ -135,6 +166,17 @@ def test_normal_assignment_still_uses_canonical_reconciliation(monkeypatch, tmp_
         return {"restore_state": "STATE_NOT_FOUND"}
 
     monkeypatch.setattr(mcp_server, "restore_workspace_state", restore)
+    monkeypatch.setattr(
+        mcp_server,
+        "get_service",
+        lambda: types.SimpleNamespace(
+            work_candidate_for_request=lambda **_kwargs: {
+                "state": "NO_MATCH",
+                "admission_key": "test",
+                "fingerprint": "test",
+            }
+        ),
+    )
     result = mcp_server._reconcile_assignment_impl("Fix the dashboard bug")
     assert seen["restore"] == 1
     assert result["reconciliation_protocol"] == "RAE/1"
