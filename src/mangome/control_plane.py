@@ -21,6 +21,12 @@ _DB_MUTATION_RE = re.compile(
     re.IGNORECASE,
 )
 _DB_NEGATION_RE = re.compile(r"\b(?:nicht|not|no|kein\w*|ohne|never)\b|do\s+not|don't|dont", re.IGNORECASE)
+_MANGOME_MAINTENANCE_EXCLUSION_RE = re.compile(
+    r"\b(?:no|not|without|excluding|nicht|ohne|kein\w*)\b"
+    r"[^.!?]{0,160}\b(?:mango\s*me|mangome)\b"
+    r"[^.!?]{0,40}\b(?:self[- ]maintenance|selbst(?:wartung|pflege))\b",
+    re.IGNORECASE,
+)
 
 
 
@@ -33,6 +39,8 @@ def is_mangome_self_maintenance_request(request_text: str, *, target: str | None
     """
     text = str(request_text or "").strip()
     if not text:
+        return False
+    if _MANGOME_MAINTENANCE_EXCLUSION_RE.search(text):
         return False
     explicit_target = bool(_TARGET_RE.search(text))
     resolved_target = bool(_TARGET_RE.search(str(target or "")))
