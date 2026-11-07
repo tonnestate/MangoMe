@@ -320,7 +320,10 @@ class MangoMeService:
             scope_ids=scope_ids,
         )
         query = {"admission_key": admission_key} if admission_key else {"family_key": family_key}
-        family, _ = self.store.get_or_create("families", query, _dump(candidate))
+        doc = _dump(candidate)
+        if doc.get("admission_key") is None:
+            doc.pop("admission_key", None)          # keyless families omit the field (explicit nulls collide in unique indexes)
+        family, _ = self.store.get_or_create("families", query, doc)
 
         for _ in range(3):
             current = self._must_get("families", family["entity_id"])

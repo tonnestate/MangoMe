@@ -679,8 +679,6 @@ def prepare_assignment(
     expected_artifacts: list[str] | None = None,
     expected_scope: list[str] | None = None,
     estimate: dict[str, Any] | None = None,
-    work_id: str | None = None,
-    turn_id: str | None = None,
 ) -> dict[str, Any]:
     """Prepare internal execution for an admitted assignment without exposing MangoMe orchestration to the user.
 
@@ -706,8 +704,6 @@ def prepare_assignment(
         expected_artifacts=expected_artifacts,
         expected_scope=expected_scope,
         estimate=estimate,
-        work_id=work_id,
-        turn_id=turn_id,
     )
 
 
@@ -721,7 +717,6 @@ def begin_work(
     spec_id: str | None = None, contract_ids: list[str] | None = None,
     expected_artifacts: list[str] | None = None, expected_scope: list[str] | None = None,
     estimate: dict[str, Any] | None = None, acceptance_expectations: list[str] | None = None,
-    work_id: str | None = None, turn_id: str | None = None,
 ) -> dict[str, Any]:
     """Compose intake -> plan -> start for ordinary work without MangoMe jargon.
 
@@ -751,7 +746,6 @@ def begin_work(
         proposed_slice=payload, classification=classification, classification_source=classification_source,
         spec_id=spec_id, contract_ids=contract_ids, expected_artifacts=expected_artifacts,
         expected_scope=expected_scope, estimate=estimate, acceptance_expectations=acceptance_expectations,
-        work_id=work_id, turn_id=turn_id,
     )
 
 

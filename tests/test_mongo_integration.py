@@ -214,3 +214,51 @@ def test_mongo_work_supersession_edge_roundtrip():
         assert fresh.superseding_work_id(ids[1]) == ids[0] and store.db["edges"].count_documents({"relation": "SUPERSEDES"}) == 1
     finally:
         store.client.drop_database(database)
+
+
+@pytest.mark.skipif(not URI, reason="MANGOME_TEST_MONGO_URI not configured")
+def test_mongo_two_families_without_admission_key_coexist():
+    """H5: families.admission_key must behave like requests.admission_key (explicit nulls must not collide)."""
+    database = f"mangome_family_key_{uuid.uuid4().hex}"
+    store = MongoStore(URI, database)
+    svc = IntegrityMangoMeService(store)
+    try:
+        first = svc.create_family("fam-one", "One")
+        second = svc.create_family("fam-two", "Two")
+        keyed = svc.create_family("fam-three", "Three", admission_key="stable-family-key")
+        assert len({first["entity_id"], second["entity_id"], keyed["entity_id"]}) == 3
+        assert store.db["families"].count_documents({}) == 3
+        index = store.db["families"].index_information()["families_admission_key_string_unique_v1"]
+        assert index["unique"] is True
+        assert index["partialFilterExpression"] == {"admission_key": {"$type": "string"}}
+    finally:
+        store.client.drop_database(database)
+        store.client.close()
+
+
+@pytest.mark.skipif(not URI, reason="MANGOME_TEST_MONGO_URI not configured")
+def test_mongo_family_index_migration_keeps_existing_data(tmp_path):
+    import subprocess
+    import sys
+
+    from pymongo import ASCENDING, MongoClient
+
+    database = f"mangome_family_mig_{uuid.uuid4().hex}"
+    client = MongoClient(URI, serverSelectionTimeoutMS=3000)
+    col = client[database]["families"]
+    try:
+        col.create_index([("admission_key", ASCENDING)], unique=True, sparse=True)       # the legacy index
+        col.insert_one({"entity_id": "f1", "family_key": "a", "admission_key": None})      # legacy explicit null (a second would collide)
+        col.insert_one({"entity_id": "f2", "family_key": "b", "admission_key": "k"})
+        (tmp_path / "dump").mkdir()
+        (tmp_path / "dump" / "x").write_text("backup")
+        r = subprocess.run([sys.executable, "scripts/migrate_admission_key_index.py", "--uri", URI, "--db", database, "--collection", "families", "--apply", "--backup-dir", str(tmp_path / "dump")],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        assert col.count_documents({}) == 2
+        names = {i["name"] for i in col.list_indexes()}
+        assert "families_admission_key_string_unique_v1" in names and "admission_key_1" not in names
+        col.insert_one({"entity_id": "f3", "family_key": "c", "admission_key": None})     # two explicit nulls now coexist
+    finally:
+        client.drop_database(database)
+        client.close()

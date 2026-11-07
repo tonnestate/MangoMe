@@ -215,6 +215,13 @@ def _reason_codes(result: Any) -> list[str]:
     return list(dict.fromkeys(codes))
 
 
+def _context_max_bytes() -> int:
+    try:
+        return max(4096, int(os.environ.get("MANGOME_CONTEXT_MAX_BYTES", "65536")))
+    except ValueError:
+        return 65536
+
+
 def _guidance(
     semantic: str,
     operation: str,
@@ -528,10 +535,16 @@ def mangome_observe(operation: ObserveOperation, payload: dict[str, Any] | None 
         result = _call_allowlisted(_OBSERVE_ADVANCED, op, data)
     else:
         result = {"ok": False, "error": {"code": "UNSUPPORTED_OBSERVE_OPERATION", "message": op, "recoverable": True}}
+    recommended, allowed = "RETURN_TO_USER", ["RETURN_TO_USER", "QUERY", "WORK"]
+    if op == "RECOVERY_CONTEXT" and isinstance(result, dict) and result.get("source") == "MANGOME_CANONICAL_STATE":
+        # Recovery returns context, never authorization: the CURRENT turn is not bound yet. Say so explicitly (H3) instead of leaving `false` to be read as "forbidden".
+        result = {**result, "current_turn_execution_authorized": False, "current_turn_next_step": (
+            "Not forbidden, not yet bound: reconcile with mangome_work RECONCILE_ASSIGNMENT (read-only, never creates), then mangome_work ENTER_WORK with the matched work_ref to bind the current EXECUTE turn.")}
+        recommended, allowed = "BIND_OR_RECONCILE_CURRENT_TURN", ["WORK", "QUERY", "RETURN_TO_USER"]
     return _guidance(
         "OBSERVE", op, result,
-        success_disposition="OBSERVATION_COMPLETE", recommended="RETURN_TO_USER",
-        allowed=["RETURN_TO_USER", "QUERY", "WORK"],
+        success_disposition="OBSERVATION_COMPLETE", recommended=recommended,
+        allowed=allowed,
         forbidden=["MUTATE_FROM_OBSERVATION", "PROMOTE_MAP_TO_TRUTH", "EXPAND_MUTATION_SCOPE_FROM_IMPACT"],
     )
 
@@ -578,6 +591,15 @@ def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None
         "CHECKPOINT_WORK": "CONTINUE_GOVERNED_WORK",
     }
 
+    summarized = False
+    if op == "RECONCILE_ASSIGNMENT" and isinstance(result, dict) and isinstance(result.get("canonical_state"), dict):
+        state = result["canonical_state"]
+        size = len(json.dumps(state, default=str))
+        if size > _context_max_bytes():             # the full state exceeded the MCP client output limit (762 KB observed): return counts and keys, never silently drop
+            result = {**result, "canonical_state": {"summarized": True, "original_bytes": size, "keys": sorted(state),
+                                                      "counts": {k: len(v) for k, v in state.items() if isinstance(v, (list, dict))},
+                                                      "how_to_read": "use mangome_query / mangome_observe RECOVERY_CONTEXT for the parts you need"}}
+            summarized = True
     if op == "RECONCILE_ASSIGNMENT" and isinstance(result, dict):
         if result.get("disposition") == "MANGOME_BYPASSED_BY_USER":
             return _guidance(
@@ -597,7 +619,7 @@ def mangome_work(operation: WorkOperation, payload: dict[str, Any] | None = None
                 "recommended_next_action": "REPORT_CONFLICT_OR_ENTER_WORK_EXPLICITLY",
                 "allowed_next_actions": ["OBSERVE", "QUERY", "WORK", "RETURN_TO_USER"],
                 "forbidden_next_actions": ["SYNTHESIZE_TRUTH", "BYPASS_GATE", "ASSUME_NEW_WORK_WAS_CREATED"],
-                "reason_codes": ["CONFLICT", str(result.get("reason") or "UNKNOWN")],
+                "reason_codes": ["CONFLICT", str(result.get("reason") or "UNKNOWN")] + (["CANONICAL_STATE_SUMMARIZED"] if summarized else []),
                 "result": result,
             }
 
