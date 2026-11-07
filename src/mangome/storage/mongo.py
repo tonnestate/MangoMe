@@ -158,7 +158,15 @@ class MongoStore(Store):
         self.db["families"].create_index(
             [("family_key", ASCENDING)], unique=True, name="family_key_unique_v0320"
         )
-        self.db["families"].create_index([("admission_key", ASCENDING)], unique=True, sparse=True)
+        self.db["families"].create_index(
+            [("admission_key", ASCENDING)],
+            unique=True,
+            name="families_admission_key_string_unique_v1",
+            partialFilterExpression={"admission_key": {"$type": "string"}},
+        )
+        # the legacy sparse index also indexes explicit nulls (E11000 on the second keyless family); the partial index above enforces the same uniqueness for string keys
+        if "admission_key_1" in self.db["families"].index_information():
+            self.db["families"].drop_index("admission_key_1")
         self.db["contracts"].create_index([("declared_id", ASCENDING)])
         self.db["contracts"].create_index([("family_id", ASCENDING)])
         self.db["specs"].create_index([("family_id", ASCENDING), ("version", ASCENDING)])

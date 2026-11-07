@@ -14,7 +14,7 @@ import sys
 
 from pymongo import ASCENDING, MongoClient
 
-NEW = "requests_admission_key_string_unique_v1"
+NEWS = {"requests": "requests_admission_key_string_unique_v1", "families": "families_admission_key_string_unique_v1"}
 OLD = "admission_key_1"
 
 
@@ -22,6 +22,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--uri", required=True)
     ap.add_argument("--db", required=True)
+    ap.add_argument("--collection", choices=sorted(NEWS), default="requests")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--backup-dir")
     ap.add_argument("--unset-nulls", action="store_true",
@@ -30,7 +31,7 @@ def main() -> int:
     if a.apply and not (a.backup_dir and os.path.isdir(a.backup_dir) and os.listdir(a.backup_dir)):
         print("REFUSED: --apply needs an existing, non-empty --backup-dir (fresh mongodump)", file=sys.stderr)
         return 2
-    col = MongoClient(a.uri, serverSelectionTimeoutMS=3000)[a.db]["requests"]
+    col = MongoClient(a.uri, serverSelectionTimeoutMS=3000)[a.db][a.collection]
     dups = list(col.aggregate([
         {"$match": {"admission_key": {"$type": "string"}}},
         {"$group": {"_id": "$admission_key", "n": {"$sum": 1}}}, {"$match": {"n": {"$gt": 1}}},
@@ -46,7 +47,7 @@ def main() -> int:
         return 0
     if nulls and a.unset_nulls:
         col.update_many({"$expr": {"$eq": [{"$type": "$admission_key"}, "null"]}}, {"$unset": {"admission_key": ""}})
-    col.create_index([("admission_key", ASCENDING)], unique=True, name=NEW,
+    col.create_index([("admission_key", ASCENDING)], unique=True, name=NEWS[a.collection],
                      partialFilterExpression={"admission_key": {"$type": "string"}})
     if OLD in names:
         col.drop_index(OLD)
