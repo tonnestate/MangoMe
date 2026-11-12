@@ -374,3 +374,21 @@ def test_approved_waiver_remains_explicit_gate_exception(monkeypatch):
         slice_id=sl["entity_id"], verifier_actor_id="verifier-b", verifier_token=VERIFIER_TOKEN
     )
     assert verified["assurance_state"] == "VERIFIED"
+
+
+def test_token_without_named_actors_is_denied_fail_closed(monkeypatch):
+    """Owner decision E4 (2026-11-12): an empty approver/verifier list never authorizes, even with the right token."""
+    import pytest
+    from mangome.authority import CapabilityDenied, require_approver, require_verifier
+    monkeypatch.setenv("MANGOME_APPROVAL_TOKEN", "t")
+    monkeypatch.setenv("MANGOME_VERIFIER_TOKEN", "v")
+    monkeypatch.delenv("MANGOME_APPROVER_ACTORS", raising=False)
+    monkeypatch.delenv("MANGOME_VERIFIER_ACTORS", raising=False)
+    with pytest.raises(CapabilityDenied, match="no authorized actors"):
+        require_approver("bjoern", "t")
+    with pytest.raises(CapabilityDenied, match="no authorized actors"):
+        require_verifier("bjoern", "v")
+    monkeypatch.setenv("MANGOME_APPROVER_ACTORS", "bjoern")
+    require_approver("bjoern", "t")
+    with pytest.raises(CapabilityDenied, match="not allowed"):
+        require_approver("worker:managed-local", "t")

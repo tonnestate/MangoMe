@@ -492,6 +492,7 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
         # Idempotent replays (e.g. a CherryMe outbox keyed by the PlumMe receipt hash) return the stored checkpoint.
         key = payload.get("idempotency_key") if isinstance(payload, dict) else None
         if key:
+            # Checkpoints stored before the unique key existed carry the key only inside their payload.
             for existing in self.store.find("work_checkpoints", {"work_id": work["entity_id"], "kind": kind}):
                 if (existing.get("payload") or {}).get("idempotency_key") == key:
                     return existing
@@ -515,7 +516,16 @@ class WorkGovernedMangoMeService(ContractGovernedMangoMeService):
             "payload": dict(payload),
             "persistence_level": "PROGRESSIVE",
         }
-        saved = self.store.insert("work_checkpoints", doc)
+        if key:
+            # The unique (work_id, kind, idempotency_key) index decides concurrent replays: exactly one row wins,
+            # the others get the winner back (find-then-insert alone let parallel outbox replays both insert).
+            doc["idempotency_key"] = str(key)
+            saved, created = self.store.get_or_create(
+                "work_checkpoints", {"work_id": work["entity_id"], "kind": kind, "idempotency_key": str(key)}, doc)
+            if not created:
+                return saved
+        else:
+            saved = self.store.insert("work_checkpoints", doc)
         self._refresh_work_view(work["entity_id"])
         return saved
 

@@ -41,6 +41,7 @@ class InMemoryStore(Store):
         "normative_baselines": (("work_id", "semantic_hash"),),
         "playbooks": (("playbook_key", "version"),),
         "work_views": (("work_id",),),
+        "work_checkpoints": (("work_id", "kind", "idempotency_key"),),
     }
 
     def __init__(self) -> None:
