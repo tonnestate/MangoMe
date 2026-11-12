@@ -53,6 +53,7 @@ def _done_and_validated(svc, entered, sl, plan):
 
 def _independent_pass(svc, entered, sl, monkeypatch):
     monkeypatch.setenv("MANGOME_VERIFIER_TOKEN", "verify-secret")
+    monkeypatch.setenv("MANGOME_VERIFIER_ACTORS", "verifier-a,verifier-b")   # E4: actors must be named
     turn = _verify_turn(svc, entered, "verifier-a")
     evidence = svc.submit_verification_observation(
         slice_id=sl["entity_id"],
@@ -297,6 +298,7 @@ def test_positive_reconciliation_requires_verifier_authority(monkeypatch):
         outcome="CONFIRMED", observed_state={"delivered": True},
     )
     monkeypatch.setenv("MANGOME_VERIFIER_TOKEN", "verify-secret")
+    monkeypatch.setenv("MANGOME_VERIFIER_ACTORS", "verifier-a,verifier-b")   # E4: actors must be named
     with pytest.raises(ApprovalRequired):
         effects.reconcile(
             effect_id=effect["entity_id"], actor_id="verifier-a", turn_id=verify_turn["entity_id"],
@@ -327,8 +329,10 @@ def test_effect_identity_conflicts_when_provider_idempotency_key_changes():
 
 def test_legacy_non_workidentity_acceptance_remains_compatible(monkeypatch):
     monkeypatch.setenv("MANGOME_VERIFIER_TOKEN", "verify-secret")
+    monkeypatch.setenv("MANGOME_VERIFIER_ACTORS", "verifier-a,verifier-b")   # E4: actors must be named
     monkeypatch.setenv("MANGOME_VERIFIER_ACTORS", "verifier-b")
     monkeypatch.setenv("MANGOME_APPROVAL_TOKEN", "owner-secret")
+    monkeypatch.setenv("MANGOME_APPROVER_ACTORS", "owner,human-owner")   # E4: actors must be named
     monkeypatch.setenv("MANGOME_APPROVER_ACTORS", "human-owner")
 
     svc = WorkGovernedMangoMeService(InMemoryStore())

@@ -200,6 +200,10 @@ class MongoStore(Store):
         self.db["normative_baselines"].create_index([("work_id", ASCENDING), ("semantic_hash", ASCENDING)], unique=True)
         self.db["normative_baselines"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
         self.db["work_checkpoints"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
+        # Partial: only checkpoints written with an idempotency key; older rows lack the field, so the build cannot fail on them.
+        self.db["work_checkpoints"].create_index(
+            [("work_id", ASCENDING), ("kind", ASCENDING), ("idempotency_key", ASCENDING)], unique=True,
+            partialFilterExpression={"idempotency_key": {"$type": "string"}}, name="work_checkpoint_idempotency")
         self.db["playbooks"].create_index([("playbook_key", ASCENDING), ("version", ASCENDING)], unique=True)
         self.db["playbook_selections"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])
         self.db["assurance_events"].create_index([("work_id", ASCENDING), ("created_at", ASCENDING)])

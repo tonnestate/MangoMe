@@ -9,10 +9,10 @@ class CapabilityDenied(PermissionError):
 
 
 def _allowed(actor_id: str, env_name: str) -> bool:
-    raw = os.environ.get(env_name, "").strip()
-    if not raw:
-        return True
-    return actor_id in {item.strip() for item in raw.split(",") if item.strip()}
+    # Fail closed (owner decision E4, 2026-11-12): a token alone never authorizes. An empty or missing actor list used
+    # to allow every actor holding the token; now the authorized identities must be named explicitly.
+    allowed = {item.strip() for item in os.environ.get(env_name, "").split(",") if item.strip()}
+    return actor_id in allowed
 
 
 def _role_authorized(required_role: str, actor_id: str) -> bool:
@@ -41,6 +41,8 @@ def _require(expected_env: str, actor_env: str, actor_id: str, presented_token: 
     if not presented_token or not secrets.compare_digest(expected, presented_token):
         raise CapabilityDenied(f"invalid {label} capability")
     if not _allowed(actor_id, actor_env):
+        if not os.environ.get(actor_env, "").strip():
+            raise CapabilityDenied(f"{label} capability has no authorized actors: configure {actor_env}")
         raise CapabilityDenied(f"actor {actor_id!r} is not allowed for {label}")
 
 

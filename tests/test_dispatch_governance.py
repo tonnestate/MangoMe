@@ -75,6 +75,7 @@ def test_expensive_worker_cannot_be_silently_escalated_without_owner_approval(mo
     assert no_approval["reason_codes"] == ["OWNER_APPROVAL_REQUIRED"]
 
     monkeypatch.setenv("MANGOME_APPROVAL_TOKEN", "owner-secret")
+    monkeypatch.setenv("MANGOME_APPROVER_ACTORS", "owner,human-owner")   # E4: actors must be named
     approval = svc.request_override(
         action_type="AUTHORIZE_DELEGATION",
         subject_id=f"{family_id}:high-cost-judge:critical-judgment",
@@ -99,6 +100,7 @@ def test_high_cost_fanout_allows_multiple_explicitly_authorized_tasks(monkeypatc
     svc = IntegrityMangoMeService(InMemoryStore())
     family_id = _family(svc)
     monkeypatch.setenv("MANGOME_APPROVAL_TOKEN", "owner-secret")
+    monkeypatch.setenv("MANGOME_APPROVER_ACTORS", "owner,human-owner")   # E4: actors must be named
 
     approvals = {}
     for worker in ("expensive-a", "expensive-b"):
@@ -169,6 +171,7 @@ def test_high_cost_owner_approval_is_bound_to_one_delegation_task(monkeypatch):
     svc = IntegrityMangoMeService(InMemoryStore())
     family_id = _family(svc)
     monkeypatch.setenv("MANGOME_APPROVAL_TOKEN", "owner-secret")
+    monkeypatch.setenv("MANGOME_APPROVER_ACTORS", "owner,human-owner")   # E4: actors must be named
     svc.register_worker_runtime(
         worker_key="monster-worker",
         runtime_mode="NORMAL",
